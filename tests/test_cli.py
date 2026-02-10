@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 
 import agent_recall.cli.main as cli_main
 from agent_recall.llm.base import LLMProvider, LLMResponse, Message
+from agent_recall.storage.files import FileStorage
 from agent_recall.storage.sqlite import SQLiteStorage
 
 runner = CliRunner()
@@ -193,6 +194,33 @@ def test_cli_config_llm_no_validate() -> None:
         assert "LLM Configuration Updated" in result.output
 
 
+def test_cli_config_llm_generation_settings() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(
+            cli_main.app,
+            ["config-llm", "--temperature", "0.2", "--max-tokens", "8192", "--no-validate"],
+        )
+        assert result.exit_code == 0
+        assert "Temperature: 0.2" in result.output
+        assert "Max tokens: 8192" in result.output
+
+        config = FileStorage(Path(".agent")).read_config()
+        assert config["llm"]["temperature"] == 0.2
+        assert config["llm"]["max_tokens"] == 8192
+
+
+def test_cli_config_model_subcommand() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(
+            cli_main.app,
+            ["config", "model", "--provider", "ollama", "--model", "llama3.1", "--no-validate"],
+        )
+        assert result.exit_code == 0
+        assert "LLM Configuration Updated" in result.output
+
+
 def test_cli_test_llm(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "get_llm", lambda: DummyProvider())
 
@@ -339,6 +367,107 @@ def test_cli_tui_single_iteration(monkeypatch) -> None:
         assert result.exit_code == 0
 
 
+def test_cli_onboard_quick_persists_repo_setup(monkeypatch) -> None:
+    monkeypatch.setattr(
+        cli_main,
+        "get_default_ingesters",
+        lambda **_kwargs: [
+            FakeIngester("cursor", [Path("cursor-session")]),
+            FakeIngester("claude-code", [Path("claude-session")]),
+        ],
+    )
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["onboard", "--quick"])
+        assert result.exit_code == 0
+
+        config = FileStorage(Path(".agent")).read_config()
+        onboarding = config.get("onboarding", {})
+
+        assert onboarding.get("repository_verified") is True
+        assert onboarding.get("selected_agents") == ["cursor", "claude-code"]
+        assert config.get("llm", {}).get("provider") == "anthropic"
+        assert config.get("llm", {}).get("temperature") == 0.3
+        assert config.get("llm", {}).get("max_tokens") == 4096
+
+
+def test_cli_config_setup_quick_persists_repo_setup(monkeypatch) -> None:
+    monkeypatch.setattr(
+        cli_main,
+        "get_default_ingesters",
+        lambda **_kwargs: [
+            FakeIngester("cursor", [Path("cursor-session")]),
+            FakeIngester("claude-code", [Path("claude-session")]),
+        ],
+    )
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["config", "setup", "--quick"])
+        assert result.exit_code == 0
+
+        config = FileStorage(Path(".agent")).read_config()
+        onboarding = config.get("onboarding", {})
+
+        assert onboarding.get("repository_verified") is True
+        assert onboarding.get("selected_agents") == ["cursor", "claude-code"]
+        assert config.get("llm", {}).get("provider") == "anthropic"
+
+
+def test_cli_sync_uses_onboarding_selected_sources(monkeypatch) -> None:
+    captured: dict[str, object] = {"sources": None, "ingesters": []}
+
+    class FakeAutoSync:
+        def __init__(self, _storage, _files, _llm, ingesters):
+            captured["ingesters"] = [ingester.source_name for ingester in ingesters]
+
+        async def sync(self, since=None, sources=None):
+            _ = since
+            captured["sources"] = sources
+            return {
+                "sessions_discovered": 1,
+                "sessions_processed": 1,
+                "sessions_skipped": 0,
+                "learnings_extracted": 1,
+                "by_source": {},
+                "errors": [],
+            }
+
+        async def sync_and_compact(self, since=None, sources=None, force_compact=False):
+            _ = (since, sources, force_compact)
+            raise AssertionError("sync_and_compact should not be called when --no-compact is set")
+
+    monkeypatch.setattr(cli_main, "AutoSync", FakeAutoSync)
+    monkeypatch.setattr(cli_main, "get_llm", lambda: DummyProvider())
+    monkeypatch.setattr(
+        cli_main,
+        "get_default_ingesters",
+        lambda **_kwargs: [
+            FakeIngester("cursor", [Path("a")]),
+            FakeIngester("claude-code", [Path("b")]),
+        ],
+    )
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+
+        files = FileStorage(Path(".agent"))
+        config = files.read_config()
+        config["onboarding"] = {
+            "completed_at": "2026-02-01T00:00:00+00:00",
+            "repository_path": str(Path.cwd().resolve()),
+            "selected_agents": ["cursor"],
+        }
+        files.write_config(config)
+
+        result = runner.invoke(cli_main.app, ["sync", "--no-compact"])
+        assert result.exit_code == 0
+        assert captured["sources"] == ["cursor"]
+        assert captured["ingesters"] == ["cursor"]
+        assert "Using configured sources: cursor" in result.output
+
+
 def test_cli_compact_uses_spinner(monkeypatch) -> None:
     calls: list[str] = []
 
@@ -394,3 +523,81 @@ def test_cli_ingest_uses_spinner(monkeypatch) -> None:
         result = runner.invoke(cli_main.app, ["ingest", str(transcript)])
         assert result.exit_code == 0
         assert any("ingesting" in description.lower() for description in calls)
+
+
+def test_tui_slash_quit_command() -> None:
+    should_exit, lines = cli_main._execute_tui_slash_command("/quit")
+    assert should_exit is True
+    assert any("Leaving TUI" in line for line in lines)
+
+
+def test_tui_slash_compact_dispatch(monkeypatch) -> None:
+    class FakeResult:
+        exit_code = 0
+        output = "Compaction complete\nChunks indexed: 3\n"
+
+    monkeypatch.setattr(
+        cli_main._slash_runner,
+        "invoke",
+        lambda *_args, **_kwargs: FakeResult(),
+    )
+
+    should_exit, lines = cli_main._execute_tui_slash_command("/compact --force")
+
+    assert should_exit is False
+    assert any("/compact --force" in line for line in lines)
+    assert any("Compaction complete" in line for line in lines)
+
+
+def test_tui_slash_disallows_nested_tui() -> None:
+    should_exit, lines = cli_main._execute_tui_slash_command("/tui")
+    assert should_exit is False
+    assert any("already running" in line for line in lines)
+
+
+def test_tui_view_command_switches_view() -> None:
+    handled, next_view, lines = cli_main._handle_tui_view_command("/view llm", "overview")
+    assert handled is True
+    assert next_view == "llm"
+    assert any("Switched to llm" in line for line in lines)
+
+
+def test_tui_view_command_rejects_unknown_view() -> None:
+    handled, next_view, lines = cli_main._handle_tui_view_command("/view unknown", "overview")
+    assert handled is True
+    assert next_view == "overview"
+    assert any("Unknown view" in line for line in lines)
+
+
+def test_tui_normalize_command_accepts_non_slash() -> None:
+    assert cli_main._normalize_tui_command("config setup --quick") == "/config setup --quick"
+    assert cli_main._normalize_tui_command("/status") == "/status"
+
+
+def test_tui_slash_config_setup_uses_direct_flow(monkeypatch) -> None:
+    captured = {"force": None, "quick": None}
+
+    def fake_setup(force: bool, quick: bool) -> None:
+        captured["force"] = force
+        captured["quick"] = quick
+
+    monkeypatch.setattr(cli_main, "_run_onboarding_setup", fake_setup)
+
+    should_exit, lines = cli_main._execute_tui_slash_command("config setup --force --quick")
+    assert should_exit is False
+    assert captured["force"] is True
+    assert captured["quick"] is True
+    assert any("Setup flow completed" in line for line in lines)
+
+
+def test_tui_settings_command_helper() -> None:
+    should_exit, lines = cli_main._execute_tui_slash_command("/settings")
+    assert should_exit is False
+    assert any("settings view" in line.lower() for line in lines)
+
+
+def test_tui_palette_command_catalog_includes_cli_commands() -> None:
+    commands = cli_main._collect_cli_commands_for_palette()
+    assert "status" in commands
+    assert "config setup" in commands
+    assert "config model" in commands

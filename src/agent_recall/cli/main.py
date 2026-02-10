@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
+import os
+import shlex
 import shutil
+import sys
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -10,11 +14,15 @@ from pathlib import Path
 from typing import TypeVar
 
 import typer
+from rich import box
+from rich.columns import Columns
 from rich.console import Console, Group
-from rich.live import Live
+from rich.markup import escape
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
+from typer.main import get_command as get_typer_command
+from typer.testing import CliRunner
 
 from agent_recall.cli.banner import print_banner
 from agent_recall.cli.theme import DEFAULT_THEME, ThemeManager
@@ -22,6 +30,17 @@ from agent_recall.core.compact import CompactionEngine
 from agent_recall.core.context import ContextAssembler
 from agent_recall.core.ingest import TranscriptIngestor
 from agent_recall.core.log import LogWriter
+from agent_recall.core.onboarding import (
+    apply_repo_setup,
+    default_agent_recall_home,
+    discover_provider_models,
+    ensure_repo_onboarding,
+    get_onboarding_defaults,
+    get_repo_preferred_sources,
+    inject_stored_api_keys,
+    is_interactive_terminal,
+    is_repo_onboarding_complete,
+)
 from agent_recall.core.retrieve import Retriever
 from agent_recall.core.session import SessionManager
 from agent_recall.core.sync import AutoSync
@@ -37,6 +56,8 @@ from agent_recall.storage.models import LLMConfig, SemanticLabel
 from agent_recall.storage.sqlite import SQLiteStorage
 
 app = typer.Typer(help="Agent Memory System - Persistent knowledge for AI coding agents")
+_slash_runner = CliRunner()
+config_app = typer.Typer(help="Manage onboarding and model configuration")
 
 # Initialize theme manager and console
 _theme_manager = ThemeManager(DEFAULT_THEME)
@@ -116,6 +137,7 @@ def get_files() -> FileStorage:
 
 
 def get_llm():
+    inject_stored_api_keys()
     files = get_files()
     config_dict = files.read_config()
     llm_config = LLMConfig(**config_dict.get("llm", {}))
@@ -142,6 +164,201 @@ def _as_clickable_uri(location: str) -> str:
     except (OSError, ValueError):
         return location
     return location
+
+
+def _resolve_repo_root_for_display(start: Path | None = None) -> Path:
+    current = (start or Path.cwd()).resolve()
+    for candidate in (current, *current.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return current
+
+
+def _get_repo_selected_sources(files: FileStorage) -> list[str] | None:
+    try:
+        return get_repo_preferred_sources(files)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _filter_ingesters_by_sources(ingesters, selected_sources: list[str] | None):
+    if not selected_sources:
+        return ingesters
+    allowed = set(selected_sources)
+    filtered = [ingester for ingester in ingesters if ingester.source_name in allowed]
+    return filtered if filtered else ingesters
+
+
+def _tui_help_lines() -> list[str]:
+    return [
+        "[bold]Slash Commands[/bold]",
+        "[dim]/view overview|sources|llm|knowledge|settings|console|all[/dim] - switch TUI view",
+        "[dim]/status[/dim] - Show stats and source availability",
+        "[dim]/sync --no-compact[/dim] - Sync sessions quickly",
+        "[dim]/compact[/dim] - Run compaction now",
+        "[dim]/sources[/dim] - Show detected session sources",
+        "[dim]/config model --temperature 0.2 --max-tokens 8192[/dim] - Tune model settings",
+        "[dim]/config setup --force[/dim] - Re-run setup in this repo",
+        "[dim]/settings[/dim] - Open settings view",
+        "[dim]/quit[/dim] - Exit the TUI",
+    ]
+
+
+def _collect_cli_commands_for_palette() -> list[str]:
+    root = get_typer_command(app)
+    seen: set[str] = set()
+    commands: list[str] = []
+
+    def _walk(command, prefix: str = "") -> None:
+        mapping = getattr(command, "commands", None)
+        if not isinstance(mapping, dict):
+            return
+        for name in sorted(mapping):
+            subcommand = mapping[name]
+            if getattr(subcommand, "hidden", False):
+                continue
+            full = f"{prefix} {name}".strip()
+            if full not in seen:
+                seen.add(full)
+                commands.append(full)
+            _walk(subcommand, full)
+
+    _walk(root)
+    return commands
+
+
+def _normalize_tui_command(raw: str) -> str:
+    text = raw.strip()
+    if not text:
+        return text
+    return text if text.startswith("/") else f"/{text}"
+
+
+def _read_tui_command(timeout_seconds: float) -> str | None:
+    if not is_interactive_terminal():
+        time.sleep(timeout_seconds)
+        return None
+
+    if os.name == "nt":
+        time.sleep(timeout_seconds)
+        return None
+
+    try:
+        import select
+
+        ready, _, _ = select.select([sys.stdin], [], [], timeout_seconds)
+    except (OSError, ValueError):
+        time.sleep(timeout_seconds)
+        return None
+
+    if not ready:
+        return None
+
+    line = sys.stdin.readline()
+    if line == "":
+        return "/quit"
+    return line.rstrip("\n")
+
+
+def _execute_tui_slash_command(raw: str) -> tuple[bool, list[str]]:
+    value = _normalize_tui_command(raw)
+    if not value:
+        return False, []
+
+    if not value.startswith("/"):
+        return False, ["[warning]Commands must start with '/'. Try /help.[/warning]"]
+
+    command_text = value[1:].strip()
+    if not command_text:
+        return False, ["[warning]Empty command. Try /help.[/warning]"]
+
+    try:
+        parts = shlex.split(command_text)
+    except ValueError as exc:
+        return False, [f"[error]Invalid command: {escape(str(exc))}[/error]"]
+
+    command_name = parts[0].lower()
+    if command_name in {"q", "quit", "exit"}:
+        return True, ["[dim]Leaving TUI...[/dim]"]
+
+    if command_name in {"help", "h", "?"}:
+        return False, _tui_help_lines()
+
+    if command_name == "settings":
+        return False, [
+            "[success]✓ Switched to settings view[/success]",
+            "[dim]Use /view settings[/dim]",
+        ]
+
+    if command_name == "config" and len(parts) >= 2 and parts[1].lower() == "setup":
+        force = "--force" in parts or "-f" in parts
+        quick = "--quick" in parts
+        _run_onboarding_setup(force=force, quick=quick)
+        return False, ["[success]✓ Setup flow completed[/success]"]
+
+    if command_name == "tui":
+        return False, ["[warning]/tui is already running.[/warning]"]
+
+    result = _slash_runner.invoke(app, parts)
+    command_label = "/" + " ".join(parts)
+
+    lines: list[str] = []
+    if result.exit_code == 0:
+        lines.append(f"[success]✓ {escape(command_label)}[/success]")
+    else:
+        lines.append(f"[error]✗ {escape(command_label)} (exit {result.exit_code})[/error]")
+
+    output = result.output.strip()
+    if output:
+        output_lines = output.splitlines()
+        max_lines = 8
+        for line in output_lines[:max_lines]:
+            lines.append(f"[dim]{escape(line)}[/dim]")
+        remaining = len(output_lines) - max_lines
+        if remaining > 0:
+            lines.append(f"[dim]... and {remaining} more line(s)[/dim]")
+
+    return False, lines
+
+
+def _handle_tui_view_command(raw: str, current_view: str) -> tuple[bool, str, list[str]]:
+    value = _normalize_tui_command(raw)
+    if not value.startswith("/"):
+        return False, current_view, []
+
+    try:
+        parts = shlex.split(value[1:].strip())
+    except ValueError as exc:
+        return True, current_view, [f"[error]Invalid command: {escape(str(exc))}[/error]"]
+
+    if not parts:
+        return False, current_view, []
+
+    command = parts[0].lower()
+    if command not in {"view", "menu"}:
+        return False, current_view, []
+
+    valid_views = {"overview", "sources", "llm", "knowledge", "settings", "console", "all"}
+    if len(parts) == 1:
+        return (
+            True,
+            current_view,
+            [
+                f"[dim]Current view: {current_view}[/dim]",
+                "[dim]Available views: overview, sources, llm, "
+                "knowledge, settings, console, all[/dim]",
+            ],
+        )
+
+    requested = parts[1].strip().lower()
+    if requested not in valid_views:
+        return (
+            True,
+            current_view,
+            [f"[warning]Unknown view '{escape(requested)}'. Try /view overview[/warning]"],
+        )
+
+    return True, requested, [f"[success]✓ Switched to {requested} view[/success]"]
 
 
 @app.command()
@@ -419,7 +636,8 @@ def sync(
         raise typer.Exit(1) from None
 
     since = datetime.now(UTC) - timedelta(days=since_days) if since_days else None
-    sources = [source] if source else None
+    selected_sources = None if source else _get_repo_selected_sources(files)
+    sources = [source] if source else selected_sources
 
     if source:
         try:
@@ -440,6 +658,7 @@ def sync(
             workspace_storage_dir=cursor_storage_dir,
             cursor_all_workspaces=all_cursor_workspaces,
         )
+        ingesters = _filter_ingesters_by_sources(ingesters, selected_sources)
 
     auto_sync = AutoSync(storage, files, llm, ingesters)
 
@@ -467,6 +686,8 @@ def sync(
             raise typer.Exit(1) from None
 
     lines = [""]
+    if selected_sources and not source:
+        lines.append(f"Using configured sources: {', '.join(selected_sources)}")
     lines.append(f"Sessions discovered: {results['sessions_discovered']}")
     lines.append(f"Sessions processed:  {results['sessions_processed']}")
     if int(results["sessions_skipped"]) > 0:
@@ -529,8 +750,11 @@ def sources(
     """Show available native session sources and discovery status."""
     _get_theme_manager()  # Ensure theme is loaded
     ensure_initialized()
+    files = get_files()
 
+    selected_sources = _get_repo_selected_sources(files)
     ingesters = get_default_ingesters(cursor_all_workspaces=all_cursor_workspaces)
+    ingesters = _filter_ingesters_by_sources(ingesters, selected_sources)
 
     table = Table(title="Session Sources")
     table.add_column("Source", style="table_header")
@@ -577,6 +801,9 @@ def sources(
 
     run_with_spinner("Discovering session sources...", _collect_rows)
 
+    if selected_sources:
+        console.print(f"[dim]Configured sources: {', '.join(selected_sources)}[/dim]")
+
     for row in rows:
         table.add_row(*row)
 
@@ -594,6 +821,7 @@ def status():
     guardrails = files.read_tier(KnowledgeTier.GUARDRAILS)
     style = files.read_tier(KnowledgeTier.STYLE)
     recent = files.read_tier(KnowledgeTier.RECENT)
+    selected_sources = _get_repo_selected_sources(files)
 
     lines = [
         "[bold]Knowledge Base:[/bold]",
@@ -606,13 +834,21 @@ def status():
         f"  STYLE.md:      {len(style):,} chars",
         f"  RECENT.md:     {len(recent):,} chars",
         "",
+        "[bold]Onboarding:[/bold]",
+        f"  Completed: {'yes' if is_repo_onboarding_complete(files) else 'no'}",
+        f"  Agents:    {', '.join(selected_sources) if selected_sources else 'all'}",
+        "",
         "[bold]Session Sources:[/bold]",
     ]
 
     source_lines: list[str] = []
 
     def _collect_source_lines() -> None:
-        for ingester in get_default_ingesters():
+        ingesters = _filter_ingesters_by_sources(
+            get_default_ingesters(),
+            selected_sources,
+        )
+        for ingester in ingesters:
             try:
                 available = len(ingester.discover_sessions())
                 icon = "✓" if available else "-"
@@ -633,6 +869,11 @@ def status():
 def _build_tui_dashboard(
     all_cursor_workspaces: bool = False,
     include_banner_header: bool = True,
+    slash_status: str | None = None,
+    slash_output: list[str] | None = None,
+    view: str = "overview",
+    refresh_seconds: float = 2.0,
+    show_slash_console: bool = True,
 ) -> Group:
     """Build the live TUI dashboard renderable."""
     from agent_recall.cli.banner import BannerRenderer
@@ -647,37 +888,96 @@ def _build_tui_dashboard(
 
     config_dict = files.read_config()
     llm_config = LLMConfig(**config_dict.get("llm", {}))
+    selected_sources = _get_repo_selected_sources(files)
+    repo_root = _resolve_repo_root_for_display()
+    repo_name = repo_root.name
 
     # Create banner header
     banner_renderer = BannerRenderer(console, _theme_manager)
     header_text = banner_renderer.get_tui_header_text()
 
-    summary = Table.grid(padding=(0, 2))
-    summary.add_column(style="table_header")
-    summary.add_column()
-    summary.add_row("Processed sessions", str(stats.get("processed_sessions", 0)))
-    summary.add_row("Log entries", str(stats.get("log_entries", 0)))
-    summary.add_row("Indexed chunks", str(stats.get("chunks", 0)))
-    summary.add_row("GUARDRAILS.md", f"{len(guardrails):,} chars")
-    summary.add_row("STYLE.md", f"{len(style):,} chars")
-    summary.add_row("RECENT.md", f"{len(recent):,} chars")
+    knowledge_summary = Group(
+        (
+            "[table_header]Repo[/table_header] "
+            f"{repo_name}    "
+            "[table_header]Agents[/table_header] "
+            f"{', '.join(selected_sources) if selected_sources else 'all'}"
+        ),
+        (
+            "[table_header]Processed[/table_header] "
+            f"{stats.get('processed_sessions', 0)}    "
+            "[table_header]Logs[/table_header] "
+            f"{stats.get('log_entries', 0)}    "
+            "[table_header]Chunks[/table_header] "
+            f"{stats.get('chunks', 0)}"
+        ),
+        (
+            "[table_header]Files[/table_header] "
+            f"GUARDRAILS {len(guardrails):,}c  |  "
+            f"STYLE {len(style):,}c  |  "
+            f"RECENT {len(recent):,}c"
+        ),
+    )
 
-    llm_summary = Table.grid(padding=(0, 2))
-    llm_summary.add_column(style="table_header")
-    llm_summary.add_column()
-    llm_summary.add_row("Provider", llm_config.provider)
-    llm_summary.add_row("Model", llm_config.model)
-    llm_summary.add_row("Base URL", llm_config.base_url or "default")
-    llm_summary.add_row("Temperature", str(llm_config.temperature))
-    llm_summary.add_row("Max tokens", str(llm_config.max_tokens))
+    llm_summary = Table(
+        expand=True,
+        box=box.SIMPLE,
+        pad_edge=False,
+        collapse_padding=True,
+    )
+    llm_summary.add_column("Provider", style="table_header")
+    llm_summary.add_column("Model", style="table_header", overflow="fold")
+    llm_summary.add_column("Base URL", style="table_header", overflow="fold")
+    llm_summary.add_column("Temperature", style="table_header")
+    llm_summary.add_column("Max tokens", style="table_header")
+    llm_summary.add_row(
+        llm_config.provider,
+        llm_config.model,
+        llm_config.base_url or "default",
+        str(llm_config.temperature),
+        str(llm_config.max_tokens),
+    )
 
-    source_table = Table(expand=True)
+    settings_table = Table(
+        expand=True,
+        box=box.SIMPLE,
+        pad_edge=False,
+        collapse_padding=True,
+    )
+    settings_table.add_column("Setting", style="table_header")
+    settings_table.add_column("Value", overflow="fold")
+    settings_table.add_row("Current view", view)
+    settings_table.add_row("Refresh seconds", str(refresh_seconds))
+    settings_table.add_row("Interactive shell", "yes" if is_interactive_terminal() else "no")
+    settings_table.add_row("Theme", _theme_manager.get_theme_name())
+    settings_table.add_row("Repository", repo_name)
+    settings_table.add_row("Repository path", str(repo_root))
+    settings_table.add_row(
+        "Configured agents",
+        ", ".join(selected_sources) if selected_sources else "all",
+    )
+    settings_table.add_row("Config path", str((AGENT_DIR / "config.yaml").resolve()))
+    settings_table.add_row("Local home", str(default_agent_recall_home()))
+
+    source_table = Table(
+        expand=True,
+        box=box.SIMPLE,
+        pad_edge=False,
+        collapse_padding=True,
+    )
     source_table.add_column("Source", style="table_header")
     source_table.add_column("Status")
     source_table.add_column("Sessions", justify="right")
     source_table.add_column("Location", overflow="fold")
 
-    for ingester in get_default_ingesters(cursor_all_workspaces=all_cursor_workspaces):
+    source_compact_lines: list[str] = []
+
+    ingesters = _filter_ingesters_by_sources(
+        get_default_ingesters(cursor_all_workspaces=all_cursor_workspaces),
+        selected_sources,
+    )
+
+    for ingester in ingesters:
         try:
             sessions = ingester.discover_sessions()
             available = len(sessions) > 0
@@ -699,6 +999,11 @@ def _build_tui_dashboard(
                 str(len(sessions)),
                 _as_clickable_uri(location),
             )
+            source_compact_lines.append(
+                f"[table_header]{ingester.source_name}[/table_header]  "
+                f"[{status_style}]{status_text}[/{status_style}]  "
+                f"({len(sessions)} session{'s' if len(sessions) != 1 else ''})"
+            )
         except Exception as exc:  # noqa: BLE001
             source_table.add_row(
                 ingester.source_name,
@@ -706,6 +1011,12 @@ def _build_tui_dashboard(
                 "-",
                 f"[error]{str(exc)[:40]}[/error]",
             )
+            source_compact_lines.append(
+                f"[table_header]{ingester.source_name}[/table_header]  [error]✗ Error[/error]"
+            )
+
+    if not source_compact_lines:
+        source_compact_lines.append("[dim]No configured session sources.[/dim]")
 
     now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -721,15 +1032,248 @@ def _build_tui_dashboard(
             )
         )
 
-    panels.extend(
-        [
-            Panel(summary, title="Knowledge Base", border_style="accent"),
-            Panel(llm_summary, title="LLM Configuration", border_style="accent"),
-            Panel(source_table, title="Session Sources", border_style="accent"),
-        ]
+    knowledge_panel = Panel(knowledge_summary, title="Knowledge Base", border_style="accent")
+    llm_panel = Panel(llm_summary, title="LLM Configuration", border_style="accent")
+    sources_panel = Panel(source_table, title="Session Sources", border_style="accent")
+    sources_compact_panel = Panel(
+        "\n".join(source_compact_lines),
+        title="Session Sources",
+        border_style="accent",
     )
+    settings_panel = Panel(settings_table, title="Settings", border_style="accent")
+
+    if view == "knowledge":
+        panels.append(knowledge_panel)
+    elif view == "llm":
+        panels.append(llm_panel)
+    elif view == "sources":
+        panels.append(sources_panel)
+    elif view == "settings":
+        panels.append(settings_panel)
+    elif view == "console":
+        pass
+    elif view == "all":
+        panels.extend([knowledge_panel, llm_panel, sources_panel, settings_panel])
+    else:
+        panels.append(Columns([knowledge_panel, sources_compact_panel], expand=True, equal=True))
+
+    if show_slash_console:
+        slash_lines = slash_output or _tui_help_lines()
+        if slash_status:
+            slash_lines = [f"[accent]{escape(slash_status)}[/accent]", *slash_lines]
+        line_budget = 14 if view in {"console", "all", "settings"} else 6
+        slash_lines = slash_lines[-line_budget:]
+
+        panels.append(
+            Panel(
+                "\n".join(slash_lines),
+                title="Slash Console",
+                subtitle="[dim]Type /help and press Enter. Use /quit to exit.[/dim]",
+                border_style="accent",
+            )
+        )
 
     return Group(*panels)
+
+
+def _run_onboarding_setup(force: bool, quick: bool) -> None:
+    _get_theme_manager()
+    ensure_initialized()
+    files = get_files()
+
+    interactive = is_interactive_terminal() and not quick
+    if not interactive and not quick:
+        console.print("[dim]No interactive terminal detected; applying saved defaults.[/dim]")
+
+    changed = ensure_repo_onboarding(
+        files,
+        console,
+        force=force,
+        interactive=interactive,
+    )
+    if not changed:
+        console.print("[dim]Onboarding already complete for this repository.[/dim]")
+
+
+def _run_setup_from_payload(payload: dict[str, object]) -> tuple[bool, list[str]]:
+    _get_theme_manager()
+    ensure_initialized()
+    files = get_files()
+
+    selected_agents_raw = payload.get("selected_agents")
+    selected_agents = (
+        [source for source in selected_agents_raw if isinstance(source, str)]
+        if isinstance(selected_agents_raw, list)
+        else []
+    )
+
+    temp_output = io.StringIO()
+    capture_console = Console(
+        file=temp_output, theme=_theme_manager.get_theme(), force_terminal=False
+    )
+    temperature_raw = payload.get("temperature", 0.3)
+    if isinstance(temperature_raw, int | float | str):
+        try:
+            temperature = float(temperature_raw)
+        except ValueError:
+            temperature = 0.3
+    else:
+        temperature = 0.3
+
+    max_tokens_raw = payload.get("max_tokens", 4096)
+    if isinstance(max_tokens_raw, int | float | str):
+        try:
+            max_tokens = int(max_tokens_raw)
+        except ValueError:
+            max_tokens = 4096
+    else:
+        max_tokens = 4096
+
+    changed = apply_repo_setup(
+        files,
+        capture_console,
+        force=bool(payload.get("force", False)),
+        repository_verified=bool(payload.get("repository_verified", False)),
+        selected_agents=selected_agents,
+        provider=str(payload.get("provider", "")).strip(),
+        model=str(payload.get("model", "")).strip(),
+        base_url=(
+            None
+            if str(payload.get("base_url", "")).strip().lower() in {"", "none", "null"}
+            else str(payload.get("base_url", "")).strip()
+        ),
+        temperature=temperature,
+        max_tokens=max_tokens,
+        validate=bool(payload.get("validate", False)),
+        api_key=(
+            str(payload.get("api_key", "")).strip()
+            if isinstance(payload.get("api_key"), str)
+            else None
+        ),
+    )
+
+    lines = [line.strip() for line in temp_output.getvalue().splitlines() if line.strip()]
+    return changed, lines[-12:]
+
+
+def _run_model_config(
+    provider: str | None,
+    model: str | None,
+    base_url: str | None,
+    temperature: float | None,
+    max_tokens: int | None,
+    validate: bool,
+    output_console: Console | None = None,
+) -> dict[str, object]:
+    active_console = output_console or console
+    _get_theme_manager()
+    ensure_initialized()
+    inject_stored_api_keys()
+    files = get_files()
+
+    config_dict = files.read_config()
+    llm_config = dict(config_dict.get("llm", {}))
+
+    if provider:
+        llm_config["provider"] = provider
+    if model:
+        llm_config["model"] = model
+    if base_url:
+        llm_config["base_url"] = base_url
+    if temperature is not None:
+        llm_config["temperature"] = float(temperature)
+    if max_tokens is not None:
+        llm_config["max_tokens"] = int(max_tokens)
+
+    try:
+        parsed = LLMConfig(**llm_config)
+    except Exception as exc:  # noqa: BLE001
+        active_console.print(f"[error]Invalid LLM config: {exc}[/error]")
+        raise typer.Exit(1) from None
+
+    if validate and (
+        provider or model or base_url or temperature is not None or max_tokens is not None
+    ):
+        valid, message = validate_provider_config(parsed)
+        if not valid:
+            active_console.print(f"[warning]Warning: {message}[/warning]")
+        else:
+            try:
+                llm = create_llm_provider(parsed)
+                if output_console is None:
+                    success, validation_message = run_with_spinner(
+                        "Validating provider connection...",
+                        llm.validate,
+                    )
+                else:
+                    success, validation_message = llm.validate()
+                if success:
+                    active_console.print(f"[success]✓ {validation_message}[/success]")
+                else:
+                    active_console.print(f"[warning]Warning: {validation_message}[/warning]")
+            except Exception as exc:  # noqa: BLE001
+                active_console.print(
+                    f"[warning]Warning: Could not validate provider: {exc}[/warning]"
+                )
+
+    config_dict["llm"] = llm_config
+    files.write_config(config_dict)
+
+    base_url_display = llm_config.get("base_url") or "default"
+    active_console.print(
+        Panel.fit(
+            f"Provider: {llm_config.get('provider', 'not set')}\n"
+            f"Model: {llm_config.get('model', 'not set')}\n"
+            f"Base URL: {base_url_display}\n"
+            f"Temperature: {llm_config.get('temperature', 0.3)}\n"
+            f"Max tokens: {llm_config.get('max_tokens', 4096)}",
+            title="LLM Configuration Updated",
+        )
+    )
+    return llm_config
+
+
+def _run_model_config_for_tui(
+    provider: str | None,
+    model: str | None,
+    base_url: str | None,
+    temperature: float | None,
+    max_tokens: int | None,
+    validate: bool,
+) -> list[str]:
+    temp_output = io.StringIO()
+    capture_console = Console(
+        file=temp_output, theme=_theme_manager.get_theme(), force_terminal=False
+    )
+    _run_model_config(
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        validate=validate,
+        output_console=capture_console,
+    )
+    return [line.strip() for line in temp_output.getvalue().splitlines() if line.strip()][-12:]
+
+
+@app.command(hidden=True)
+def onboard(
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Run onboarding even if this repository is already configured.",
+    ),
+    quick: bool = typer.Option(
+        False,
+        "--quick",
+        help="Apply onboarding defaults without interactive prompts.",
+    ),
+):
+    """Run onboarding for this repository and persist local provider credentials."""
+    console.print("[warning]'onboard' is deprecated; use 'config setup' instead.[/warning]")
+    _run_onboarding_setup(force=force, quick=quick)
 
 
 @app.command()
@@ -764,14 +1308,39 @@ def tui(
         max=0.1,
         help="Animation delay for splash screen.",
     ),
+    onboarding: bool = typer.Option(
+        True,
+        "--onboarding/--no-onboarding",
+        help="Run onboarding setup before launching the dashboard.",
+    ),
+    force_onboarding: bool = typer.Option(
+        False,
+        "--force-onboarding",
+        help="Run onboarding even if this repository is already configured.",
+    ),
 ):
     """Start a live terminal UI dashboard for agent-recall."""
     _get_theme_manager()
     ensure_initialized()
+    files = get_files()
+    interactive_shell = is_interactive_terminal()
 
     if iterations is not None and iterations < 1:
         console.print("[error]--iterations must be >= 1[/error]")
         raise typer.Exit(1)
+
+    if onboarding:
+        ensure_repo_onboarding(
+            files,
+            console,
+            force=force_onboarding,
+            interactive=interactive_shell,
+        )
+    elif not is_repo_onboarding_complete(files):
+        console.print(
+            "[warning]Onboarding is incomplete for this repository. "
+            "Run 'agent-recall config setup' to configure providers and sources.[/warning]"
+        )
 
     # Show splash animation first (unless disabled)
     if not no_splash:
@@ -779,22 +1348,56 @@ def tui(
         print_banner(console, _theme_manager, animated=True, delay=splash_delay)
         time.sleep(0.8)  # Pause to admire the banner
 
-    refresh_rate = max(1, int(round(1 / refresh_seconds)))
-    completed = 0
+    if iterations is not None:
+        for index in range(iterations):
+            console.print(
+                _build_tui_dashboard(
+                    all_cursor_workspaces=all_cursor_workspaces,
+                    include_banner_header=True,
+                    view="overview",
+                    refresh_seconds=refresh_seconds,
+                    show_slash_console=False,
+                )
+            )
+            if index < iterations - 1:
+                time.sleep(refresh_seconds)
+        return
+
+    if not interactive_shell:
+        console.print(
+            "[error]The Textual TUI requires an interactive terminal. "
+            "Use a terminal session or run with --iterations for non-interactive checks.[/error]"
+        )
+        raise typer.Exit(1)
 
     try:
-        with Live(
-            _build_tui_dashboard(all_cursor_workspaces=all_cursor_workspaces),
-            console=console,
-            screen=True,
-            refresh_per_second=refresh_rate,
-        ) as live:
-            while True:
-                live.update(_build_tui_dashboard(all_cursor_workspaces=all_cursor_workspaces))
-                completed += 1
-                if iterations is not None and completed >= iterations:
-                    break
-                time.sleep(refresh_seconds)
+        from agent_recall.cli.textual_tui import AgentRecallTextualApp
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[error]Textual TUI unavailable: {exc}[/error]")
+        raise typer.Exit(1) from None
+
+    try:
+        app_instance = AgentRecallTextualApp(
+            render_dashboard=_build_tui_dashboard,
+            execute_command=lambda raw: _execute_tui_slash_command(_normalize_tui_command(raw)),
+            run_setup_payload=_run_setup_from_payload,
+            run_model_config=_run_model_config_for_tui,
+            model_defaults_provider=lambda: get_files().read_config().get("llm", {}),
+            setup_defaults_provider=lambda: get_onboarding_defaults(get_files()),
+            discover_models=lambda provider, base_url, api_key_env: discover_provider_models(
+                provider,
+                base_url=base_url,
+                api_key_env=api_key_env,
+                timeout_seconds=4.0,
+            ),
+            providers=get_available_providers(),
+            cli_commands=_collect_cli_commands_for_palette(),
+            rich_theme=_theme_manager.get_theme(),
+            initial_view="overview",
+            refresh_seconds=refresh_seconds,
+            all_cursor_workspaces=all_cursor_workspaces,
+        )
+        app_instance.run()
     except KeyboardInterrupt:
         console.print("\n[dim]TUI closed.[/dim]")
 
@@ -844,15 +1447,13 @@ def reset_sync(
     )
 
 
-@app.command()
+@app.command("config-llm", hidden=True)
 def config_llm(
     provider: str | None = typer.Option(
         None,
         "--provider",
         "-p",
-        help=(
-            "LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"
-        ),
+        help=("LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"),
     ),
     model: str | None = typer.Option(
         None,
@@ -866,62 +1467,102 @@ def config_llm(
         "-u",
         help="API base URL (for local/custom providers)",
     ),
+    temperature: float | None = typer.Option(
+        None,
+        "--temperature",
+        help="Sampling temperature (0.0 to 2.0)",
+        min=0.0,
+        max=2.0,
+    ),
+    max_tokens: int | None = typer.Option(
+        None,
+        "--max-tokens",
+        help="Maximum output tokens (>0)",
+        min=1,
+    ),
     validate: bool = typer.Option(
         True,
         "--validate/--no-validate",
         help="Validate configuration after setting",
     ),
 ):
-    """Configure the LLM provider for extraction and compaction."""
-    _get_theme_manager()
-    ensure_initialized()
-    files = get_files()
+    """Backwards-compatible alias for `config model`."""
+    console.print("[warning]'config-llm' is deprecated; use 'config model' instead.[/warning]")
+    _run_model_config(
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        validate=validate,
+    )
 
-    config_dict = files.read_config()
-    llm_config = dict(config_dict.get("llm", {}))
 
-    if provider:
-        llm_config["provider"] = provider
-    if model:
-        llm_config["model"] = model
-    if base_url:
-        llm_config["base_url"] = base_url
+@config_app.command("setup")
+def config_setup(
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Run setup even if this repository is already configured.",
+    ),
+    quick: bool = typer.Option(
+        False,
+        "--quick",
+        help="Apply setup defaults without interactive prompts.",
+    ),
+):
+    """Run repository setup and credential onboarding."""
+    _run_onboarding_setup(force=force, quick=quick)
 
-    try:
-        parsed = LLMConfig(**llm_config)
-    except Exception as exc:  # noqa: BLE001
-        console.print(f"[error]Invalid LLM config: {exc}[/error]")
-        raise typer.Exit(1) from None
 
-    if validate and (provider or model or base_url):
-        valid, message = validate_provider_config(parsed)
-        if not valid:
-            console.print(f"[warning]Warning: {message}[/warning]")
-        else:
-            try:
-                llm = create_llm_provider(parsed)
-                success, validation_message = run_with_spinner(
-                    "Validating provider connection...",
-                    llm.validate,
-                )
-                if success:
-                    console.print(f"[success]✓ {validation_message}[/success]")
-                else:
-                    console.print(f"[warning]Warning: {validation_message}[/warning]")
-            except Exception as exc:  # noqa: BLE001
-                console.print(f"[warning]Warning: Could not validate provider: {exc}[/warning]")
-
-    config_dict["llm"] = llm_config
-    files.write_config(config_dict)
-
-    base_url_display = llm_config.get("base_url") or "default"
-    console.print(
-        Panel.fit(
-            f"Provider: {llm_config.get('provider', 'not set')}\n"
-            f"Model: {llm_config.get('model', 'not set')}\n"
-            f"Base URL: {base_url_display}",
-            title="LLM Configuration Updated",
-        )
+@config_app.command("model")
+def config_model(
+    provider: str | None = typer.Option(
+        None,
+        "--provider",
+        "-p",
+        help=("LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"),
+    ),
+    model: str | None = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="Model name",
+    ),
+    base_url: str | None = typer.Option(
+        None,
+        "--base-url",
+        "-u",
+        help="API base URL (for local/custom providers)",
+    ),
+    temperature: float | None = typer.Option(
+        None,
+        "--temperature",
+        help="Sampling temperature (0.0 to 2.0)",
+        min=0.0,
+        max=2.0,
+    ),
+    max_tokens: int | None = typer.Option(
+        None,
+        "--max-tokens",
+        help="Maximum output tokens (>0)",
+        min=1,
+    ),
+    validate: bool = typer.Option(
+        True,
+        "--validate/--no-validate",
+        help="Validate configuration after setting",
+    ),
+):
+    """Configure model/provider settings."""
+    _run_model_config(
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        validate=validate,
     )
 
 
@@ -956,12 +1597,12 @@ def providers():
     console.print("[bold]Examples:[/bold]")
     console.print("  export ANTHROPIC_API_KEY=sk-...")
     console.print(
-        "  agent-recall config-llm --provider anthropic --model claude-sonnet-4-20250514"
+        "  agent-recall config model --provider anthropic --model claude-sonnet-4-20250514"
     )
-    console.print("  agent-recall config-llm --provider ollama --model llama3.1")
-    console.print("  agent-recall config-llm --provider lmstudio --model local-model")
+    console.print("  agent-recall config model --provider ollama --model llama3.1")
+    console.print("  agent-recall config model --provider lmstudio --model local-model")
     console.print(
-        "  agent-recall config-llm --provider openai-compatible --base-url "
+        "  agent-recall config model --provider openai-compatible --base-url "
         "http://localhost:8080/v1 --model my-model"
     )
 
@@ -1127,6 +1768,7 @@ def theme_show():
 
 
 app.add_typer(theme_app, name="theme")
+app.add_typer(config_app, name="config")
 
 
 def main() -> None:

@@ -11,6 +11,12 @@ from agent_recall.storage.files import FileStorage
 from agent_recall.storage.sqlite import SQLiteStorage
 
 
+@pytest.fixture(autouse=True)
+def isolated_agent_recall_home(monkeypatch, tmp_path: Path) -> None:
+    """Keep onboarding secrets/settings isolated for each test."""
+    monkeypatch.setenv("AGENT_RECALL_HOME", str(tmp_path / ".agent-recall-home"))
+
+
 @pytest.fixture
 def temp_agent_dir() -> Iterator[Path]:
     """Create a temporary .agent directory for testing."""

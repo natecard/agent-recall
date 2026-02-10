@@ -14,6 +14,13 @@ pip install agent-recall
 # Initialize in your repo
 agent-recall init
 
+# First run: launch the TUI to complete onboarding
+# (provider selection, API key setup, repo + agent source confirmation)
+agent-recall tui
+# TUI keybindings:
+#   Ctrl+P  command palette
+#   Ctrl+,  settings dialog
+
 # Start a session
 agent-recall start "implementing user authentication"
 
@@ -60,9 +67,23 @@ You can also configure providers via CLI:
 
 ```bash
 agent-recall providers
-agent-recall config-llm --provider ollama --model llama3.1
+agent-recall config model --provider ollama --model llama3.1
+agent-recall config model --temperature 0.2 --max-tokens 8192
 agent-recall test-llm
 ```
+
+## Onboarding and Secrets
+
+- `agent-recall tui` runs onboarding automatically the first time a repository is opened.
+- `agent-recall config setup` reruns onboarding manually (`--quick` applies saved defaults).
+- The TUI uses a command palette (`Ctrl+P`) with searchable actions and keybinding hints.
+- Type any command in the palette search and run it directly from there.
+- Setup and model configuration are available as command-palette actions.
+- Use the settings dialog (`Ctrl+,`) to switch views and runtime TUI preferences.
+- On interactive onboarding, models are fetched live from the selected provider and shown in a picker.
+- On interactive onboarding, you can tune `temperature` and `max_tokens` (helpful for local models).
+- API keys are stored locally in `secrets.yaml` under your agent-recall home directory.
+- Set `AGENT_RECALL_HOME` to override where onboarding settings and secrets are stored.
 
 ## Labels
 
