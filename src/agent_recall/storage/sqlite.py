@@ -321,3 +321,45 @@ class SQLiteStorage:
                 ),
                 (source_session_id, datetime.now(UTC).isoformat()),
             )
+
+    def clear_processed_sessions(
+        self,
+        source: str | None = None,
+        source_session_id: str | None = None,
+    ) -> int:
+        """Clear processed-session markers and return number removed."""
+        with self._connect() as conn:
+            if source_session_id:
+                cursor = conn.execute(
+                    "DELETE FROM processed_sessions WHERE source_session_id = ?",
+                    (source_session_id,),
+                )
+                return int(cursor.rowcount or 0)
+
+            if source:
+                normalized = source.strip().lower().replace("_", "-")
+                pattern = f"{normalized}-%"
+                cursor = conn.execute(
+                    "DELETE FROM processed_sessions WHERE source_session_id LIKE ?",
+                    (pattern,),
+                )
+                return int(cursor.rowcount or 0)
+
+            cursor = conn.execute("DELETE FROM processed_sessions")
+            return int(cursor.rowcount or 0)
+
+    def get_stats(self) -> dict[str, int]:
+        """Get knowledge base statistics."""
+        with self._connect() as conn:
+            stats: dict[str, int] = {}
+
+            row = conn.execute("SELECT COUNT(*) AS count FROM processed_sessions").fetchone()
+            stats["processed_sessions"] = int(row["count"]) if row else 0
+
+            row = conn.execute("SELECT COUNT(*) AS count FROM log_entries").fetchone()
+            stats["log_entries"] = int(row["count"]) if row else 0
+
+            row = conn.execute("SELECT COUNT(*) AS count FROM chunks").fetchone()
+            stats["chunks"] = int(row["count"]) if row else 0
+
+            return stats

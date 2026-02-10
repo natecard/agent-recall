@@ -22,3 +22,4 @@ build/
 .agent/state.db
 .agent/logs/
 .agent/archive/
+.agent/*

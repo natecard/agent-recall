@@ -1,7 +1,7 @@
 [project]
 name = "agent-recall"
 version = "0.1.0"
-description = "Persistent memory for AI coding agents"
+description = "Automatic knowledge capture for AI coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -23,17 +23,25 @@ dependencies = [
   "structlog>=24.0",
   "rich>=13.0",
   "pyyaml>=6.0",
-  "anthropic>=0.40",
   "openai>=1.0",
 ]
 
 [project.optional-dependencies]
+anthropic = ["anthropic>=0.40"]
 google = ["google-generativeai>=0.5"]
+all-cloud = [
+  "anthropic>=0.40",
+  "google-generativeai>=0.5",
+]
 dev = [
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
   "ruff>=0.8",
   "ty>=0.0.1a13",
+]
+all = [
+  "anthropic>=0.40",
+  "google-generativeai>=0.5",
 ]
 
 [project.scripts]

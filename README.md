@@ -29,6 +29,12 @@ agent-recall context --task "add password reset"
 
 # Run compaction to update knowledge files
 agent-recall compact
+
+# Auto-ingest Cursor / Claude Code sessions
+agent-recall sync --verbose
+
+# Force Cursor DB during testing
+agent-recall sync --source cursor --cursor-db-path "/path/to/state.vscdb" --no-compact --verbose
 ```
 
 ## How It Works
@@ -45,9 +51,17 @@ Edit `.agent/config.yaml`:
 
 ```yaml
 llm:
-  provider: anthropic  # or: openai, google, ollama, openai-compatible
+  provider: anthropic  # anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible
   model: claude-sonnet-4-20250514
   base_url: null       # for ollama: http://localhost:11434/v1
+```
+
+You can also configure providers via CLI:
+
+```bash
+agent-recall providers
+agent-recall config-llm --provider ollama --model llama3.1
+agent-recall test-llm
 ```
 
 ## Labels

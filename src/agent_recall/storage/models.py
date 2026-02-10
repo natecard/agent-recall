@@ -94,12 +94,29 @@ class Chunk(BaseModel):
 class LLMConfig(BaseModel):
     """LLM provider configuration."""
 
-    provider: str = "anthropic"
-    model: str = "claude-sonnet-4-20250514"
-    base_url: str | None = None
-    api_key_env: str | None = None
-    temperature: float = 0.3
-    max_tokens: int = 4096
+    provider: str = Field(
+        default="anthropic",
+        description=(
+            "LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"
+        ),
+    )
+    model: str = Field(default="claude-sonnet-4-20250514", description="Model name/identifier")
+    base_url: str | None = Field(
+        default=None,
+        description="API base URL (required for openai-compatible; optional for local providers)",
+    )
+    api_key_env: str | None = Field(
+        default=None,
+        description="Environment variable for API key (optional override)",
+    )
+    temperature: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature (lower = more deterministic)",
+    )
+    max_tokens: int = Field(default=4096, gt=0, description="Maximum tokens to generate")
+    timeout: float = Field(default=120.0, gt=0, description="Request timeout in seconds")
 
 
 class CompactionConfig(BaseModel):
@@ -118,6 +135,12 @@ class RetrievalConfig(BaseModel):
     top_k: int = 5
 
 
+class ThemeConfig(BaseModel):
+    """CLI theme configuration."""
+
+    name: str = "dark+"
+
+
 class AgentRecallConfig(BaseModel):
     """Root configuration for .agent/config.yaml."""
 
@@ -125,3 +148,4 @@ class AgentRecallConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    theme: ThemeConfig = Field(default_factory=ThemeConfig)

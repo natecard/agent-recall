@@ -11,6 +11,14 @@ from agent_recall.storage.models import SemanticLabel
 
 
 class FakeLLMProvider(LLMProvider):
+    @property
+    def provider_name(self) -> str:
+        return "fake"
+
+    @property
+    def model_name(self) -> str:
+        return "fake-model"
+
     async def generate(
         self,
         messages: list[Message],
@@ -33,6 +41,9 @@ class FakeLLMProvider(LLMProvider):
             content="**2026-02-09**: Finished feature and validated behavior.",
             model="fake",
         )
+
+    def validate(self) -> tuple[bool, str]:
+        return True, "ok"
 
 
 @pytest.mark.asyncio

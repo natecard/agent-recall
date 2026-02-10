@@ -30,3 +30,14 @@ def test_abandon_previous_session(storage) -> None:
     retrieved = storage.get_session(session1.id)
     assert retrieved is not None
     assert retrieved.status == SessionStatus.ABANDONED
+
+
+def test_clear_processed_sessions_by_source(storage) -> None:
+    storage.mark_session_processed("cursor-abc-1")
+    storage.mark_session_processed("claude-code-def-1")
+
+    removed = storage.clear_processed_sessions(source="cursor")
+
+    assert removed == 1
+    assert storage.is_session_processed("cursor-abc-1") is False
+    assert storage.is_session_processed("claude-code-def-1") is True
