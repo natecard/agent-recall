@@ -1,0 +1,13 @@
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+
+compaction:
+  max_recent_tokens: 1500
+  max_sessions_before_compact: 5
+  promote_pattern_after_occurrences: 3
+  archive_sessions_older_than_days: 30
+
+retrieval:
+  backend: fts5
+  top_k: 5

@@ -1,0 +1,24 @@
+# Python cache/build
+*.pyc
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Env/tools
+.venv/
+.env
+.DS_Store
+
+# Local runtime state (agent-recall)
+.agent/state.db
+.agent/logs/
+.agent/archive/
