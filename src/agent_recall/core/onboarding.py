@@ -17,6 +17,11 @@ from rich.panel import Panel
 from rich.table import Table
 
 from agent_recall.ingest import get_default_ingesters
+from agent_recall.ingest.sources import (
+    SOURCE_BY_NAME,
+    VALID_SOURCE_NAMES,
+    normalize_source_name,
+)
 from agent_recall.llm import (
     create_llm_provider,
     ensure_provider_dependency,
@@ -25,7 +30,7 @@ from agent_recall.llm import (
 from agent_recall.storage.files import FileStorage
 from agent_recall.storage.models import LLMConfig
 
-VALID_AGENT_SOURCES = ("cursor", "claude-code")
+VALID_AGENT_SOURCES = VALID_SOURCE_NAMES
 LOCAL_PROVIDERS = {"ollama", "vllm", "lmstudio", "openai-compatible", "custom"}
 
 API_KEY_ENV_BY_PROVIDER = {
@@ -169,13 +174,6 @@ def _resolve_repository_root(start: Path | None = None) -> Path:
     return current
 
 
-def _normalize_source_name(value: str) -> str:
-    lowered = value.strip().lower().replace("_", "-")
-    if lowered in {"claude", "claudecode"}:
-        return "claude-code"
-    return lowered
-
-
 def _normalize_source_values(value: Any) -> list[str]:
     if isinstance(value, list):
         raw_values = value
@@ -188,7 +186,7 @@ def _normalize_source_values(value: Any) -> list[str]:
     for item in raw_values:
         if not isinstance(item, str):
             continue
-        source = _normalize_source_name(item)
+        source = normalize_source_name(item)
         if source in VALID_AGENT_SOURCES and source not in normalized:
             normalized.append(source)
     return normalized
@@ -565,27 +563,41 @@ def _prompt_model_with_picker(
 
 
 def _prompt_agent_sources(console: Console, defaults: list[str]) -> list[str]:
-    default_choice = "3"
+    available = list(VALID_AGENT_SOURCES)
+    available_set = set(available)
     default_set = set(defaults)
-    if default_set == {"cursor"}:
-        default_choice = "1"
-    elif default_set == {"claude-code"}:
-        default_choice = "2"
+
+    default_choice = str(len(available) + 1)
+    for index, source_name in enumerate(available, start=1):
+        if default_set == {source_name}:
+            default_choice = str(index)
+            break
+    if default_set == available_set:
+        default_choice = str(len(available) + 1)
 
     console.print("Choose which agent transcripts should be enabled for this repository:")
-    console.print("  1) Cursor")
-    console.print("  2) Claude Code")
-    console.print("  3) Both")
+    for index, source_name in enumerate(available, start=1):
+        display_name = SOURCE_BY_NAME[source_name].display_name
+        console.print(f"  {index}) {display_name}")
+    console.print(f"  {len(available) + 1}) All")
 
     while True:
         selected = typer.prompt("Agent selection", default=default_choice).strip().lower()
-        if selected in {"1", "cursor"}:
-            return ["cursor"]
-        if selected in {"2", "claude", "claude-code", "claudecode"}:
-            return ["claude-code"]
-        if selected in {"3", "both", "all", "cursor,claude-code", "claude-code,cursor"}:
-            return ["cursor", "claude-code"]
-        console.print("[warning]Invalid choice. Use 1, 2, or 3.[/warning]")
+        if selected.isdigit():
+            choice = int(selected)
+            if 1 <= choice <= len(available):
+                return [available[choice - 1]]
+            if choice == len(available) + 1:
+                return list(available)
+
+        normalized = _normalize_source_values(selected)
+        if normalized:
+            return normalized
+        if selected in {"all", "both"}:
+            return list(available)
+        console.print(
+            f"[warning]Invalid choice. Use 1-{len(available) + 1} or source names.[/warning]"
+        )
 
 
 def _prompt_provider(console: Console, defaults: str) -> str:
@@ -694,7 +706,7 @@ def get_onboarding_defaults(files: FileStorage) -> dict[str, Any]:
     if not selected_agents:
         selected_agents = _normalize_source_values(defaults.get("selected_agents"))
     if not selected_agents:
-        selected_agents = ["cursor", "claude-code"]
+        selected_agents = list(VALID_AGENT_SOURCES)
 
     base_url = str(
         llm_config.get("base_url")
@@ -956,7 +968,7 @@ def ensure_repo_onboarding(
     if not selected_agents:
         selected_agents = _normalize_source_values(defaults.get("selected_agents"))
     if not selected_agents:
-        selected_agents = ["cursor", "claude-code"]
+        selected_agents = list(VALID_AGENT_SOURCES)
 
     provider = _prompt_provider(console, default_provider) if interactive else default_provider
 

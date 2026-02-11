@@ -22,6 +22,7 @@ from textual.widgets.option_list import Option
 from textual.worker import Worker, WorkerState
 
 from agent_recall.core.onboarding import API_KEY_ENV_BY_PROVIDER
+from agent_recall.ingest.sources import SOURCE_DEFINITIONS
 
 DiscoverModelsFn = Callable[[str, str | None, str | None], tuple[list[str], str | None]]
 ThemeDefaultsFn = Callable[[], tuple[list[str], str]]
@@ -53,6 +54,10 @@ def _clean_optional_text(value: Any) -> str:
     if text.lower() in {"none", "null"}:
         return ""
     return text
+
+
+def _source_checkbox_id(source_name: str) -> str:
+    return f"setup_agent_{source_name.replace('-', '_')}"
 
 
 def _build_command_suggestions(cli_commands: list[str]) -> list[str]:
@@ -336,14 +341,12 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                         id="setup_force",
                     )
                 with Horizontal(classes="setup_agents field_row"):
-                    yield Checkbox(
-                        "Cursor", value="cursor" in selected_agents, id="setup_agent_cursor"
-                    )
-                    yield Checkbox(
-                        "Claude Code",
-                        value="claude-code" in selected_agents,
-                        id="setup_agent_claude",
-                    )
+                    for source in SOURCE_DEFINITIONS:
+                        yield Checkbox(
+                            source.display_name,
+                            value=source.name in selected_agents,
+                            id=_source_checkbox_id(source.name),
+                        )
                 yield Static("", id="setup_status")
                 with Horizontal(classes="modal_actions"):
                     yield Button("Next", variant="primary", id="setup_next")
@@ -364,10 +367,10 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             return
 
         selected_agents: list[str] = []
-        if self.query_one("#setup_agent_cursor", Checkbox).value:
-            selected_agents.append("cursor")
-        if self.query_one("#setup_agent_claude", Checkbox).value:
-            selected_agents.append("claude-code")
+        for source in SOURCE_DEFINITIONS:
+            checkbox = self.query_one(f"#{_source_checkbox_id(source.name)}", Checkbox)
+            if checkbox.value:
+                selected_agents.append(source.name)
         if not selected_agents:
             status.update("[red]Choose at least one agent source[/red]")
             return
@@ -1463,7 +1466,7 @@ class AgentRecallTextualApp(App[None]):
                 "Check source availability and discovered conversation counts",
                 "Sessions",
                 "/sources",
-                "sources cursor claude",
+                "sources cursor claude opencode",
             ),
             PaletteAction(
                 "theme",

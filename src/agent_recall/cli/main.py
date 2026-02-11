@@ -47,6 +47,11 @@ from agent_recall.core.retrieve import Retriever
 from agent_recall.core.session import SessionManager
 from agent_recall.core.sync import AutoSync
 from agent_recall.ingest import get_default_ingesters, get_ingester
+from agent_recall.ingest.sources import (
+    VALID_SOURCE_NAMES,
+    normalize_source_name,
+    resolve_source_location_hint,
+)
 from agent_recall.llm import (
     Message,
     create_llm_provider,
@@ -139,6 +144,7 @@ console = Console(theme=_theme_manager.get_theme())
 AGENT_DIR = Path(".agent")
 DB_PATH = AGENT_DIR / "state.db"
 T = TypeVar("T")
+SOURCE_CHOICES_TEXT = ", ".join(VALID_SOURCE_NAMES)
 
 INITIAL_GUARDRAILS = """# Guardrails
 
@@ -759,7 +765,7 @@ def sync(
         None,
         "--source",
         "-s",
-        help="Only sync from specific source: cursor, claude-code",
+        help=f"Only sync from specific source: {SOURCE_CHOICES_TEXT}",
     ),
     since_days: int | None = typer.Option(
         None,
@@ -1005,7 +1011,7 @@ def sessions(
         None,
         "--source",
         "-s",
-        help="Only list sessions from specific source: cursor, claude-code",
+        help=f"Only list sessions from specific source: {SOURCE_CHOICES_TEXT}",
     ),
     since_days: int | None = typer.Option(
         None,
@@ -1215,12 +1221,9 @@ def sources(
 
                 if available:
                     location = str(sessions[0].resolve())
-                elif ingester.source_name == "cursor" and hasattr(ingester, "storage_dir"):
-                    location = str(Path(getattr(ingester, "storage_dir")).resolve())
-                elif ingester.source_name == "claude-code" and hasattr(ingester, "claude_dir"):
-                    location = str((Path(getattr(ingester, "claude_dir")) / "projects").resolve())
                 else:
-                    location = "Unknown"
+                    hint = resolve_source_location_hint(ingester)
+                    location = str(hint) if hint else "Unknown"
 
                 rows.append(
                     (
@@ -1503,12 +1506,9 @@ def _build_tui_dashboard(
 
             if available:
                 location = str(sessions[0].resolve())
-            elif ingester.source_name == "cursor" and hasattr(ingester, "storage_dir"):
-                location = str(Path(getattr(ingester, "storage_dir")).resolve())
-            elif ingester.source_name == "claude-code" and hasattr(ingester, "claude_dir"):
-                location = str((Path(getattr(ingester, "claude_dir")) / "projects").resolve())
             else:
-                location = "Unknown"
+                hint = resolve_source_location_hint(ingester)
+                location = str(hint) if hint else "Unknown"
 
             source_table.add_row(
                 ingester.source_name,
@@ -2053,7 +2053,7 @@ def reset_sync(
         None,
         "--source",
         "-s",
-        help="Clear only one source: cursor or claude-code",
+        help=f"Clear only one source: {SOURCE_CHOICES_TEXT}",
     ),
     session_id: str | None = typer.Option(
         None,
@@ -2066,9 +2066,11 @@ def reset_sync(
     storage = get_storage()
 
     if source:
-        normalized = source.strip().lower().replace("_", "-")
-        if normalized not in {"cursor", "claude-code"}:
-            console.print("[error]Invalid source. Use: cursor or claude-code[/error]")
+        normalized = normalize_source_name(source)
+        if normalized not in VALID_SOURCE_NAMES:
+            console.print(
+                f"[error]Invalid source. Use one of: {SOURCE_CHOICES_TEXT}[/error]"
+            )
             raise typer.Exit(1)
         source = normalized
 
