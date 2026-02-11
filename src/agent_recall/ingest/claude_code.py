@@ -181,12 +181,30 @@ class ClaudeCodeIngester(SessionIngester):
         return RawSession(
             source=self.source_name,
             session_id=self.get_session_id(path),
+            title=self._infer_title(messages, fallback=path.stem),
             project_path=self.project_path,
             started_at=started_at
             or datetime.fromtimestamp(path.stat().st_mtime, tz=UTC),
             ended_at=ended_at,
             messages=messages,
         )
+
+    @staticmethod
+    def _infer_title(messages: list[RawMessage], fallback: str) -> str:
+        for message in messages:
+            if message.role != "user":
+                continue
+            normalized = " ".join(message.content.split())
+            if len(normalized) < 5 or normalized == "[tool-result]":
+                continue
+            if len(normalized) > 96:
+                return f"{normalized[:93].rstrip()}..."
+            return normalized
+
+        cleaned_fallback = " ".join(
+            fallback.replace("-", " ").replace("_", " ").split()
+        ).strip()
+        return cleaned_fallback or fallback
 
     def _extract_timestamp(self, event: dict[str, Any]) -> datetime | None:
         for field in ["timestamp", "time", "ts", "created_at", "createdAt"]:
