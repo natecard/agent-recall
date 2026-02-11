@@ -18,14 +18,14 @@ class GoogleProvider(LLMProvider):
     """Google Gemini provider."""
 
     SUPPORTED_MODELS = [
-        "gemini-1.5-pro",
-        "gemini-1.5-flash",
-        "gemini-pro",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemma-3-27b-it",
     ]
 
     def __init__(
         self,
-        model: str = "gemini-1.5-flash",
+        model: str = "gemini-2.5-flash",
         api_key: str | None = None,
         api_key_env: str = "GOOGLE_API_KEY",
     ):
@@ -51,18 +51,71 @@ class GoogleProvider(LLMProvider):
                     f"Set {self._api_key_env} environment variable or provide api_key."
                 )
             try:
-                genai = importlib.import_module("google.generativeai")
+                genai = importlib.import_module("google.genai")
             except ImportError as exc:
                 raise LLMConfigError(
-                    "google-generativeai package not installed. "
-                    "Install with: pip install google-generativeai"
+                    "google-genai package not installed. "
+                    "Install with: pip install google-genai"
                 ) from exc
 
-            genai.configure(api_key=self.api_key)
             self._genai_module = genai
-            self._client = genai.GenerativeModel(self.model)
+            self._client = genai.Client(api_key=self.api_key)
 
         return self._client
+
+    @staticmethod
+    def _collect_contents(messages: list[Message]) -> tuple[list[dict[str, object]], str | None]:
+        contents: list[dict[str, object]] = []
+        system_messages: list[str] = []
+
+        for msg in messages:
+            if msg.role == "system":
+                text = msg.content.strip()
+                if text:
+                    system_messages.append(text)
+                continue
+
+            role = "model" if msg.role == "assistant" else "user"
+            contents.append({"role": role, "parts": [{"text": msg.content}]})
+
+        system_instruction = "\n\n".join(system_messages) if system_messages else None
+        return contents, system_instruction
+
+    async def _generate_content(
+        self,
+        client: Any,
+        *,
+        contents: list[dict[str, object]],
+        config: dict[str, Any],
+    ) -> Any:
+        return await client.aio.models.generate_content(
+            model=self.model,
+            contents=contents,
+            config=config,
+        )
+
+    @staticmethod
+    def _response_text(response: Any) -> str:
+        text = getattr(response, "text", None)
+        if isinstance(text, str) and text.strip():
+            return text
+
+        candidates = getattr(response, "candidates", None)
+        if not isinstance(candidates, list):
+            return ""
+
+        chunks: list[str] = []
+        for candidate in candidates:
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", None) if content is not None else None
+            if not isinstance(parts, list):
+                continue
+            for part in parts:
+                part_text = getattr(part, "text", None)
+                if isinstance(part_text, str) and part_text:
+                    chunks.append(part_text)
+
+        return "\n".join(chunks).strip()
 
     async def generate(
         self,
@@ -71,61 +124,128 @@ class GoogleProvider(LLMProvider):
         max_tokens: int = 4096,
     ) -> LLMResponse:
         client = self._get_client()
-
-        contents: list[dict[str, object]] = []
-        system_instruction: str | None = None
-
-        for msg in messages:
-            if msg.role == "system":
-                system_instruction = msg.content
-            elif msg.role == "user":
-                contents.append({"role": "user", "parts": [msg.content]})
-            elif msg.role == "assistant":
-                contents.append({"role": "model", "parts": [msg.content]})
+        contents, system_instruction = self._collect_contents(messages)
 
         try:
-            generation_config = {
+            generation_config: dict[str, Any] = {
                 "temperature": temperature,
                 "max_output_tokens": max_tokens,
             }
+            if system_instruction:
+                generation_config["system_instruction"] = system_instruction
 
             if system_instruction:
-                genai = self._genai_module or importlib.import_module("google.generativeai")
-                model = genai.GenerativeModel(
-                    self.model,
-                    system_instruction=system_instruction,
-                )
+                try:
+                    response = await self._generate_content(
+                        client,
+                        contents=contents,
+                        config=generation_config,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    if self._supports_developer_instruction_error(exc):
+                        fallback_contents = self._merge_system_instruction_into_contents(
+                            contents,
+                            system_instruction,
+                        )
+                        fallback_config = {
+                            "temperature": temperature,
+                            "max_output_tokens": max_tokens,
+                        }
+                        response = await self._generate_content(
+                            client,
+                            contents=fallback_contents,
+                            config=fallback_config,
+                        )
+                    else:
+                        raise
             else:
-                model = client
-
-            response = await model.generate_content_async(
-                contents,
-                generation_config=generation_config,
-            )
+                response = await self._generate_content(
+                    client,
+                    contents=contents,
+                    config=generation_config,
+                )
 
             return LLMResponse(
-                content=response.text,
+                content=self._response_text(response),
                 model=self.model,
                 usage=None,
                 finish_reason=None,
             )
         except Exception as exc:  # noqa: BLE001
             error = str(exc).lower()
-            if "quota" in error or "rate" in error:
+            if any(
+                token in error
+                for token in ["quota", "rate", "429", "resource exhausted", "too many requests"]
+            ):
                 raise LLMRateLimitError(f"Google rate limit exceeded: {exc}") from exc
-            if "api_key" in error or "auth" in error:
+            if any(
+                token in error
+                for token in ["api key", "api_key", "auth", "permission denied", "unauthorized"]
+            ):
                 raise LLMConfigError(f"Google authentication error: {exc}") from exc
             raise LLMConnectionError(f"Google API error: {exc}") from exc
+
+    @staticmethod
+    def _supports_developer_instruction_error(exc: Exception) -> bool:
+        lowered = str(exc).lower()
+        return (
+            "developer instruction is not enabled" in lowered
+            or "system instruction is not enabled" in lowered
+            or "system_instruction is not enabled" in lowered
+        )
+
+    @staticmethod
+    def _merge_system_instruction_into_contents(
+        contents: list[dict[str, object]],
+        system_instruction: str,
+    ) -> list[dict[str, object]]:
+        merged: list[dict[str, object]] = []
+        for item in contents:
+            cloned = dict(item)
+            parts = item.get("parts")
+            if isinstance(parts, list):
+                cloned["parts"] = list(parts)
+            merged.append(cloned)
+        prefix = f"System guidance:\n{system_instruction.strip()}\n\n"
+
+        for item in merged:
+            if item.get("role") != "user":
+                continue
+
+            parts = item.get("parts")
+            if isinstance(parts, list) and parts:
+                first_part = parts[0]
+                if isinstance(first_part, dict) and isinstance(first_part.get("text"), str):
+                    first_text = str(first_part["text"])
+                    patched_first = dict(first_part)
+                    patched_first["text"] = f"{prefix}{first_text}"
+                    item["parts"] = [patched_first, *parts[1:]]
+                else:
+                    item["parts"] = [{"text": f"{prefix}{first_part}"}, *parts[1:]]
+            else:
+                item["parts"] = [{"text": prefix.strip()}]
+            return merged
+
+        merged.insert(
+            0,
+            {
+                "role": "user",
+                "parts": [{"text": prefix.strip()}],
+            },
+        )
+        return merged
 
     def validate(self) -> tuple[bool, str]:
         if not self.api_key:
             return False, f"API key not set. Set {self._api_key_env} environment variable."
 
         try:
-            genai = importlib.import_module("google.generativeai")
-            genai.configure(api_key=self.api_key)
-            model = genai.GenerativeModel(self.model)
-            model.generate_content("Hi")
+            client = self._get_client()
+            client.models.generate_content(
+                model=self.model,
+                contents="Hi",
+                config={"temperature": 0.0, "max_output_tokens": 8},
+            )
             return True, f"Connected to Google ({self.model})"
         except Exception as exc:  # noqa: BLE001
             return False, f"Google validation failed: {exc}"

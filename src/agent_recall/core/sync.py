@@ -9,7 +9,7 @@ from typing import Any
 from agent_recall.core.compact import CompactionEngine
 from agent_recall.core.extract import TranscriptExtractor
 from agent_recall.ingest import SessionIngester, get_default_ingesters
-from agent_recall.llm.base import LLMProvider
+from agent_recall.llm.base import LLMProvider, LLMRateLimitError
 from agent_recall.storage.files import FileStorage
 from agent_recall.storage.sqlite import SQLiteStorage
 
@@ -40,6 +40,8 @@ class AutoSync:
         self.extractor = TranscriptExtractor(llm) if llm else None
         self.ingesters = ingesters or get_default_ingesters(project_path)
         self.extract_timeout_seconds = 45
+        self.extract_retry_attempts = 3
+        self.extract_retry_backoff_seconds = 2.0
         self.zero_learning_warning_min_messages = 50
 
     async def sync(
@@ -126,23 +128,55 @@ class AutoSync:
                     )
                     continue
 
-                try:
-                    entries = await asyncio.wait_for(
-                        extractor.extract(raw_session),
-                        timeout=self.extract_timeout_seconds,
+                entries: list[Any] = []
+                extraction_error: str | None = None
+                for attempt in range(1, self.extract_retry_attempts + 1):
+                    try:
+                        entries = await asyncio.wait_for(
+                            extractor.extract(raw_session),
+                            timeout=self.extract_timeout_seconds,
+                        )
+                        extraction_error = None
+                        break
+                    except TimeoutError:
+                        extraction_error = (
+                            f"{candidate.source_name}:{candidate.session_path.name}: "
+                            f"extraction timed out after {self.extract_timeout_seconds}s "
+                            f"(attempt {attempt}/{self.extract_retry_attempts})"
+                        )
+                        if attempt < self.extract_retry_attempts:
+                            await asyncio.sleep(self.extract_retry_backoff_seconds * attempt)
+                    except LLMRateLimitError as exc:
+                        extraction_error = (
+                            f"{candidate.source_name}:{candidate.session_path.name}: "
+                            f"extraction rate-limited: {exc} "
+                            f"(attempt {attempt}/{self.extract_retry_attempts})"
+                        )
+                        if attempt < self.extract_retry_attempts:
+                            await asyncio.sleep(self.extract_retry_backoff_seconds * attempt)
+                    except Exception as exc:  # noqa: BLE001
+                        extraction_error = (
+                            f"{candidate.source_name}:{candidate.session_path.name}: "
+                            f"extraction failed: {exc}"
+                        )
+                        break
+
+                if extraction_error:
+                    results["errors"].append(extraction_error)
+                    source_results["skipped"] += 1
+                    source_results["extraction_failed"] += 1
+                    results["sessions_skipped"] += 1
+                    results["session_diagnostics"].append(
+                        {
+                            "source": candidate.source_name,
+                            "session_id": candidate.session_id,
+                            "status": "failed_extraction",
+                            "message_count": message_count,
+                            "learnings_extracted": 0,
+                            "error": extraction_error,
+                        }
                     )
-                except TimeoutError:
-                    results["errors"].append(
-                        f"{candidate.source_name}:{candidate.session_path.name}: "
-                        f"extraction timed out after {self.extract_timeout_seconds}s"
-                    )
-                    entries = []
-                except Exception as exc:  # noqa: BLE001
-                    results["errors"].append(
-                        f"{candidate.source_name}:{candidate.session_path.name}: "
-                        f"extraction failed: {exc}"
-                    )
-                    entries = []
+                    continue
 
                 for entry in entries:
                     self.storage.append_entry(entry)
@@ -355,6 +389,7 @@ class AutoSync:
                 "processed": 0,
                 "skipped": 0,
                 "already_processed": 0,
+                "extraction_failed": 0,
                 "empty": 0,
                 "learnings": 0,
             }
@@ -419,6 +454,7 @@ class AutoSync:
                     "processed": 0,
                     "skipped": 0,
                     "already_processed": 0,
+                    "extraction_failed": 0,
                     "empty": 0,
                     "learnings": 0,
                 },

@@ -8,7 +8,7 @@ import pytest
 
 from agent_recall.core.sync import AutoSync
 from agent_recall.ingest.base import RawMessage, RawSession, SessionIngester
-from agent_recall.llm.base import LLMProvider, LLMResponse, Message
+from agent_recall.llm.base import LLMProvider, LLMRateLimitError, LLMResponse, Message
 
 
 class AdaptiveLLM(LLMProvider):
@@ -115,6 +115,41 @@ class EmptyLearningLLM(LLMProvider):
         if "Current STYLE.md" in prompt or "Current GUARDRAILS.md" in prompt:
             return LLMResponse(content="NONE", model="empty-learning-model")
         return LLMResponse(content="", model="empty-learning-model")
+
+    def validate(self) -> tuple[bool, str]:
+        return True, "ok"
+
+
+class FlakyRateLimitedLLM(LLMProvider):
+    def __init__(self, fail_attempts: int = 2):
+        self.fail_attempts = fail_attempts
+        self.calls = 0
+
+    @property
+    def provider_name(self) -> str:
+        return "flaky-rate-limit"
+
+    @property
+    def model_name(self) -> str:
+        return "flaky-rate-limit-model"
+
+    async def generate(
+        self,
+        messages: list[Message],
+        temperature: float = 0.3,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        _ = (messages, temperature, max_tokens)
+        self.calls += 1
+        if self.calls <= self.fail_attempts:
+            raise LLMRateLimitError("retry later")
+        return LLMResponse(
+            content=(
+                "[{\"label\": \"pattern\", \"content\": \"Use checkpoints in migrations\", "
+                "\"tags\": [\"db\"], \"confidence\": 0.8}]"
+            ),
+            model="flaky-rate-limit-model",
+        )
 
     def validate(self) -> tuple[bool, str]:
         return True, "ok"
@@ -338,14 +373,18 @@ async def test_auto_sync_marks_processed_when_extraction_fails(
 
     first = await sync.sync()
     assert first["sessions_discovered"] == 1
-    assert first["sessions_processed"] == 1
+    assert first["sessions_processed"] == 0
+    assert first["sessions_skipped"] == 1
     assert first["learnings_extracted"] == 0
     assert len(first["errors"]) == 1
     assert "extraction failed" in first["errors"][0]
+    assert first["session_diagnostics"][0]["status"] == "failed_extraction"
+    assert storage.is_session_processed("cursor-cursor-session") is False
 
     second = await sync.sync()
     assert second["sessions_processed"] == 0
     assert second["sessions_skipped"] == 1
+    assert second["session_diagnostics"][0]["status"] == "failed_extraction"
 
 
 @pytest.mark.asyncio
@@ -360,12 +399,46 @@ async def test_auto_sync_timeout_is_reported(storage, files, tmp_path: Path) -> 
         ingesters=[FakeIngester("cursor", [session_path])],
     )
     sync.extract_timeout_seconds = 0.01
+    sync.extract_retry_attempts = 1
+    sync.extract_retry_backoff_seconds = 0.0
 
     results = await sync.sync()
-    assert results["sessions_processed"] == 1
+    assert results["sessions_processed"] == 0
+    assert results["sessions_skipped"] == 1
     assert results["learnings_extracted"] == 0
     assert len(results["errors"]) == 1
     assert "timed out" in results["errors"][0]
+    assert results["session_diagnostics"][0]["status"] == "failed_extraction"
+    assert storage.is_session_processed("cursor-cursor-session") is False
+
+
+@pytest.mark.asyncio
+async def test_auto_sync_retries_rate_limit_then_processes(
+    storage,
+    files,
+    tmp_path: Path,
+) -> None:
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    llm = FlakyRateLimitedLLM(fail_attempts=2)
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=llm,
+        ingesters=[FakeIngester("cursor", [session_path])],
+    )
+    sync.extract_retry_attempts = 3
+    sync.extract_retry_backoff_seconds = 0.0
+
+    results = await sync.sync()
+    assert llm.calls == 3
+    assert results["sessions_processed"] == 1
+    assert results["sessions_skipped"] == 0
+    assert results["learnings_extracted"] == 1
+    assert results["errors"] == []
+    assert results["session_diagnostics"][0]["status"] == "processed"
+    assert storage.is_session_processed("cursor-cursor-session") is True
 
 
 @pytest.mark.asyncio

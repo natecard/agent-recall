@@ -29,10 +29,10 @@ dependencies = [
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.40"]
-google = ["google-generativeai>=0.5"]
+google = ["google-genai>=1.62"]
 all-cloud = [
   "anthropic>=0.40",
-  "google-generativeai>=0.5",
+  "google-genai>=1.62",
 ]
 dev = [
   "pytest>=8.0",
@@ -42,7 +42,7 @@ dev = [
 ]
 all = [
   "anthropic>=0.40",
-  "google-generativeai>=0.5",
+  "google-genai>=1.62",
 ]
 
 [project.scripts]

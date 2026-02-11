@@ -102,7 +102,7 @@ class TestProviderFactory:
 
         assert ok is False
         assert message is not None
-        assert "google-generativeai" in message
+        assert "google-genai" in message
 
     def test_ensure_provider_dependency_installs_when_missing(self, monkeypatch) -> None:
         state = {"calls": 0}
@@ -127,6 +127,91 @@ class TestProviderFactory:
         assert ok is True
         assert message is not None
         assert "Installed provider dependency" in message
+
+    def test_ensure_provider_dependency_handles_missing_parent_module(
+        self,
+        monkeypatch,
+    ) -> None:
+        state = {"calls": 0}
+
+        def fake_find_spec(_name: str):
+            state["calls"] += 1
+            if state["calls"] == 1:
+                raise ModuleNotFoundError("No module named 'google'")
+            return object()
+
+        class Completed:
+            returncode = 0
+            stdout = "ok"
+            stderr = ""
+
+        monkeypatch.setattr("agent_recall.llm.importlib.util.find_spec", fake_find_spec)
+        monkeypatch.setattr(
+            "agent_recall.llm.subprocess.run",
+            lambda *_args, **_kwargs: Completed(),
+        )
+
+        ok, message = ensure_provider_dependency("google", auto_install=True)
+
+        assert ok is True
+        assert message is not None
+        assert "Installed provider dependency" in message
+
+    def test_ensure_provider_dependency_falls_back_to_uv_when_pip_missing(
+        self,
+        monkeypatch,
+    ) -> None:
+        find_spec_state = {"calls": 0}
+
+        def fake_find_spec(_name: str):
+            find_spec_state["calls"] += 1
+            if find_spec_state["calls"] == 1:
+                return None
+            return object()
+
+        class Completed:
+            def __init__(
+                self,
+                returncode: int,
+                stdout: str = "",
+                stderr: str = "",
+                args: list[str] | None = None,
+            ):
+                self.returncode = returncode
+                self.stdout = stdout
+                self.stderr = stderr
+                self.args = args or []
+
+        run_calls: list[list[str]] = []
+
+        def fake_run(args, **_kwargs):
+            run_calls.append(list(args))
+            if args[:3] == ["python", "-m", "pip"]:
+                return Completed(
+                    returncode=1,
+                    stderr="No module named pip",
+                    args=list(args),
+                )
+            if args[:3] == ["python", "-m", "ensurepip"]:
+                return Completed(returncode=1, stderr="ensurepip unavailable", args=list(args))
+            if args[:2] == ["uv", "pip"]:
+                return Completed(returncode=0, stdout="installed", args=list(args))
+            return Completed(returncode=1, stderr="unexpected", args=list(args))
+
+        monkeypatch.setattr("agent_recall.llm.importlib.util.find_spec", fake_find_spec)
+        monkeypatch.setattr(
+            "agent_recall.llm.shutil.which",
+            lambda name: "/usr/bin/uv" if name == "uv" else None,
+        )
+        monkeypatch.setattr("agent_recall.llm.sys.executable", "python")
+        monkeypatch.setattr("agent_recall.llm.subprocess.run", fake_run)
+
+        ok, message = ensure_provider_dependency("google", auto_install=True)
+
+        assert ok is True
+        assert message is not None
+        assert "Installed provider dependency" in message
+        assert any(call[:2] == ["uv", "pip"] for call in run_calls)
 
 
 class TestLLMGeneration:

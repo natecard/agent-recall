@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 from typing import TYPE_CHECKING
@@ -35,7 +36,7 @@ __all__ = [
 
 _PROVIDER_DEPENDENCIES: dict[str, tuple[str, str]] = {
     "anthropic": ("anthropic", "anthropic"),
-    "google": ("google.generativeai", "google-generativeai"),
+    "google": ("google.genai", "google-genai"),
     "openai": ("openai", "openai"),
     "ollama": ("openai", "openai"),
     "vllm": ("openai", "openai"),
@@ -52,6 +53,13 @@ def _normalize_provider_name(provider: str) -> str:
     return normalized
 
 
+def _module_available(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except ModuleNotFoundError:
+        return False
+
+
 def ensure_provider_dependency(
     provider: str,
     *,
@@ -64,7 +72,7 @@ def ensure_provider_dependency(
         return True, None
 
     module_name, package_name = dependency
-    if importlib.util.find_spec(module_name) is not None:
+    if _module_available(module_name):
         return True, None
 
     if not auto_install:
@@ -73,13 +81,7 @@ def ensure_provider_dependency(
             f"Missing dependency '{package_name}'. Install with: pip install {package_name}",
         )
 
-    command = [sys.executable, "-m", "pip", "install", package_name]
-    completed = subprocess.run(  # noqa: S603
-        command,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    completed = _install_dependency(package_name)
     if completed.returncode != 0:
         stderr = completed.stderr.strip()
         stdout = completed.stdout.strip()
@@ -89,13 +91,74 @@ def ensure_provider_dependency(
             f"Failed installing '{package_name}' for provider '{normalized}': {tail}",
         )
 
-    if importlib.util.find_spec(module_name) is None:
+    if not _module_available(module_name):
         return (
             False,
             f"Installed '{package_name}' but module '{module_name}' is still unavailable.",
         )
 
     return True, f"Installed provider dependency: {package_name}"
+
+
+def _install_dependency(package_name: str) -> subprocess.CompletedProcess[str]:
+    pip_install = [sys.executable, "-m", "pip", "install", package_name]
+    completed = subprocess.run(  # noqa: S603
+        pip_install,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode == 0:
+        return completed
+
+    lowered = f"{completed.stderr}\n{completed.stdout}".lower()
+    missing_pip = "no module named pip" in lowered
+
+    if missing_pip:
+        ensurepip = subprocess.run(  # noqa: S603
+            [sys.executable, "-m", "ensurepip", "--upgrade"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if ensurepip.returncode == 0:
+            retry = subprocess.run(  # noqa: S603
+                pip_install,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if retry.returncode == 0:
+                return retry
+            completed = retry
+
+    if shutil.which("uv"):
+        uv_completed = subprocess.run(  # noqa: S603
+            ["uv", "pip", "install", "--python", sys.executable, package_name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if uv_completed.returncode == 0:
+            return uv_completed
+        combined_stderr = "\n".join(
+            part
+            for part in [completed.stderr.strip(), uv_completed.stderr.strip()]
+            if part
+        )
+        combined_stdout = "\n".join(
+            part
+            for part in [completed.stdout.strip(), uv_completed.stdout.strip()]
+            if part
+        )
+        return subprocess.CompletedProcess(
+            args=uv_completed.args,
+            returncode=uv_completed.returncode,
+            stdout=combined_stdout,
+            stderr=combined_stderr,
+        )
+
+    return completed
 
 
 def create_llm_provider(config: LLMConfig) -> LLMProvider:
