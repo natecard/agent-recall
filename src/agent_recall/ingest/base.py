@@ -31,6 +31,7 @@ class RawSession(BaseModel):
 
     source: str  # "cursor" | "claude-code"
     session_id: str
+    title: str | None = None
     project_path: Path | None = None
     started_at: datetime
     ended_at: datetime | None = None

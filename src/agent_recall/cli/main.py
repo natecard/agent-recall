@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -58,6 +59,75 @@ from agent_recall.storage.sqlite import SQLiteStorage
 app = typer.Typer(help="Agent Memory System - Persistent knowledge for AI coding agents")
 _slash_runner = CliRunner()
 config_app = typer.Typer(help="Manage onboarding and model configuration")
+_ansi_escape_pattern = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+_box_drawing_translation = str.maketrans(
+    {
+        "│": " ",
+        "┃": " ",
+        "─": " ",
+        "━": " ",
+        "┄": " ",
+        "┅": " ",
+        "┆": " ",
+        "┇": " ",
+        "┈": " ",
+        "┉": " ",
+        "┊": " ",
+        "┋": " ",
+        "┌": " ",
+        "┍": " ",
+        "┎": " ",
+        "┏": " ",
+        "┐": " ",
+        "┑": " ",
+        "┒": " ",
+        "┓": " ",
+        "└": " ",
+        "┕": " ",
+        "┖": " ",
+        "┗": " ",
+        "┘": " ",
+        "┙": " ",
+        "┚": " ",
+        "┛": " ",
+        "├": " ",
+        "┝": " ",
+        "┞": " ",
+        "┟": " ",
+        "┠": " ",
+        "┡": " ",
+        "┢": " ",
+        "┣": " ",
+        "┤": " ",
+        "┥": " ",
+        "┦": " ",
+        "┧": " ",
+        "┨": " ",
+        "┩": " ",
+        "┪": " ",
+        "┫": " ",
+        "┬": " ",
+        "┭": " ",
+        "┮": " ",
+        "┯": " ",
+        "┰": " ",
+        "┱": " ",
+        "┲": " ",
+        "┳": " ",
+        "┴": " ",
+        "┵": " ",
+        "┶": " ",
+        "┷": " ",
+        "┸": " ",
+        "┹": " ",
+        "┺": " ",
+        "┻": " ",
+        "┼": " ",
+        "┽": " ",
+        "┾": " ",
+        "┿": " ",
+    }
+)
 
 # Initialize theme manager and console
 _theme_manager = ThemeManager(DEFAULT_THEME)
@@ -166,6 +236,29 @@ def _as_clickable_uri(location: str) -> str:
     return location
 
 
+def _format_session_time(value: datetime | None) -> str:
+    if value is None:
+        return "-"
+    normalized = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return normalized.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _truncate_text(value: str, max_chars: int) -> str:
+    cleaned = " ".join(value.split()).strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return f"{cleaned[: max_chars - 1].rstrip()}…"
+
+
+def _compact_session_ref(session_id: str, max_chars: int = 18) -> str:
+    cleaned = session_id.strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+    head = max_chars // 2 - 1
+    tail = max_chars - head - 1
+    return f"{cleaned[:head]}…{cleaned[-tail:]}"
+
+
 def _resolve_repo_root_for_display(start: Path | None = None) -> Path:
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
@@ -260,6 +353,12 @@ def _read_tui_command(timeout_seconds: float) -> str | None:
     return line.rstrip("\n")
 
 
+def _normalize_tui_output_line(line: str) -> str:
+    without_ansi = _ansi_escape_pattern.sub("", line)
+    without_box_chars = without_ansi.translate(_box_drawing_translation)
+    return " ".join(without_box_chars.split())
+
+
 def _execute_tui_slash_command(raw: str) -> tuple[bool, list[str]]:
     value = _normalize_tui_command(raw)
     if not value:
@@ -310,13 +409,21 @@ def _execute_tui_slash_command(raw: str) -> tuple[bool, list[str]]:
 
     output = result.output.strip()
     if output:
-        output_lines = output.splitlines()
-        max_lines = 8
-        for line in output_lines[:max_lines]:
+        raw_output_lines = output.splitlines()
+        meaningful_lines = []
+        for raw_line in raw_output_lines:
+            normalized = _normalize_tui_output_line(raw_line)
+            if not normalized:
+                continue
+            if not any(char.isalnum() for char in normalized):
+                continue
+            meaningful_lines.append(normalized)
+        if meaningful_lines:
+            output_lines = meaningful_lines
+        else:
+            output_lines = [line for line in raw_output_lines if line.strip()]
+        for line in output_lines:
             lines.append(f"[dim]{escape(line)}[/dim]")
-        remaining = len(output_lines) - max_lines
-        if remaining > 0:
-            lines.append(f"[dim]... and {remaining} more line(s)[/dim]")
 
     return False, lines
 
@@ -595,6 +702,18 @@ def sync(
         "-d",
         help="Only sync sessions from the last N days",
     ),
+    session_id: list[str] = typer.Option(
+        None,
+        "--session-id",
+        help="Only sync specific source session ID(s); repeat option to include multiple",
+    ),
+    max_sessions: int | None = typer.Option(
+        None,
+        "--max-sessions",
+        "-n",
+        min=1,
+        help="Limit sync to the most recent N discovered sessions",
+    ),
     force: bool = typer.Option(
         False,
         "--force",
@@ -638,6 +757,8 @@ def sync(
     since = datetime.now(UTC) - timedelta(days=since_days) if since_days else None
     selected_sources = None if source else _get_repo_selected_sources(files)
     sources = [source] if source else selected_sources
+    selected_session_ids = [item.strip() for item in (session_id or []) if item.strip()]
+    session_ids = selected_session_ids or None
 
     if source:
         try:
@@ -676,11 +797,20 @@ def sync(
                     auto_sync.sync_and_compact(
                         since=since,
                         sources=sources,
+                        session_ids=session_ids,
+                        max_sessions=max_sessions,
                         force_compact=force,
                     )
                 )
             else:
-                results = asyncio.run(auto_sync.sync(since=since, sources=sources))
+                results = asyncio.run(
+                    auto_sync.sync(
+                        since=since,
+                        sources=sources,
+                        session_ids=session_ids,
+                        max_sessions=max_sessions,
+                    )
+                )
         except Exception as exc:  # noqa: BLE001
             console.print(f"[error]Sync failed: {exc}[/error]")
             raise typer.Exit(1) from None
@@ -688,6 +818,10 @@ def sync(
     lines = [""]
     if selected_sources and not source:
         lines.append(f"Using configured sources: {', '.join(selected_sources)}")
+    if session_ids:
+        lines.append(f"Requested session IDs: {len(session_ids)}")
+    if max_sessions is not None:
+        lines.append(f"Max sessions: {max_sessions}")
     lines.append(f"Sessions discovered: {results['sessions_discovered']}")
     lines.append(f"Sessions processed:  {results['sessions_processed']}")
     if int(results["sessions_skipped"]) > 0:
@@ -739,6 +873,178 @@ def sync(
     console.print(Panel.fit("\n".join(lines), title=title))
 
 
+@app.command("sessions")
+def sessions(
+    source: str | None = typer.Option(
+        None,
+        "--source",
+        "-s",
+        help="Only list sessions from specific source: cursor, claude-code",
+    ),
+    since_days: int | None = typer.Option(
+        None,
+        "--since-days",
+        "-d",
+        help="Only list sessions from the last N days",
+    ),
+    session_id: list[str] = typer.Option(
+        None,
+        "--session-id",
+        help="Only include specific source session ID(s); repeat option to include multiple",
+    ),
+    max_sessions: int | None = typer.Option(
+        None,
+        "--max-sessions",
+        "-n",
+        min=1,
+        help="Limit list to the most recent N discovered sessions",
+    ),
+    format: str = typer.Option(
+        "table",
+        "--format",
+        help="Output format: table or json",
+    ),
+    cursor_db_path: Path | None = typer.Option(
+        None,
+        "--cursor-db-path",
+        help="Path to a specific Cursor state.vscdb for testing/override",
+    ),
+    cursor_storage_dir: Path | None = typer.Option(
+        None,
+        "--cursor-storage-dir",
+        help="Override Cursor workspaceStorage root path",
+    ),
+    all_cursor_workspaces: bool = typer.Option(
+        False,
+        "--all-cursor-workspaces",
+        help="Include Cursor sessions from all workspaces (not only current repo match)",
+    ),
+):
+    """List discoverable agent sessions with source IDs and inferred titles."""
+    _get_theme_manager()  # Ensure theme is loaded
+    storage = get_storage()
+    files = get_files()
+
+    since = datetime.now(UTC) - timedelta(days=since_days) if since_days else None
+    selected_sources = None if source else _get_repo_selected_sources(files)
+    sources = [source] if source else selected_sources
+    selected_session_ids = [item.strip() for item in (session_id or []) if item.strip()]
+    session_ids = selected_session_ids or None
+
+    if source:
+        try:
+            ingesters = [
+                get_ingester(
+                    source,
+                    cursor_db_path=cursor_db_path,
+                    workspace_storage_dir=cursor_storage_dir,
+                    cursor_all_workspaces=all_cursor_workspaces,
+                )
+            ]
+        except ValueError as exc:
+            console.print(f"[error]{exc}[/error]")
+            raise typer.Exit(1) from None
+    else:
+        ingesters = get_default_ingesters(
+            cursor_db_path=cursor_db_path,
+            workspace_storage_dir=cursor_storage_dir,
+            cursor_all_workspaces=all_cursor_workspaces,
+        )
+        ingesters = _filter_ingesters_by_sources(ingesters, selected_sources)
+
+    auto_sync = AutoSync(storage, files, llm=None, ingesters=ingesters)
+    results = run_with_spinner(
+        "Discovering sessions...",
+        lambda: auto_sync.list_sessions(
+            since=since,
+            sources=sources,
+            session_ids=session_ids,
+            max_sessions=max_sessions,
+        ),
+    )
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        payload = {
+            "sessions_discovered": results["sessions_discovered"],
+            "by_source": results["by_source"],
+            "errors": results["errors"],
+            "sessions": [
+                {
+                    **{
+                        key: value
+                        for key, value in session_row.items()
+                        if key not in {"started_at", "ended_at", "session_path", "project_path"}
+                    },
+                    "started_at": (
+                        session_row["started_at"].isoformat()
+                        if isinstance(session_row.get("started_at"), datetime)
+                        else None
+                    ),
+                    "ended_at": (
+                        session_row["ended_at"].isoformat()
+                        if isinstance(session_row.get("ended_at"), datetime)
+                        else None
+                    ),
+                    "session_path": str(session_row["session_path"]),
+                    "project_path": (
+                        str(session_row["project_path"])
+                        if isinstance(session_row.get("project_path"), Path)
+                        else None
+                    ),
+                }
+                for session_row in results["sessions"]
+            ],
+        }
+        console.print(json.dumps(payload, indent=2))
+        return
+
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+
+    if selected_sources and not source:
+        console.print(f"[dim]Configured sources: {', '.join(selected_sources)}[/dim]")
+    if session_ids:
+        console.print(f"[dim]Requested session IDs: {len(session_ids)}[/dim]")
+    if max_sessions is not None:
+        console.print(f"[dim]Max sessions: {max_sessions}[/dim]")
+
+    table = Table(title="Discovered Sessions", box=box.SIMPLE_HEAVY)
+    table.add_column("Source", style="table_header")
+    table.add_column("Session ID", overflow="fold")
+    table.add_column("Title", overflow="fold")
+    table.add_column("Started", overflow="fold")
+    table.add_column("Messages", justify="right")
+    table.add_column("Status")
+
+    for session_row in results["sessions"]:
+        title_text = str(session_row.get("title") or "-")
+        table.add_row(
+            str(session_row["source"]),
+            str(session_row["session_id"]),
+            title_text,
+            _format_session_time(session_row.get("started_at")),
+            str(session_row.get("message_count", 0)),
+            (
+                "[success]processed[/success]"
+                if session_row.get("processed")
+                else "[accent]new[/accent]"
+            ),
+        )
+
+    console.print(table)
+
+    errors = results.get("errors") or []
+    if errors:
+        warning_lines = ["", f"[warning]Warnings: {len(errors)}[/warning]"]
+        for error in errors[:10]:
+            warning_lines.append(f"[dim]- {error}[/dim]")
+        if len(errors) > 10:
+            warning_lines.append(f"[dim]... and {len(errors) - 10} more[/dim]")
+        console.print("\n".join(warning_lines))
+
+
 @app.command()
 def sources(
     all_cursor_workspaces: bool = typer.Option(
@@ -746,10 +1052,18 @@ def sources(
         "--all-cursor-workspaces",
         help="Show Cursor sessions from all workspaces, not only current repo match",
     ),
+    max_sessions: int | None = typer.Option(
+        None,
+        "--max-sessions",
+        "-n",
+        min=1,
+        help="Limit detailed session list to the most recent N sessions",
+    ),
 ):
-    """Show available native session sources and discovery status."""
+    """Show source status and discovered sessions/conversations."""
     _get_theme_manager()  # Ensure theme is loaded
     ensure_initialized()
+    storage = get_storage()
     files = get_files()
 
     selected_sources = _get_repo_selected_sources(files)
@@ -808,6 +1122,51 @@ def sources(
         table.add_row(*row)
 
     console.print(table)
+
+    auto_sync = AutoSync(storage, files, llm=None, ingesters=ingesters)
+    session_results = run_with_spinner(
+        "Loading session details...",
+        lambda: auto_sync.list_sessions(max_sessions=max_sessions),
+    )
+
+    sessions = session_results.get("sessions", [])
+    if not sessions:
+        console.print("[dim]No session conversations discovered.[/dim]")
+        return
+
+    sessions_table = Table(title="Discovered Conversations", box=box.SIMPLE_HEAVY)
+    sessions_table.add_column("#", justify="right", style="table_header")
+    sessions_table.add_column("Conversation", overflow="fold")
+    sessions_table.add_column("Started", overflow="fold")
+    sessions_table.add_column("Messages", justify="right")
+    sessions_table.add_column("Status")
+    sessions_table.add_column("Ref", overflow="fold")
+
+    for index, session_row in enumerate(sessions, start=1):
+        title = str(session_row.get("title") or "").strip()
+        conversation = title if title else "Untitled conversation"
+        sessions_table.add_row(
+            str(index),
+            _truncate_text(conversation, 72),
+            _format_session_time(session_row.get("started_at")),
+            str(session_row.get("message_count", 0)),
+            (
+                "[success]processed[/success]"
+                if session_row.get("processed")
+                else "[accent]new[/accent]"
+            ),
+            _compact_session_ref(str(session_row["session_id"])),
+        )
+
+    console.print(sessions_table)
+
+    errors = session_results.get("errors") or []
+    if errors:
+        console.print(f"[warning]Warnings: {len(errors)}[/warning]")
+        for error in errors[:10]:
+            console.print(f"[dim]- {error}[/dim]")
+        if len(errors) > 10:
+            console.print(f"[dim]... and {len(errors) - 10} more[/dim]")
 
 
 @app.command()
@@ -1257,6 +1616,17 @@ def _run_model_config_for_tui(
     return [line.strip() for line in temp_output.getvalue().splitlines() if line.strip()][-12:]
 
 
+def _get_theme_defaults_for_tui() -> tuple[list[str], str]:
+    current_theme = DEFAULT_THEME
+    if AGENT_DIR.exists():
+        try:
+            config_dict = get_files().read_config()
+            current_theme = config_dict.get("theme", {}).get("name", DEFAULT_THEME)
+        except Exception:  # noqa: BLE001
+            pass
+    return ThemeManager.get_available_themes(), current_theme
+
+
 @app.command(hidden=True)
 def onboard(
     force: bool = typer.Option(
@@ -1382,6 +1752,11 @@ def tui(
             execute_command=lambda raw: _execute_tui_slash_command(_normalize_tui_command(raw)),
             run_setup_payload=_run_setup_from_payload,
             run_model_config=_run_model_config_for_tui,
+            theme_defaults_provider=_get_theme_defaults_for_tui,
+            theme_runtime_provider=lambda: (
+                _theme_manager.get_theme_name(),
+                _theme_manager.get_theme(),
+            ),
             model_defaults_provider=lambda: get_files().read_config().get("llm", {}),
             setup_defaults_provider=lambda: get_onboarding_defaults(get_files()),
             discover_models=lambda provider, base_url, api_key_env: discover_provider_models(
