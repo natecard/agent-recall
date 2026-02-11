@@ -244,13 +244,6 @@ def _format_session_time(value: datetime | None) -> str:
     return normalized.strftime("%Y-%m-%d %H:%M UTC")
 
 
-def _truncate_text(value: str, max_chars: int) -> str:
-    cleaned = " ".join(value.split()).strip()
-    if len(cleaned) <= max_chars:
-        return cleaned
-    return f"{cleaned[: max_chars - 1].rstrip()}…"
-
-
 def _compact_session_ref(session_id: str, max_chars: int = 18) -> str:
     cleaned = session_id.strip()
     if len(cleaned) <= max_chars:
@@ -258,6 +251,14 @@ def _compact_session_ref(session_id: str, max_chars: int = 18) -> str:
     head = max_chars // 2 - 1
     tail = max_chars - head - 1
     return f"{cleaned[:head]}…{cleaned[-tail:]}"
+
+
+def _conversation_table_mode(width: int) -> str:
+    if width >= 150:
+        return "wide"
+    if width >= 120:
+        return "medium"
+    return "compact"
 
 
 def _resolve_repo_root_for_display(start: Path | None = None) -> Path:
@@ -374,7 +375,12 @@ def _looks_like_table_output(lines: list[str]) -> bool:
     return table_like_rows >= 2
 
 
-def _execute_tui_slash_command(raw: str) -> tuple[bool, list[str]]:
+def _execute_tui_slash_command(
+    raw: str,
+    *,
+    terminal_width: int | None = None,
+    terminal_height: int | None = None,
+) -> tuple[bool, list[str]]:
     value = _normalize_tui_command(raw)
     if not value:
         return False, []
@@ -413,7 +419,23 @@ def _execute_tui_slash_command(raw: str) -> tuple[bool, list[str]]:
     if command_name == "tui":
         return False, ["[warning]/tui is already running.[/warning]"]
 
-    result = _slash_runner.invoke(app, parts)
+    invoke_env: dict[str, str] | None = None
+    if terminal_width is not None or terminal_height is not None:
+        invoke_env = {}
+        if terminal_width is not None and terminal_width > 0:
+            invoke_env["COLUMNS"] = str(int(terminal_width))
+        if terminal_height is not None and terminal_height > 0:
+            invoke_env["LINES"] = str(int(terminal_height))
+
+    runner_terminal_width = (
+        terminal_width if terminal_width is not None and terminal_width > 0 else 120
+    )
+    result = _slash_runner.invoke(
+        app,
+        parts,
+        env=invoke_env,
+        terminal_width=max(runner_terminal_width, 80),
+    )
     command_label = "/" + " ".join(parts)
 
     lines: list[str] = []
@@ -1155,30 +1177,60 @@ def sources(
         console.print("[dim]No session conversations discovered.[/dim]")
         return
 
+    mode = _conversation_table_mode(console.width)
     sessions_table = Table(
         title="Discovered Conversations",
         box=box.SQUARE,
         show_lines=True,
         expand=True,
     )
-    sessions_table.add_column("#", justify="right", style="table_header")
+    sessions_table.add_column("#", justify="right", style="table_header", no_wrap=True, width=3)
     sessions_table.add_column("Conversation", overflow="fold")
-    sessions_table.add_column("Started", overflow="fold")
-    sessions_table.add_column("Messages", justify="right")
-    sessions_table.add_column("Processed", justify="center")
-    sessions_table.add_column("Ref", overflow="fold")
+
+    if mode == "wide":
+        sessions_table.add_column("Started", no_wrap=True, width=20)
+        sessions_table.add_column("Messages", justify="right", no_wrap=True, width=8)
+        sessions_table.add_column("Processed", justify="center", no_wrap=True, width=9)
+        sessions_table.add_column("Ref", overflow="fold", no_wrap=True, width=13)
+    elif mode == "medium":
+        sessions_table.add_column("Started", no_wrap=True, width=20)
+        sessions_table.add_column("Messages", justify="right", no_wrap=True, width=8)
+        sessions_table.add_column("Processed", justify="center", no_wrap=True, width=9)
+    else:
+        sessions_table.add_column("Messages", justify="right", no_wrap=True, width=8)
+        sessions_table.add_column("Processed", justify="center", no_wrap=True, width=9)
 
     for index, session_row in enumerate(sessions, start=1):
         title = str(session_row.get("title") or "").strip()
         conversation = title if title else "Untitled conversation"
-        sessions_table.add_row(
-            str(index),
-            _truncate_text(conversation, 72),
-            _format_session_time(session_row.get("started_at")),
-            str(session_row.get("message_count", 0)),
-            "[success]✓[/success]" if session_row.get("processed") else "[warning]X[/warning]",
-            _compact_session_ref(str(session_row["session_id"])),
+        processed = (
+            "[success]✓[/success]" if session_row.get("processed") else "[warning]X[/warning]"
         )
+
+        if mode == "wide":
+            sessions_table.add_row(
+                str(index),
+                conversation,
+                _format_session_time(session_row.get("started_at")),
+                str(session_row.get("message_count", 0)),
+                processed,
+                _compact_session_ref(str(session_row["session_id"])),
+            )
+        elif mode == "medium":
+            sessions_table.add_row(
+                str(index),
+                conversation,
+                _format_session_time(session_row.get("started_at")),
+                str(session_row.get("message_count", 0)),
+                processed,
+            )
+        else:
+            sessions_table.add_row(
+                str(index),
+                conversation,
+                str(session_row.get("message_count", 0)),
+                processed,
+            )
 
     console.print(sessions_table)
 
@@ -1771,7 +1823,11 @@ def tui(
     try:
         app_instance = AgentRecallTextualApp(
             render_dashboard=_build_tui_dashboard,
-            execute_command=lambda raw: _execute_tui_slash_command(_normalize_tui_command(raw)),
+            execute_command=lambda raw, width, height: _execute_tui_slash_command(
+                _normalize_tui_command(raw),
+                terminal_width=width,
+                terminal_height=max(height * 2, 200),
+            ),
             run_setup_payload=_run_setup_from_payload,
             run_model_config=_run_model_config_for_tui,
             theme_defaults_provider=_get_theme_defaults_for_tui,

@@ -307,8 +307,51 @@ def test_cli_sources(monkeypatch) -> None:
         assert "Discovered Conversations" in result.output
         assert "Session a" in result.output
         assert "Conversation" in result.output
-        assert "Ref" in result.output
         assert "Session ID" not in result.output
+        assert "Processed" in result.output
+
+
+def test_cli_sources_conversation_table_responsive_columns(monkeypatch) -> None:
+    long_title = (
+        "Downloads view progress and season grouping now includes "
+        "expanded metadata visibility"
+    )
+
+    class LongTitleIngester(FakeIngester):
+        def parse_session(self, path: Path) -> RawSession:
+            return RawSession(
+                source=self.source_name,
+                session_id=self.get_session_id(path),
+                title=long_title,
+                project_path=path.parent,
+                started_at=datetime.now(UTC),
+                ended_at=datetime.now(UTC),
+                messages=[
+                    RawMessage(role="user", content=f"Inspect {path.stem}"),
+                    RawMessage(role="assistant", content=f"Reviewed {path.stem}"),
+                ],
+            )
+
+    monkeypatch.setattr(
+        cli_main,
+        "get_default_ingesters",
+        lambda **_kwargs: [LongTitleIngester("cursor", [Path("a")])],
+    )
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+
+        monkeypatch.setattr(cli_main, "_conversation_table_mode", lambda _width: "wide")
+        wide = runner.invoke(cli_main.app, ["sources"])
+
+        monkeypatch.setattr(cli_main, "_conversation_table_mode", lambda _width: "compact")
+        compact = runner.invoke(cli_main.app, ["sources"])
+
+        assert wide.exit_code == 0
+        assert compact.exit_code == 0
+        assert "Ref" in wide.output
+        assert "Ref" not in compact.output
+        assert long_title.split()[-1] in compact.output
 
 
 def test_cli_providers_command() -> None:
@@ -678,17 +721,29 @@ def test_tui_slash_compact_dispatch(monkeypatch) -> None:
         exit_code = 0
         output = "Compaction complete\nChunks indexed: 3\n"
 
-    monkeypatch.setattr(
-        cli_main._slash_runner,
-        "invoke",
-        lambda *_args, **_kwargs: FakeResult(),
-    )
+    captured = {"terminal_width": None, "columns": None, "lines": None}
 
-    should_exit, lines = cli_main._execute_tui_slash_command("/compact --force")
+    def fake_invoke(*_args, **kwargs):
+        captured["terminal_width"] = kwargs.get("terminal_width")
+        env = kwargs.get("env") or {}
+        captured["columns"] = env.get("COLUMNS")
+        captured["lines"] = env.get("LINES")
+        return FakeResult()
+
+    monkeypatch.setattr(cli_main._slash_runner, "invoke", fake_invoke)
+
+    should_exit, lines = cli_main._execute_tui_slash_command(
+        "/compact --force",
+        terminal_width=132,
+        terminal_height=44,
+    )
 
     assert should_exit is False
     assert any("/compact --force" in line for line in lines)
     assert any("Compaction complete" in line for line in lines)
+    assert captured["terminal_width"] == 132
+    assert captured["columns"] == "132"
+    assert captured["lines"] == "44"
 
 
 def test_tui_slash_preserves_table_output(monkeypatch) -> None:
@@ -782,6 +837,12 @@ def test_tui_view_command_rejects_unknown_view() -> None:
 def test_tui_normalize_command_accepts_non_slash() -> None:
     assert cli_main._normalize_tui_command("config setup --quick") == "/config setup --quick"
     assert cli_main._normalize_tui_command("/status") == "/status"
+
+
+def test_conversation_table_mode_thresholds() -> None:
+    assert cli_main._conversation_table_mode(160) == "wide"
+    assert cli_main._conversation_table_mode(130) == "medium"
+    assert cli_main._conversation_table_mode(100) == "compact"
 
 
 def test_tui_slash_config_setup_uses_direct_flow(monkeypatch) -> None:

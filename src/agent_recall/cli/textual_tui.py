@@ -22,6 +22,9 @@ from textual.worker import Worker, WorkerState
 from agent_recall.core.onboarding import API_KEY_ENV_BY_PROVIDER
 
 DiscoverModelsFn = Callable[[str, str | None, str | None], tuple[list[str], str | None]]
+ThemeDefaultsFn = Callable[[], tuple[list[str], str]]
+ThemeRuntimeFn = Callable[[], tuple[str, Theme]]
+ExecuteCommandFn = Callable[[str, int, int], tuple[bool, list[str]]]
 
 _PROVIDER_BASE_URL_DEFAULTS = {
     "anthropic": "https://api.anthropic.com/v1",
@@ -90,10 +93,57 @@ def _build_command_suggestions(cli_commands: list[str]) -> list[str]:
     return suggestions
 
 
+def _normalize_palette_command(value: str) -> str:
+    cleaned = value.strip().lower()
+    if cleaned.startswith("/"):
+        cleaned = cleaned[1:].strip()
+    return cleaned
+
+
+def _is_palette_cli_command_redundant(command: str) -> bool:
+    normalized = _normalize_palette_command(command)
+    if not normalized:
+        return True
+
+    # Distinct subcommands that provide unique value in palette UX.
+    distinct_subcommands = {
+        "theme show",
+    }
+    if normalized in distinct_subcommands:
+        return False
+
+    exact = {
+        "status",
+        "sync",
+        "compact",
+        "sources",
+        "sessions",
+        "settings",
+        "preferences",
+        "setup",
+        "model",
+        "theme",
+    }
+    if normalized in exact:
+        return True
+
+    prefixes = (
+        "view ",
+        "menu ",
+        "theme ",
+        "config setup",
+        "config model",
+        "config settings",
+        "config preferences",
+    )
+    return normalized.startswith(prefixes)
+
+
 @dataclass(frozen=True)
 class PaletteAction:
     action_id: str
     title: str
+    description: str
     group: str
     shortcut: str = ""
     keywords: str = ""
@@ -111,9 +161,15 @@ class CommandPaletteModal(ModalScreen[str | None]):
         with Container(id="palette_overlay"):
             with Vertical(id="palette_card"):
                 yield Static("Commands", id="palette_title")
-                yield Input(placeholder="Search commands...", id="palette_search")
+                yield Input(
+                    placeholder="Type to search or run a command…",
+                    id="palette_search",
+                )
                 yield OptionList(id="palette_options")
-                yield Static("Enter run  Up/Down move  Esc close", id="palette_hint")
+                yield Static(
+                    "↑↓ navigate · Enter run · Esc close",
+                    id="palette_hint",
+                )
 
     def on_mount(self) -> None:
         self.query_one("#palette_search", Input).focus()
@@ -158,14 +214,17 @@ class CommandPaletteModal(ModalScreen[str | None]):
         query = self.query_text.strip().lower()
         grouped: dict[str, list[PaletteAction]] = defaultdict(list)
         for action in self.actions:
-            haystack = f"{action.title} {action.group} {action.keywords} {action.shortcut}".lower()
+            haystack = (
+                f"{action.title} {action.description} {action.group} "
+                f"{action.keywords} {action.shortcut}"
+            ).lower()
             if query and query not in haystack:
                 continue
             grouped[action.group].append(action)
 
         options: list[Option] = []
         if query:
-            options.append(Option("[b]Run[/b]", id="heading:run", disabled=True))
+            options.append(Option("[b]Run command[/b]", id="heading:run", disabled=True))
             options.append(Option(f"Run: {self.query_text.strip()}", id="action:run-query"))
         grouped_order = ["Suggested", "Session", "CLI", "Agent", "Provider", "Views", "Maintenance"]
         for group in grouped_order:
@@ -179,7 +238,7 @@ class CommandPaletteModal(ModalScreen[str | None]):
                 shortcut_text = f" [dim]{action.shortcut}[/dim]" if action.shortcut else ""
                 options.append(
                     Option(
-                        f"{action.title}{shortcut_text}",
+                        f"{action.title} [dim]- {action.description}[/dim]{shortcut_text}",
                         id=f"action:{action.action_id}",
                     )
                 )
@@ -805,12 +864,29 @@ class AgentRecallTextualApp(App[None]):
         width: 100%;
     }
     #dashboard {
+        height: auto;
+        overflow: auto;
+        min-height: 0;
+    }
+    #activity {
+        height: 1fr;
+        min-height: 4;
+        overflow: auto;
+    }
+    #activity_log {
         height: 1fr;
         overflow: auto;
     }
-    #activity {
-        height: 7;
+    #activity_result_list {
+        height: 1fr;
         overflow: auto;
+        display: none;
+    }
+    #activity_theme_picker {
+        height: auto;
+        max-height: 12;
+        margin-top: 1;
+        display: none;
     }
     #palette_overlay, #modal_overlay {
         align: center middle;
@@ -833,7 +909,7 @@ class AgentRecallTextualApp(App[None]):
         max-width: 92;
         height: auto;
         max-height: 82%;
-        padding: 1;
+        padding: 1 2;
         background: $panel;
         border: heavy $accent;
         overflow: auto;
@@ -841,6 +917,9 @@ class AgentRecallTextualApp(App[None]):
     #palette_title, .modal_title {
         text-style: bold;
         margin-bottom: 1;
+    }
+    .modal_title {
+        padding-top: 1;
     }
     #palette_search {
         margin-bottom: 0;
@@ -852,9 +931,12 @@ class AgentRecallTextualApp(App[None]):
     #palette_hint, #setup_api_hint, #setup_repo_path {
         color: $text-muted;
     }
+    #palette_hint {
+        margin-top: 1;
+    }
     .field_row {
         height: auto;
-        margin: 0;
+        margin: 0 0 1 0;
     }
     .field_label {
         width: 14;
@@ -869,7 +951,8 @@ class AgentRecallTextualApp(App[None]):
         margin-bottom: 0;
     }
     .modal_actions {
-        margin-top: 0;
+        margin-top: 1;
+        padding-top: 1;
         height: auto;
     }
     #setup_status, #model_error, #settings_error {
@@ -879,12 +962,16 @@ class AgentRecallTextualApp(App[None]):
         margin-top: 0;
         color: $text-muted;
     }
+    #theme_picker_hint {
+        color: $text-muted;
+    }
     """
 
     BINDINGS = [
         Binding("ctrl+p", "command_palette", "Commands"),
         Binding("ctrl+comma", "open_settings_modal", "Settings"),
         Binding("ctrl+r", "refresh_now", "Refresh"),
+        Binding("escape", "close_inline_picker", "Close picker", show=False),
         Binding("ctrl+q", "quit", "Quit"),
     ]
 
@@ -892,12 +979,14 @@ class AgentRecallTextualApp(App[None]):
         self,
         *,
         render_dashboard: Callable[..., Any],
-        execute_command: Callable[[str], tuple[bool, list[str]]],
+        execute_command: ExecuteCommandFn,
         run_setup_payload: Callable[[dict[str, object]], tuple[bool, list[str]]],
         run_model_config: Callable[
             [str | None, str | None, str | None, float | None, int | None, bool],
             list[str],
         ],
+        theme_defaults_provider: ThemeDefaultsFn,
+        theme_runtime_provider: ThemeRuntimeFn | None = None,
         model_defaults_provider: Callable[[], dict[str, Any]],
         setup_defaults_provider: Callable[[], dict[str, Any]],
         discover_models: DiscoverModelsFn,
@@ -913,6 +1002,8 @@ class AgentRecallTextualApp(App[None]):
         self._execute_command = execute_command
         self._run_setup_payload = run_setup_payload
         self._run_model_config = run_model_config
+        self._theme_defaults_provider = theme_defaults_provider
+        self._theme_runtime_provider = theme_runtime_provider
         self._model_defaults_provider = model_defaults_provider
         self._setup_defaults_provider = setup_defaults_provider
         self._discover_models = discover_models
@@ -922,11 +1013,14 @@ class AgentRecallTextualApp(App[None]):
         ]
         self._command_suggestions = _build_command_suggestions(self._cli_commands)
         self._rich_theme = rich_theme
+        self._active_theme_name: str | None = None
         self.current_view = initial_view
         self.refresh_seconds = refresh_seconds
         self.all_cursor_workspaces = all_cursor_workspaces
         self.status = "Ready. Press Ctrl+P for commands."
-        self.activity: deque[str] = deque(maxlen=24)
+        self.activity: deque[str] = deque(maxlen=2000)
+        self._theme_picker_open = False
+        self._result_list_open = False
         self._refresh_timer = None
         self._worker_context: dict[int, str] = {}
 
@@ -934,14 +1028,20 @@ class AgentRecallTextualApp(App[None]):
         yield Header(show_clock=True)
         with Vertical(id="root"):
             yield Static(id="dashboard")
-            yield Static(id="activity")
+            with Vertical(id="activity"):
+                yield Static(id="activity_log")
+                yield OptionList(id="activity_result_list")
+                yield OptionList(id="activity_theme_picker")
         yield Footer()
 
     def on_mount(self) -> None:
-        if self._rich_theme is not None:
+        if self._theme_runtime_provider is not None:
+            self._sync_runtime_theme()
+        elif self._rich_theme is not None:
             self.console.push_theme(self._rich_theme)
+            self._active_theme_name = "__initial__"
         self._configure_refresh_timer(self.refresh_seconds)
-        self._append_activity("Opened TUI. Press Ctrl+P for command palette.")
+        self._append_activity("TUI ready. Press Ctrl+P for commands.")
         self._refresh_dashboard_panel()
 
     def action_command_palette(self) -> None:
@@ -983,6 +1083,13 @@ class AgentRecallTextualApp(App[None]):
             self._apply_model_modal_result,
         )
 
+    def action_close_inline_picker(self) -> None:
+        if not self._theme_picker_open:
+            if self._result_list_open:
+                self._close_inline_result_list(announce=False)
+            return
+        self._close_inline_theme_picker(announce=False)
+
     def action_refresh_now(self) -> None:
         self._refresh_dashboard_panel()
         self._append_activity("Manual refresh complete.")
@@ -993,6 +1100,7 @@ class AgentRecallTextualApp(App[None]):
         self._refresh_timer = self.set_interval(refresh_seconds, self._refresh_dashboard_panel)
 
     def _refresh_dashboard_panel(self) -> None:
+        self._sync_runtime_theme()
         renderable = self._render_dashboard(
             all_cursor_workspaces=self.all_cursor_workspaces,
             include_banner_header=True,
@@ -1004,24 +1112,116 @@ class AgentRecallTextualApp(App[None]):
         self._refresh_activity_panel()
 
     def _refresh_activity_panel(self) -> None:
-        lines = "\n".join(self.activity) if self.activity else "No activity yet."
-        subtitle = (
-            f"view={self.current_view} refresh={self.refresh_seconds:.1f}s "
-            f"all_cursor_workspaces={'yes' if self.all_cursor_workspaces else 'no'}"
-        )
-        self.query_one("#activity", Static).update(
-            Panel(lines, title=self.status, subtitle=subtitle)
+        history_lines = list(self.activity) if self.activity else ["No activity yet."]
+        lines = "\n".join(history_lines)
+        subtitle = f"{self.current_view} · {self.refresh_seconds:.1f}s · Ctrl+P commands"
+        title = self.status
+        if self._worker_context:
+            title = f"{title} …"
+        self.query_one("#activity_log", Static).update(
+            Panel(lines, title=title, subtitle=subtitle)
         )
 
     def _append_activity(self, line: str) -> None:
         self.activity.append(line)
         self._refresh_activity_panel()
 
+    def _show_inline_result_list(self, lines: list[str]) -> None:
+        if not lines:
+            return
+
+        picker = self.query_one("#activity_result_list", OptionList)
+        picker.set_options(
+            [Option(line, id=f"output:{index}") for index, line in enumerate(lines, start=1)]
+        )
+        picker.highlighted = 0
+        picker.styles.display = "block"
+        self.query_one("#activity_log", Static).styles.display = "none"
+        self._result_list_open = True
+        self.status = "Command output list"
+        picker.focus()
+
+    def _close_inline_result_list(self, announce: bool = True) -> None:
+        if not self._result_list_open:
+            return
+        picker = self.query_one("#activity_result_list", OptionList)
+        picker.styles.display = "none"
+        self.query_one("#activity_log", Static).styles.display = "block"
+        self._result_list_open = False
+        if announce:
+            self._append_activity("Closed command output list.")
+
+    def _sync_runtime_theme(self) -> None:
+        if self._theme_runtime_provider is None:
+            return
+        try:
+            theme_name, theme = self._theme_runtime_provider()
+        except Exception:  # noqa: BLE001
+            return
+        self._apply_theme(theme_name, theme)
+
+    def _apply_theme(self, theme_name: str, theme: Theme) -> None:
+        if self._active_theme_name == theme_name:
+            return
+        if self._active_theme_name is not None:
+            self.console.pop_theme()
+        self.console.push_theme(theme)
+        self._active_theme_name = theme_name
+
+    def _open_inline_theme_picker(self) -> None:
+        themes, current_theme = self._theme_defaults_provider()
+        if not themes:
+            self.status = "No themes available"
+            self._append_activity("No themes available.")
+            return
+
+        if self._result_list_open:
+            self._close_inline_result_list(announce=False)
+
+        picker = self.query_one("#activity_theme_picker", OptionList)
+        picker.set_options(
+            [
+                Option(
+                    (
+                        f"{theme} [green]✓ Current[/green]"
+                        if theme == current_theme
+                        else theme
+                    ),
+                    id=f"theme:{theme}",
+                )
+                for theme in themes
+            ]
+        )
+
+        selected_index = 0
+        for index, option in enumerate(picker.options):
+            option_id = option.id or ""
+            if option_id == f"theme:{current_theme}":
+                selected_index = index
+                break
+
+        picker.highlighted = selected_index
+        picker.styles.display = "block"
+        self._theme_picker_open = True
+        self.status = "Theme picker"
+        self._append_activity("Theme picker opened. Use arrows + Enter to apply, Esc to close.")
+        picker.focus()
+
+    def _close_inline_theme_picker(self, announce: bool = True) -> None:
+        if not self._theme_picker_open:
+            return
+        picker = self.query_one("#activity_theme_picker", OptionList)
+        picker.styles.display = "none"
+        self._theme_picker_open = False
+        if announce:
+            self._append_activity("Theme picker closed.")
+
     def _palette_actions(self) -> list[PaletteAction]:
         actions = [
             PaletteAction(
                 "setup",
                 "Run setup wizard",
+                "Configure repo, provider, API key, model, and agents",
                 "Suggested",
                 "",
                 "onboarding config setup",
@@ -1029,31 +1229,135 @@ class AgentRecallTextualApp(App[None]):
             PaletteAction(
                 "model",
                 "Configure model",
+                "Update provider, base URL, model, temperature, and token limit",
                 "Suggested",
                 "",
                 "provider model temperature max tokens",
             ),
-            PaletteAction("settings", "Open settings", "Suggested", "", "settings preferences"),
-            PaletteAction("status", "Refresh status", "Session", "", "status dashboard"),
-            PaletteAction("sync", "Sync sessions", "Session", "", "sync ingest"),
-            PaletteAction("compact", "Run compaction", "Session", "", "compact"),
-            PaletteAction("sources", "Inspect sources", "Session", "", "sources cursor claude"),
-            PaletteAction("view:overview", "Overview view", "Views", "", "view overview"),
-            PaletteAction("view:sources", "Sources view", "Views", "", "view sources"),
-            PaletteAction("view:llm", "LLM view", "Views", "", "view llm"),
-            PaletteAction("view:knowledge", "Knowledge view", "Views", "", "view knowledge"),
-            PaletteAction("view:settings", "Settings view", "Views", "", "view settings"),
-            PaletteAction("view:console", "Console view", "Views", "", "view console"),
-            PaletteAction("view:all", "All panels view", "Views", "", "view all"),
-            PaletteAction("quit", "Quit", "Maintenance", "Ctrl+Q", "quit exit"),
+            PaletteAction(
+                "settings",
+                "Open settings",
+                "Change default view, refresh speed, and workspace scope",
+                "Suggested",
+                "",
+                "settings preferences",
+            ),
+            PaletteAction(
+                "status",
+                "Refresh status",
+                "Reload dashboard data immediately",
+                "Session",
+                "",
+                "status dashboard",
+            ),
+            PaletteAction(
+                "sync",
+                "Sync sessions",
+                "Ingest sessions from enabled sources",
+                "Session",
+                "",
+                "sync ingest",
+            ),
+            PaletteAction(
+                "compact",
+                "Run compaction",
+                "Compact index/chunks for lower footprint",
+                "Session",
+                "",
+                "compact",
+            ),
+            PaletteAction(
+                "sources",
+                "Inspect sources",
+                "Show source availability and session counts",
+                "Session",
+                "",
+                "sources cursor claude",
+            ),
+            PaletteAction(
+                "sessions",
+                "Browse sessions",
+                "Show discovered conversations for this repository",
+                "Session",
+                "",
+                "sessions conversations history",
+            ),
+            PaletteAction(
+                "theme",
+                "Pick theme",
+                "Choose a theme with arrows and Enter",
+                "Session",
+                "",
+                "theme list set",
+            ),
+            PaletteAction(
+                "view:overview",
+                "Overview view",
+                "Focus on high-level repository status",
+                "Views",
+                "",
+                "view overview",
+            ),
+            PaletteAction(
+                "view:sources",
+                "Sources view",
+                "Focus on source connectivity and ingest status",
+                "Views",
+                "",
+                "view sources",
+            ),
+            PaletteAction(
+                "view:llm",
+                "LLM view",
+                "Focus on current provider and model settings",
+                "Views",
+                "",
+                "view llm",
+            ),
+            PaletteAction(
+                "view:knowledge",
+                "Knowledge view",
+                "Focus on indexed repository artifacts",
+                "Views",
+                "",
+                "view knowledge",
+            ),
+            PaletteAction(
+                "view:settings",
+                "Settings view",
+                "Focus on runtime and interface settings",
+                "Views",
+                "",
+                "view settings",
+            ),
+            PaletteAction(
+                "view:console",
+                "Console view",
+                "Focus on command output and activity history",
+                "Views",
+                "",
+                "view console",
+            ),
+            PaletteAction(
+                "view:all",
+                "All panels view",
+                "Show all dashboard sections together",
+                "Views",
+                "",
+                "view all",
+            ),
+            PaletteAction("quit", "Quit", "Exit the TUI", "Maintenance", "Ctrl+Q", "quit exit"),
         ]
         for command in self._command_suggestions:
             if command in {"tui"}:
+                continue
+            if _is_palette_cli_command_redundant(command):
                 continue
             actions.append(
                 PaletteAction(
                     f"cmd:{command}",
                     command,
+                    "Run CLI command in TUI",
                     "CLI",
                     "",
                     f"cli command {command}",
@@ -1080,6 +1384,9 @@ class AgentRecallTextualApp(App[None]):
         if action_id == "settings":
             self.action_open_settings_modal()
             return
+        if action_id == "theme":
+            self._open_inline_theme_picker()
+            return
         if action_id == "quit":
             self.exit()
             return
@@ -1095,6 +1402,7 @@ class AgentRecallTextualApp(App[None]):
             "sync": "sync --no-compact",
             "compact": "compact",
             "sources": "sources",
+            "sessions": "sessions",
         }
         command = command_by_action.get(action_id)
         if command:
@@ -1103,10 +1411,16 @@ class AgentRecallTextualApp(App[None]):
     def _run_backend_command(self, command: str) -> None:
         if self._handle_local_command(command):
             return
+        if self._theme_picker_open:
+            self._close_inline_theme_picker(announce=False)
+        if self._result_list_open:
+            self._close_inline_result_list(announce=False)
         self._append_activity(f"> {command}")
         self.status = f"Running: {command}"
+        viewport_width = max(int(self.size.width or 0), 80)
+        viewport_height = max(int(self.size.height or 0), 24)
         worker = self.run_worker(
-            lambda: self._execute_command(command),
+            lambda: self._execute_command(command, viewport_width, viewport_height),
             thread=True,
             group="tui-ops",
             exclusive=True,
@@ -1180,7 +1494,33 @@ class AgentRecallTextualApp(App[None]):
             self._refresh_dashboard_panel()
             return True
 
+        if action == "theme":
+            if len(parts) == 1:
+                self._open_inline_theme_picker()
+                return True
+            if second == "list":
+                self._open_inline_theme_picker()
+                return True
+            if second == "set" and len(parts) == 2:
+                self._open_inline_theme_picker()
+                return True
+
         return False
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option_list.id == "activity_result_list":
+            return
+
+        if event.option_list.id != "activity_theme_picker":
+            return
+
+        option_id = event.option.id or ""
+        if not option_id.startswith("theme:"):
+            return
+
+        theme_name = option_id.split(":", 1)[1]
+        self._close_inline_theme_picker(announce=False)
+        self._run_backend_command(f"theme set {shlex.quote(theme_name)}")
 
     def _apply_setup_modal_result(self, result: dict[str, Any] | None) -> None:
         if result is None:
@@ -1274,10 +1614,20 @@ class AgentRecallTextualApp(App[None]):
                 should_exit = result[0]
                 lines = [line for line in result[1] if isinstance(line, str)]
 
+            cleaned_lines: list[str] = []
             for line in lines:
                 cleaned = _strip_rich_markup(line).strip()
                 if cleaned:
+                    cleaned_lines.append(cleaned)
                     self._append_activity(cleaned)
+
+            command_header = cleaned_lines[0] if cleaned_lines else ""
+            if cleaned_lines and (
+                len(cleaned_lines) > 12
+                or "/sources" in command_header
+                or "/sessions" in command_header
+            ):
+                self._show_inline_result_list(cleaned_lines)
 
             self.status = "Last command executed"
             self._refresh_dashboard_panel()
