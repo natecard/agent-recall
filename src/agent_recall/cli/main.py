@@ -22,6 +22,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
+from rich.theme import Theme
 from typer.main import get_command as get_typer_command
 from typer.testing import CliRunner
 
@@ -452,7 +453,9 @@ def _execute_tui_slash_command(
         env=invoke_env,
         terminal_width=max(runner_terminal_width, 80),
     )
-    command_label_parts = original_parts if original_parts and original_parts[0] == "run" else parts
+    command_label_parts = (
+        original_parts if original_parts and original_parts[0] == "run" else parts
+    )
     command_label = "/" + " ".join(command_label_parts)
 
     lines: list[str] = []
@@ -944,9 +947,7 @@ def sync(
             if warning:
                 lines.append(f"    [warning]{warning}[/warning]")
         if len(session_diagnostics) > 30:
-            lines.append(
-                f"  [dim]... and {len(session_diagnostics) - 30} more session(s)[/dim]"
-            )
+            lines.append(f"  [dim]... and {len(session_diagnostics) - 30} more session(s)[/dim]")
 
     if "compaction" in results:
         comp = results["compaction"]
@@ -1543,7 +1544,7 @@ def _build_tui_dashboard(
             Panel(
                 header_text,
                 title=f"[dim]Updated {now_text}[/dim]",
-                subtitle="[dim]Press Ctrl+C to exit[/dim]",
+                subtitle="[dim]Press Ctrl+Q to exit[/dim]",
                 border_style="banner.border",
             )
         )
@@ -1967,6 +1968,14 @@ def tui(
                 _theme_manager.get_theme_name(),
                 _theme_manager.get_theme(),
             ),
+            theme_resolve_provider=lambda theme_name: (
+                Theme(
+                    ThemeManager.get_theme_colors(theme_name),
+                    inherit=True,
+                )
+                if ThemeManager.is_valid_theme(theme_name)
+                else None
+            ),
             model_defaults_provider=lambda: get_files().read_config().get("llm", {}),
             setup_defaults_provider=lambda: get_onboarding_defaults(get_files()),
             discover_models=lambda provider, base_url, api_key_env: discover_provider_models(
@@ -2089,7 +2098,9 @@ def config_llm(
         None,
         "--provider",
         "-p",
-        help=("LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"),
+        help=(
+            "LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"
+        ),
     ),
     model: str | None = typer.Option(
         None,
@@ -2158,7 +2169,9 @@ def config_model(
         None,
         "--provider",
         "-p",
-        help=("LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"),
+        help=(
+            "LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"
+        ),
     ),
     model: str | None = typer.Option(
         None,
