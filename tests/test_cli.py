@@ -608,6 +608,53 @@ def test_cli_tui_single_iteration(monkeypatch) -> None:
         assert result.exit_code == 0
 
 
+def test_cli_open_single_iteration(monkeypatch) -> None:
+    monkeypatch.setattr(
+        cli_main,
+        "get_default_ingesters",
+        lambda **_kwargs: [
+            FakeIngester("cursor", [Path("state.vscdb")]),
+            FakeIngester("claude-code", []),
+        ],
+    )
+    monkeypatch.setattr(
+        "agent_recall.core.onboarding.ensure_provider_dependency",
+        lambda *_args, **_kwargs: (True, None),
+    )
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(
+            cli_main.app,
+            ["open", "--iterations", "1", "--refresh-seconds", "0.2"],
+        )
+        assert result.exit_code == 0
+
+
+def test_cli_open_injects_stored_api_keys(monkeypatch) -> None:
+    calls = {"count": 0}
+
+    def fake_inject() -> int:
+        calls["count"] += 1
+        return 0
+
+    monkeypatch.setattr(
+        cli_main,
+        "get_default_ingesters",
+        lambda **_kwargs: [
+            FakeIngester("cursor", [Path("state.vscdb")]),
+            FakeIngester("claude-code", []),
+        ],
+    )
+    monkeypatch.setattr(cli_main, "inject_stored_api_keys", fake_inject)
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["open", "--iterations", "1"])
+        assert result.exit_code == 0
+        assert calls["count"] == 1
+
+
 def test_cli_onboard_quick_persists_repo_setup(monkeypatch) -> None:
     monkeypatch.setattr(
         cli_main,
@@ -907,6 +954,10 @@ def test_tui_slash_does_not_truncate_output_lines(monkeypatch) -> None:
 
 def test_tui_slash_disallows_nested_tui() -> None:
     should_exit, lines = cli_main._execute_tui_slash_command("/tui")
+    assert should_exit is False
+    assert any("already running" in line for line in lines)
+
+    should_exit, lines = cli_main._execute_tui_slash_command("/open")
     assert should_exit is False
     assert any("already running" in line for line in lines)
 

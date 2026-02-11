@@ -57,6 +57,7 @@ def _build_command_suggestions(cli_commands: list[str]) -> list[str]:
     base = [
         "help",
         "status",
+        "open",
         "run",
         "sync --no-compact",
         "compact",
@@ -117,6 +118,7 @@ def _is_palette_cli_command_redundant(command: str) -> bool:
         return False
 
     exact = {
+        "open",
         "status",
         "run",
         "sync",
@@ -278,35 +280,19 @@ class CommandPaletteModal(ModalScreen[str | None]):
 class SetupModal(ModalScreen[dict[str, Any] | None]):
     BINDINGS = [Binding("escape", "dismiss(None)", "Close")]
 
-    def __init__(
-        self,
-        *,
-        providers: list[str],
-        defaults: dict[str, Any],
-        discover_models: DiscoverModelsFn,
-    ):
+    def __init__(self, *, defaults: dict[str, Any]):
         super().__init__()
-        self.providers = providers
         self.defaults = defaults
-        self.discover_models = discover_models
 
     def compose(self) -> ComposeResult:
-        default_provider = str(self.defaults.get("provider", self.providers[0]))
-        if default_provider not in self.providers:
-            default_provider = self.providers[0]
-
         selected_agents = {
             source for source in self.defaults.get("selected_agents", []) if isinstance(source, str)
         }
-        default_model = _clean_optional_text(self.defaults.get("model", ""))
-        base_url = _clean_optional_text(self.defaults.get("base_url", ""))
-        if not base_url:
-            base_url = _PROVIDER_BASE_URL_DEFAULTS.get(default_provider, "")
         repo_path = str(self.defaults.get("repository_path", Path.cwd()))
 
         with Container(id="modal_overlay"):
             with Vertical(id="modal_card"):
-                yield Static("Repository Setup", classes="modal_title")
+                yield Static("Repository Setup (1/2)", classes="modal_title")
                 yield Static(repo_path, id="setup_repo_path")
                 with Horizontal(classes="field_row"):
                     yield Checkbox(
@@ -319,66 +305,6 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                         value=bool(self.defaults.get("force", False)),
                         id="setup_force",
                     )
-                with Horizontal(classes="field_row"):
-                    yield Static("Provider", classes="field_label")
-                    yield Select(
-                        [(provider, provider) for provider in self.providers],
-                        value=default_provider,
-                        allow_blank=False,
-                        id="setup_provider",
-                        classes="field_input",
-                    )
-                with Horizontal(classes="field_row"):
-                    yield Static("Base URL", classes="field_label")
-                    yield Input(
-                        value=base_url,
-                        placeholder="Base URL (optional)",
-                        id="setup_base_url",
-                        classes="field_input",
-                    )
-                with Horizontal(classes="field_row"):
-                    yield Static("API key", classes="field_label")
-                    yield Input(
-                        value="",
-                        placeholder="Provider API key (optional)",
-                        password=True,
-                        id="setup_api_key",
-                        classes="field_input",
-                    )
-                yield Static("", id="setup_api_hint")
-                with Horizontal(classes="field_row"):
-                    yield Static("Model list", classes="field_label")
-                    yield Select(
-                        [("Manual entry", "__manual__")],
-                        value="__manual__",
-                        allow_blank=False,
-                        id="setup_model_picker",
-                        classes="field_input",
-                    )
-                with Horizontal(classes="field_row"):
-                    yield Static("Model", classes="field_label")
-                    yield Input(
-                        value=default_model,
-                        placeholder="Model",
-                        id="setup_model",
-                        classes="field_input",
-                    )
-                with Horizontal(classes="field_row"):
-                    yield Static("Temperature", classes="field_label")
-                    yield Input(
-                        value=str(self.defaults.get("temperature", 0.3)),
-                        placeholder="0.0-2.0",
-                        id="setup_temperature",
-                        classes="field_input",
-                    )
-                with Horizontal(classes="field_row"):
-                    yield Static("Max tokens", classes="field_label")
-                    yield Input(
-                        value=str(self.defaults.get("max_tokens", 4096)),
-                        placeholder=">0",
-                        id="setup_max_tokens",
-                        classes="field_input",
-                    )
                 with Horizontal(classes="setup_agents field_row"):
                     yield Checkbox(
                         "Cursor", value="cursor" in selected_agents, id="setup_agent_cursor"
@@ -388,55 +314,19 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                         value="claude-code" in selected_agents,
                         id="setup_agent_claude",
                     )
-                    yield Checkbox(
-                        "Validate provider connection",
-                        value=bool(self.defaults.get("validate", False)),
-                        id="setup_validate",
-                    )
                 yield Static("", id="setup_status")
                 with Horizontal(classes="modal_actions"):
-                    yield Button("Refresh Models", id="setup_refresh_models")
-                    yield Button("Apply Setup", variant="primary", id="setup_apply")
+                    yield Button("Next", variant="primary", id="setup_next")
                     yield Button("Cancel", id="setup_cancel")
-
-    def on_mount(self) -> None:
-        self._update_provider_hints(set_default_base_url=True)
-        self._refresh_models()
-
-    def on_select_changed(self, event: Select.Changed) -> None:
-        if event.select.id == "setup_provider":
-            self._update_provider_hints(set_default_base_url=True)
-            self._refresh_models()
-            return
-        if event.select.id != "setup_model_picker":
-            return
-
-        selected_value = event.value
-        if selected_value == Select.BLANK:
-            return
-        if str(selected_value) == "__manual__":
-            return
-        self.query_one("#setup_model", Input).value = str(selected_value)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "setup_cancel":
             self.dismiss(None)
             return
-
-        if event.button.id == "setup_refresh_models":
-            self._refresh_models()
-            return
-
-        if event.button.id != "setup_apply":
+        if event.button.id != "setup_next":
             return
 
         status = self.query_one("#setup_status", Static)
-
-        provider_value = self.query_one("#setup_provider", Select).value
-        if provider_value == Select.BLANK:
-            status.update("[red]Provider is required[/red]")
-            return
-        provider = str(provider_value)
 
         repository_verified = bool(self.query_one("#setup_repository_verified", Checkbox).value)
         if not repository_verified:
@@ -452,125 +342,13 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             status.update("[red]Choose at least one agent source[/red]")
             return
 
-        model = _clean_optional_text(self.query_one("#setup_model", Input).value)
-        if not model:
-            status.update("[red]Model is required[/red]")
-            return
-
-        base_url = _clean_optional_text(self.query_one("#setup_base_url", Input).value) or None
-        if provider == "openai-compatible" and not base_url:
-            status.update("[red]Base URL is required for openai-compatible[/red]")
-            return
-
-        try:
-            temperature = float(self.query_one("#setup_temperature", Input).value)
-        except ValueError:
-            status.update("[red]Temperature must be a number[/red]")
-            return
-        if temperature < 0.0 or temperature > 2.0:
-            status.update("[red]Temperature must be between 0.0 and 2.0[/red]")
-            return
-
-        try:
-            max_tokens = int(self.query_one("#setup_max_tokens", Input).value)
-        except ValueError:
-            status.update("[red]Max tokens must be an integer[/red]")
-            return
-        if max_tokens <= 0:
-            status.update("[red]Max tokens must be > 0[/red]")
-            return
-
         self.dismiss(
             {
                 "force": bool(self.query_one("#setup_force", Checkbox).value),
                 "repository_verified": repository_verified,
                 "selected_agents": selected_agents,
-                "provider": provider,
-                "model": model,
-                "base_url": base_url,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "validate": bool(self.query_one("#setup_validate", Checkbox).value),
-                "api_key": _clean_optional_text(self.query_one("#setup_api_key", Input).value)
-                or None,
             }
         )
-
-    def _refresh_models(self) -> None:
-        provider = self._selected_provider()
-        status = self.query_one("#setup_status", Static)
-
-        input_model = _clean_optional_text(self.query_one("#setup_model", Input).value)
-        base_url_value = _clean_optional_text(
-            self.query_one("#setup_base_url", Input).value
-        ) or None
-        base_url = base_url_value or _PROVIDER_BASE_URL_DEFAULTS.get(provider)
-
-        env_var = API_KEY_ENV_BY_PROVIDER.get(provider)
-        entered_key = _clean_optional_text(self.query_one("#setup_api_key", Input).value)
-
-        previous_env_value = os.environ.get(env_var) if env_var else None
-        should_override_env = bool(env_var and entered_key)
-        if env_var and should_override_env:
-            os.environ[env_var] = entered_key
-
-        try:
-            models, error_message = self.discover_models(provider, base_url, env_var)
-        finally:
-            if env_var and should_override_env:
-                if previous_env_value is None:
-                    os.environ.pop(env_var, None)
-                else:
-                    os.environ[env_var] = previous_env_value
-
-        options: list[tuple[str, str]] = [("Manual entry", "__manual__")]
-        options.extend((model_name, model_name) for model_name in models)
-
-        picker = self.query_one("#setup_model_picker", Select)
-        picker.set_options(options)
-
-        selected_model = input_model or _clean_optional_text(self.defaults.get("model", ""))
-        if selected_model in models:
-            picker.value = selected_model
-        else:
-            picker.value = "__manual__"
-
-        if models:
-            status.update(f"[green]Loaded {len(models)} live model(s)[/green]")
-        elif error_message:
-            status.update(f"[yellow]Live model discovery unavailable: {error_message}[/yellow]")
-        else:
-            status.update("[yellow]No live models returned; use manual model entry.[/yellow]")
-
-    def _selected_provider(self) -> str:
-        value = self.query_one("#setup_provider", Select).value
-        if value == Select.BLANK:
-            return self.providers[0]
-        return str(value)
-
-    def _update_provider_hints(self, *, set_default_base_url: bool) -> None:
-        provider = self._selected_provider()
-        env_var = API_KEY_ENV_BY_PROVIDER.get(provider)
-
-        api_hint = self.query_one("#setup_api_hint", Static)
-        api_input = self.query_one("#setup_api_key", Input)
-        if env_var:
-            api_hint.update(f"API key env: {env_var}")
-            api_input.placeholder = f"API key ({env_var}) optional"
-        else:
-            api_hint.update("This provider typically does not require an API key.")
-            api_input.placeholder = "Provider API key (optional)"
-
-        base_url_input = self.query_one("#setup_base_url", Input)
-        default_base_url = _PROVIDER_BASE_URL_DEFAULTS.get(provider, "")
-        if set_default_base_url:
-            base_url_input.value = default_base_url
-        if provider == "openai-compatible":
-            base_url_input.placeholder = "Base URL (required)"
-        elif default_base_url:
-            base_url_input.placeholder = "Base URL (auto-filled)"
-        else:
-            base_url_input.placeholder = "Base URL (optional)"
 
 
 class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
@@ -581,11 +359,14 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
         providers: list[str],
         defaults: dict[str, Any],
         discover_models: DiscoverModelsFn,
+        *,
+        onboarding_step: bool = False,
     ):
         super().__init__()
         self.providers = providers
         self.defaults = defaults
         self.discover_models = discover_models
+        self.onboarding_step = onboarding_step
 
     def compose(self) -> ComposeResult:
         default_provider = _clean_optional_text(self.defaults.get("provider", self.providers[0]))
@@ -594,9 +375,12 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
         base_url = _clean_optional_text(self.defaults.get("base_url", ""))
         if not base_url:
             base_url = _PROVIDER_BASE_URL_DEFAULTS.get(default_provider, "")
+        validate_default = bool(self.defaults.get("validate", not self.onboarding_step))
+        title = "Model Setup (2/2)" if self.onboarding_step else "Model Configuration"
+        primary_label = "Finish setup" if self.onboarding_step else "Apply"
         with Container(id="modal_overlay"):
             with Vertical(id="modal_card"):
-                yield Static("Model Configuration", classes="modal_title")
+                yield Static(title, classes="modal_title")
                 with Horizontal(classes="field_row"):
                     yield Static("Provider", classes="field_label")
                     yield Select(
@@ -631,6 +415,7 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
                         id="model_api_key",
                         classes="field_input",
                     )
+                yield Static("", id="model_api_hint")
                 with Horizontal(classes="field_row"):
                     yield Static("Model list", classes="field_label")
                     yield Select(
@@ -656,21 +441,25 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
                         id="model_max_tokens",
                         classes="field_input",
                     )
-                yield Checkbox("Validate after apply", value=True, id="model_validate")
+                yield Checkbox("Validate after apply", value=validate_default, id="model_validate")
                 yield Static("", id="model_discovery_status")
                 yield Static("", id="model_error")
                 with Horizontal(classes="modal_actions"):
                     yield Button("Refresh models", id="model_refresh")
-                    yield Button("Apply", variant="primary", id="model_apply")
+                    if self.onboarding_step:
+                        yield Button("Back", id="model_back")
+                    yield Button(primary_label, variant="primary", id="model_apply")
                     yield Button("Cancel", id="model_cancel")
 
     def on_mount(self) -> None:
         self._apply_base_url_default(set_default_base_url=False)
+        self._update_api_key_hint()
         self._refresh_models()
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "model_provider":
             self._apply_base_url_default(set_default_base_url=True)
+            self._update_api_key_hint()
             self._refresh_models()
             return
         if event.select.id != "model_picker":
@@ -692,6 +481,9 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
             return
         if event.button.id == "model_refresh":
             self._refresh_models()
+            return
+        if event.button.id == "model_back":
+            self.dismiss({"_action": "back"})
             return
         if event.button.id != "model_apply":
             return
@@ -728,6 +520,8 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
                 "model": _clean_optional_text(self.query_one("#model_name", Input).value) or None,
                 "base_url": _clean_optional_text(self.query_one("#model_base_url", Input).value)
                 or None,
+                "api_key": _clean_optional_text(self.query_one("#model_api_key", Input).value)
+                or None,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
                 "validate": bool(self.query_one("#model_validate", Checkbox).value),
@@ -752,6 +546,29 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
             base_url_input.placeholder = "Base URL (auto-filled)"
         else:
             base_url_input.placeholder = "Base URL (optional)"
+
+    def _update_api_key_hint(self) -> None:
+        provider_value = self.query_one("#model_provider", Select).value
+        provider = self.providers[0] if provider_value == Select.BLANK else str(provider_value)
+
+        env_var = API_KEY_ENV_BY_PROVIDER.get(provider)
+        hint = self.query_one("#model_api_hint", Static)
+        api_input = self.query_one("#model_api_key", Input)
+
+        if not env_var:
+            hint.update("[dim]This provider typically does not require an API key.[/dim]")
+            api_input.placeholder = "Provider API key (optional)"
+            return
+
+        if os.environ.get(env_var):
+            hint.update(
+                f"[dim]Using shared {env_var} from local secrets. Leave blank to keep it.[/dim]"
+            )
+            api_input.placeholder = f"Leave blank to keep stored {env_var}"
+            return
+
+        hint.update(f"[dim]No {env_var} found. Enter one to store it for all repositories.[/dim]")
+        api_input.placeholder = f"API key ({env_var}) optional"
 
     def _refresh_models(self) -> None:
         provider_value = self.query_one("#model_provider", Select).value
@@ -1091,7 +908,7 @@ class AgentRecallTextualApp(App[None]):
         height: 1fr;
         margin-bottom: 0;
     }
-    #palette_hint, #setup_api_hint, #setup_repo_path {
+    #palette_hint, #setup_api_hint, #setup_repo_path, #model_api_hint {
         color: $text-muted;
     }
     #palette_hint {
@@ -1118,7 +935,7 @@ class AgentRecallTextualApp(App[None]):
         padding-top: 1;
         height: auto;
     }
-    #setup_status, #model_error, #settings_error {
+    #setup_status, #model_api_hint, #model_error, #settings_error {
         margin-top: 0;
     }
     #model_discovery_status {
@@ -1160,6 +977,7 @@ class AgentRecallTextualApp(App[None]):
         initial_view: str = "overview",
         refresh_seconds: float = 2.0,
         all_cursor_workspaces: bool = False,
+        onboarding_required: bool = False,
     ):
         super().__init__()
         self._render_dashboard = render_dashboard
@@ -1182,6 +1000,7 @@ class AgentRecallTextualApp(App[None]):
         self.current_view = initial_view
         self.refresh_seconds = refresh_seconds
         self.all_cursor_workspaces = all_cursor_workspaces
+        self.onboarding_required = onboarding_required
         self.status = "Ready. Press Ctrl+P for commands."
         self.activity: deque[str] = deque(maxlen=2000)
         self._theme_picker_open = False
@@ -1189,6 +1008,7 @@ class AgentRecallTextualApp(App[None]):
         self._refresh_timer = None
         self._worker_context: dict[int, str] = {}
         self._knowledge_run_workers: set[int] = set()
+        self._pending_setup_payload: dict[str, Any] | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1209,6 +1029,10 @@ class AgentRecallTextualApp(App[None]):
         self._configure_refresh_timer(self.refresh_seconds)
         self._append_activity("TUI ready. Press Ctrl+P for commands.")
         self._refresh_dashboard_panel()
+        if self.onboarding_required:
+            self.status = "Onboarding required"
+            self._append_activity("Onboarding required. Opening setup wizard...")
+            self.call_after_refresh(self.action_open_setup_modal)
 
     def action_command_palette(self) -> None:
         self.action_open_command_palette()
@@ -1230,14 +1054,8 @@ class AgentRecallTextualApp(App[None]):
         )
 
     def action_open_setup_modal(self) -> None:
-        self.push_screen(
-            SetupModal(
-                providers=self._providers,
-                defaults=self._setup_defaults_provider(),
-                discover_models=self._discover_models,
-            ),
-            self._apply_setup_modal_result,
-        )
+        self._pending_setup_payload = None
+        self._open_setup_step_one_modal(self._setup_defaults_provider())
 
     def action_open_model_modal(self) -> None:
         self.push_screen(
@@ -1247,6 +1065,23 @@ class AgentRecallTextualApp(App[None]):
                 self._discover_models,
             ),
             self._apply_model_modal_result,
+        )
+
+    def _open_setup_step_one_modal(self, defaults: dict[str, Any]) -> None:
+        self.push_screen(
+            SetupModal(defaults=defaults),
+            self._apply_setup_modal_result,
+        )
+
+    def _open_setup_step_two_modal(self, defaults: dict[str, Any]) -> None:
+        self.push_screen(
+            ModelConfigModal(
+                self._providers,
+                defaults,
+                self._discover_models,
+                onboarding_step=True,
+            ),
+            self._apply_setup_model_modal_result,
         )
 
     def action_close_inline_picker(self) -> None:
@@ -1528,7 +1363,7 @@ class AgentRecallTextualApp(App[None]):
             PaletteAction("quit", "Quit", "Exit the TUI", "Maintenance", "Ctrl+Q", "quit exit"),
         ]
         for command in self._command_suggestions:
-            if command in {"tui"}:
+            if command in {"tui", "open"}:
                 continue
             if _is_palette_cli_command_redundant(command):
                 continue
@@ -1727,11 +1562,41 @@ class AgentRecallTextualApp(App[None]):
 
     def _apply_setup_modal_result(self, result: dict[str, Any] | None) -> None:
         if result is None:
+            self._pending_setup_payload = None
             return
+        self._pending_setup_payload = dict(result)
+        model_defaults = dict(self._setup_defaults_provider())
+        self.status = "Setup (step 2/2)"
+        self._append_activity("Step 1 complete. Configure provider and model settings.")
+        self._open_setup_step_two_modal(model_defaults)
+
+    def _apply_setup_model_modal_result(self, result: dict[str, Any] | None) -> None:
+        if result is None:
+            self._pending_setup_payload = None
+            self.status = "Setup cancelled"
+            self._append_activity("Setup cancelled.")
+            return
+
+        action = str(result.get("_action") or "").strip().lower()
+        if action == "back":
+            setup_defaults = dict(self._setup_defaults_provider())
+            if isinstance(self._pending_setup_payload, dict):
+                setup_defaults.update(self._pending_setup_payload)
+            self.status = "Setup (step 1/2)"
+            self._append_activity("Returned to setup step 1.")
+            self._open_setup_step_one_modal(setup_defaults)
+            return
+
+        payload: dict[str, Any] = {}
+        if isinstance(self._pending_setup_payload, dict):
+            payload.update(self._pending_setup_payload)
+        payload.update(result)
+        self._pending_setup_payload = None
+
         self.status = "Applying setup"
-        self._append_activity("Applying setup from modal...")
+        self._append_activity("Applying setup from wizard...")
         worker = self.run_worker(
-            lambda: self._run_setup_payload(result),
+            lambda: self._run_setup_payload(payload),
             thread=True,
             group="tui-ops",
             exclusive=True,
@@ -1895,6 +1760,7 @@ class AgentRecallTextualApp(App[None]):
                 if cleaned:
                     self._append_activity(cleaned)
 
+            self.onboarding_required = False
             self.status = "Setup completed" if changed else "Setup unchanged"
             self._append_activity(
                 "Setup completed." if changed else "Setup already complete for this repository."

@@ -26,6 +26,7 @@ def test_clean_optional_text_handles_none_variants() -> None:
 
 
 def test_palette_cli_command_redundancy_filter() -> None:
+    assert _is_palette_cli_command_redundant("open") is True
     assert _is_palette_cli_command_redundant("status") is True
     assert _is_palette_cli_command_redundant("run") is True
     assert _is_palette_cli_command_redundant("sources") is True

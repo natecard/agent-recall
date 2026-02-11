@@ -635,10 +635,7 @@ def _maybe_capture_api_key(
     if stored_value:
         os.environ[env_var] = stored_value
         console.print(f"[success]✓ Loaded {env_var} from local secrets store[/success]")
-        if not interactive:
-            return
-        if not typer.confirm("Update this API key now?", default=False):
-            return
+        return
 
     if not interactive:
         console.print(

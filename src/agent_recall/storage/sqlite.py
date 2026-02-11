@@ -5,6 +5,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 from agent_recall.storage.models import (
@@ -17,7 +18,33 @@ from agent_recall.storage.models import (
     SessionStatus,
 )
 
-SCHEMA = """
+CHUNKS_FTS_SCHEMA = """
+CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+    content,
+    tags,
+    content='chunks',
+    content_rowid='rowid'
+);
+
+CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
+    INSERT INTO chunks_fts(rowid, content, tags)
+    VALUES (NEW.rowid, NEW.content, NEW.tags);
+END;
+
+CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
+    INSERT INTO chunks_fts(chunks_fts, rowid, content, tags)
+    VALUES('delete', OLD.rowid, OLD.content, OLD.tags);
+END;
+
+CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
+    INSERT INTO chunks_fts(chunks_fts, rowid, content, tags)
+    VALUES('delete', OLD.rowid, OLD.content, OLD.tags);
+    INSERT INTO chunks_fts(rowid, content, tags)
+    VALUES (NEW.rowid, NEW.content, NEW.tags);
+END;
+"""
+
+SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL,
@@ -53,29 +80,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     embedding BLOB
 );
 
-CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-    content,
-    tags,
-    content='chunks',
-    content_rowid='rowid'
-);
-
-CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
-    INSERT INTO chunks_fts(rowid, content, tags)
-    VALUES (NEW.rowid, NEW.content, NEW.tags);
-END;
-
-CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
-    INSERT INTO chunks_fts(chunks_fts, rowid, content, tags)
-    VALUES('delete', OLD.rowid, OLD.content, OLD.tags);
-END;
-
-CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
-    INSERT INTO chunks_fts(chunks_fts, rowid, content, tags)
-    VALUES('delete', OLD.rowid, OLD.content, OLD.tags);
-    INSERT INTO chunks_fts(rowid, content, tags)
-    VALUES (NEW.rowid, NEW.content, NEW.tags);
-END;
+{CHUNKS_FTS_SCHEMA}
 
 CREATE TABLE IF NOT EXISTS processed_sessions (
     source_session_id TEXT PRIMARY KEY,
@@ -251,26 +256,71 @@ class SQLiteStorage:
         )
 
     def store_chunk(self, chunk: Chunk) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                """INSERT INTO chunks
-                   (
-                       id, source, source_ids, content, label,
-                       tags, created_at, token_count, embedding
-                   )
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    str(chunk.id),
-                    chunk.source.value,
-                    json.dumps([str(item) for item in chunk.source_ids]),
-                    chunk.content,
-                    chunk.label.value,
-                    json.dumps(chunk.tags),
-                    chunk.created_at.isoformat(),
-                    chunk.token_count,
-                    None,
-                ),
+        for attempt in range(2):
+            try:
+                with self._connect() as conn:
+                    conn.execute(
+                        """INSERT INTO chunks
+                           (
+                               id, source, source_ids, content, label,
+                               tags, created_at, token_count, embedding
+                           )
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            str(chunk.id),
+                            chunk.source.value,
+                            json.dumps([str(item) for item in chunk.source_ids]),
+                            chunk.content,
+                            chunk.label.value,
+                            json.dumps(chunk.tags),
+                            chunk.created_at.isoformat(),
+                            chunk.token_count,
+                            None,
+                        ),
+                    )
+                return
+            except sqlite3.DatabaseError as exc:
+                if attempt == 0 and self._is_chunks_fts_corruption(exc):
+                    self.rebuild_chunks_fts()
+                    continue
+                raise
+
+    @staticmethod
+    def _is_chunks_fts_corruption(exc: Exception) -> bool:
+        lowered = str(exc).lower()
+        return any(
+            token in lowered
+            for token in (
+                "vtable constructor failed: chunks_fts",
+                "invalid fts5 file format",
+                "malformed",
             )
+        )
+
+    def rebuild_chunks_fts(self) -> None:
+        """Rebuild chunks FTS table and triggers from canonical chunk rows."""
+        rebuild_script = """
+        DROP TRIGGER IF EXISTS chunks_ai;
+        DROP TRIGGER IF EXISTS chunks_ad;
+        DROP TRIGGER IF EXISTS chunks_au;
+        DROP TABLE IF EXISTS chunks_fts;
+        DROP TABLE IF EXISTS chunks_fts_data;
+        DROP TABLE IF EXISTS chunks_fts_idx;
+        DROP TABLE IF EXISTS chunks_fts_docsize;
+        DROP TABLE IF EXISTS chunks_fts_config;
+        """ + CHUNKS_FTS_SCHEMA + """
+        INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild');
+        """
+        with self._connect() as conn:
+            conn.executescript(rebuild_script)
+
+    def has_chunk(self, content: str, label: SemanticLabel) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM chunks WHERE content = ? AND label = ? LIMIT 1",
+                (content, label.value),
+            ).fetchone()
+        return row is not None
 
     def count_chunks(self) -> int:
         with self._connect() as conn:
@@ -362,4 +412,51 @@ class SQLiteStorage:
             row = conn.execute("SELECT COUNT(*) AS count FROM chunks").fetchone()
             stats["chunks"] = int(row["count"]) if row else 0
 
-            return stats
+        return stats
+
+    def list_recent_source_sessions(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Summarize recent source sessions inferred from log entries."""
+        with self._connect() as conn:
+            sessions = conn.execute(
+                """
+                SELECT source_session_id, MAX(timestamp) AS last_timestamp, COUNT(*) AS entry_count
+                FROM log_entries
+                WHERE source_session_id IS NOT NULL AND TRIM(source_session_id) != ''
+                GROUP BY source_session_id
+                ORDER BY last_timestamp DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+            results: list[dict[str, Any]] = []
+            for session_row in sessions:
+                source_session_id = str(session_row["source_session_id"])
+                highlights = conn.execute(
+                    """
+                    SELECT label, content
+                    FROM log_entries
+                    WHERE source_session_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT 5
+                    """,
+                    (source_session_id,),
+                ).fetchall()
+                results.append(
+                    {
+                        "source_session_id": source_session_id,
+                        "last_timestamp": datetime.fromisoformat(
+                            str(session_row["last_timestamp"])
+                        ),
+                        "entry_count": int(session_row["entry_count"]),
+                        "highlights": [
+                            {
+                                "label": str(item["label"]),
+                                "content": str(item["content"]),
+                            }
+                            for item in highlights
+                        ],
+                    }
+                )
+
+        return results

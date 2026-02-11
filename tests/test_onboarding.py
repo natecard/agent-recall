@@ -38,6 +38,33 @@ def test_secrets_store_injects_missing_api_keys(monkeypatch, tmp_path: Path) -> 
     assert store.path.parent.exists()
 
 
+def test_maybe_capture_api_key_reuses_stored_secret_without_prompt(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    store = LocalSecretsStore(home_dir=tmp_path / "app-home")
+    store.set_api_key("GOOGLE_API_KEY", "stored-key")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+    def _unexpected_confirm(*_args, **_kwargs):
+        raise AssertionError("confirm should not be called when a stored key exists")
+
+    def _unexpected_prompt(*_args, **_kwargs):
+        raise AssertionError("prompt should not be called when a stored key exists")
+
+    monkeypatch.setattr(onboarding.typer, "confirm", _unexpected_confirm)
+    monkeypatch.setattr(onboarding.typer, "prompt", _unexpected_prompt)
+
+    onboarding._maybe_capture_api_key(
+        "google",
+        store,
+        interactive=True,
+        console=Console(record=True),
+    )
+
+    assert os.environ["GOOGLE_API_KEY"] == "stored-key"
+
+
 def test_repo_preferred_sources_from_onboarding(tmp_path: Path) -> None:
     agent_dir = _make_agent_dir(tmp_path / ".agent")
     files = FileStorage(agent_dir)

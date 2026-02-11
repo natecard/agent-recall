@@ -427,8 +427,8 @@ def _execute_tui_slash_command(
         _run_onboarding_setup(force=force, quick=quick)
         return False, ["[success]✓ Setup flow completed[/success]"]
 
-    if command_name == "tui":
-        return False, ["[warning]/tui is already running.[/warning]"]
+    if command_name in {"tui", "open"}:
+        return False, ["[warning]/open is already running.[/warning]"]
 
     # User-facing alias: "run" communicates intent better than "compact".
     if command_name == "run":
@@ -568,7 +568,8 @@ def init(
             "  • GUARDRAILS.md - Hard rules and warnings\n"
             "  • STYLE.md - Patterns and preferences\n"
             "  • RECENT.md - Session summaries\n"
-            "  • state.db - Session and log storage",
+            "  • state.db - Session and log storage\n\n"
+            "Next: [bold]agent-recall open[/bold] (TUI onboarding + dashboard)",
             title="agent-recall",
         )
     )
@@ -1893,6 +1894,7 @@ def tui(
     """Start a live terminal UI dashboard for agent-recall."""
     _get_theme_manager()
     ensure_initialized()
+    inject_stored_api_keys()
     files = get_files()
     interactive_shell = is_interactive_terminal()
 
@@ -1900,17 +1902,14 @@ def tui(
         console.print("[error]--iterations must be >= 1[/error]")
         raise typer.Exit(1)
 
+    onboarding_complete = is_repo_onboarding_complete(files)
+    onboarding_required = False
     if onboarding:
-        ensure_repo_onboarding(
-            files,
-            console,
-            force=force_onboarding,
-            interactive=interactive_shell,
-        )
-    elif not is_repo_onboarding_complete(files):
+        onboarding_required = force_onboarding or not onboarding_complete
+    elif not onboarding_complete:
         console.print(
             "[warning]Onboarding is incomplete for this repository. "
-            "Run 'agent-recall config setup' to configure providers and sources.[/warning]"
+            "Run 'agent-recall open' to complete setup in the TUI.[/warning]"
         )
 
     # Show splash animation first (unless disabled)
@@ -1982,10 +1981,61 @@ def tui(
             initial_view="overview",
             refresh_seconds=refresh_seconds,
             all_cursor_workspaces=all_cursor_workspaces,
+            onboarding_required=onboarding_required,
         )
         app_instance.run()
     except KeyboardInterrupt:
         console.print("\n[dim]TUI closed.[/dim]")
+
+
+@app.command("open")
+def open_dashboard(
+    refresh_seconds: float = typer.Option(
+        2.0,
+        "--refresh-seconds",
+        "-r",
+        min=0.2,
+        help="Refresh interval for live dashboard updates.",
+    ),
+    all_cursor_workspaces: bool = typer.Option(
+        False,
+        "--all-cursor-workspaces",
+        help="Include Cursor sessions from all workspaces.",
+    ),
+    iterations: int | None = typer.Option(
+        None,
+        "--iterations",
+        hidden=True,
+        help="Number of refresh loops (for tests).",
+    ),
+    no_splash: bool = typer.Option(
+        False,
+        "--no-splash",
+        help="Skip the initial splash animation.",
+    ),
+    splash_delay: float = typer.Option(
+        0.012,
+        "--splash-delay",
+        min=0.0,
+        max=0.1,
+        help="Animation delay for splash screen.",
+    ),
+    force_onboarding: bool = typer.Option(
+        False,
+        "--force-onboarding",
+        help="Force setup flow even if this repository is already configured.",
+    ),
+):
+    """Open the TUI dashboard (recommended entrypoint)."""
+    tui(
+        refresh_seconds=refresh_seconds,
+        all_cursor_workspaces=all_cursor_workspaces,
+        iterations=iterations,
+        no_splash=no_splash,
+        splash_delay=splash_delay,
+        onboarding=True,
+        force_onboarding=force_onboarding,
+    )
 
 
 @app.command("reset-sync")
