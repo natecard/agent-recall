@@ -60,6 +60,7 @@ app = typer.Typer(help="Agent Memory System - Persistent knowledge for AI coding
 _slash_runner = CliRunner()
 config_app = typer.Typer(help="Manage onboarding and model configuration")
 _ansi_escape_pattern = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+_box_drawing_chars = set("│┃─━┄┅┆┇┈┉┊┋┌┍┎┏┐┑┒┓└┕┖┗┘┙┚┛├┝┞┟┠┡┢┣┤┥┦┧┨┩┪┫┬┭┮┯┰┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿")
 _box_drawing_translation = str.maketrans(
     {
         "│": " ",
@@ -359,6 +360,20 @@ def _normalize_tui_output_line(line: str) -> str:
     return " ".join(without_box_chars.split())
 
 
+def _strip_ansi_control_sequences(line: str) -> str:
+    return _ansi_escape_pattern.sub("", line)
+
+
+def _looks_like_table_output(lines: list[str]) -> bool:
+    if len(lines) < 3:
+        return False
+    table_like_rows = 0
+    for line in lines:
+        if any(char in _box_drawing_chars for char in line):
+            table_like_rows += 1
+    return table_like_rows >= 2
+
+
 def _execute_tui_slash_command(raw: str) -> tuple[bool, list[str]]:
     value = _normalize_tui_command(raw)
     if not value:
@@ -410,18 +425,23 @@ def _execute_tui_slash_command(raw: str) -> tuple[bool, list[str]]:
     output = result.output.strip()
     if output:
         raw_output_lines = output.splitlines()
-        meaningful_lines = []
-        for raw_line in raw_output_lines:
-            normalized = _normalize_tui_output_line(raw_line)
-            if not normalized:
-                continue
-            if not any(char.isalnum() for char in normalized):
-                continue
-            meaningful_lines.append(normalized)
-        if meaningful_lines:
-            output_lines = meaningful_lines
+        ansi_stripped_lines = [
+            _strip_ansi_control_sequences(raw_line).rstrip()
+            for raw_line in raw_output_lines
+            if raw_line.strip()
+        ]
+        if _looks_like_table_output(ansi_stripped_lines):
+            output_lines = ansi_stripped_lines
         else:
-            output_lines = [line for line in raw_output_lines if line.strip()]
+            meaningful_lines = []
+            for raw_line in ansi_stripped_lines:
+                normalized = _normalize_tui_output_line(raw_line)
+                if not normalized:
+                    continue
+                if not any(char.isalnum() for char in normalized):
+                    continue
+                meaningful_lines.append(normalized)
+            output_lines = meaningful_lines if meaningful_lines else ansi_stripped_lines
         for line in output_lines:
             lines.append(f"[dim]{escape(line)}[/dim]")
 
@@ -1010,13 +1030,18 @@ def sessions(
     if max_sessions is not None:
         console.print(f"[dim]Max sessions: {max_sessions}[/dim]")
 
-    table = Table(title="Discovered Sessions", box=box.SIMPLE_HEAVY)
+    table = Table(
+        title="Discovered Sessions",
+        box=box.SQUARE,
+        show_lines=True,
+        expand=True,
+    )
     table.add_column("Source", style="table_header")
     table.add_column("Session ID", overflow="fold")
     table.add_column("Title", overflow="fold")
     table.add_column("Started", overflow="fold")
     table.add_column("Messages", justify="right")
-    table.add_column("Status")
+    table.add_column("Processed", justify="center")
 
     for session_row in results["sessions"]:
         title_text = str(session_row.get("title") or "-")
@@ -1026,11 +1051,7 @@ def sessions(
             title_text,
             _format_session_time(session_row.get("started_at")),
             str(session_row.get("message_count", 0)),
-            (
-                "[success]processed[/success]"
-                if session_row.get("processed")
-                else "[accent]new[/accent]"
-            ),
+            "[success]✓[/success]" if session_row.get("processed") else "[warning]X[/warning]",
         )
 
     console.print(table)
@@ -1134,12 +1155,17 @@ def sources(
         console.print("[dim]No session conversations discovered.[/dim]")
         return
 
-    sessions_table = Table(title="Discovered Conversations", box=box.SIMPLE_HEAVY)
+    sessions_table = Table(
+        title="Discovered Conversations",
+        box=box.SQUARE,
+        show_lines=True,
+        expand=True,
+    )
     sessions_table.add_column("#", justify="right", style="table_header")
     sessions_table.add_column("Conversation", overflow="fold")
     sessions_table.add_column("Started", overflow="fold")
     sessions_table.add_column("Messages", justify="right")
-    sessions_table.add_column("Status")
+    sessions_table.add_column("Processed", justify="center")
     sessions_table.add_column("Ref", overflow="fold")
 
     for index, session_row in enumerate(sessions, start=1):
@@ -1150,11 +1176,7 @@ def sources(
             _truncate_text(conversation, 72),
             _format_session_time(session_row.get("started_at")),
             str(session_row.get("message_count", 0)),
-            (
-                "[success]processed[/success]"
-                if session_row.get("processed")
-                else "[accent]new[/accent]"
-            ),
+            "[success]✓[/success]" if session_row.get("processed") else "[warning]X[/warning]",
             _compact_session_ref(str(session_row["session_id"])),
         )
 

@@ -194,6 +194,58 @@ async def test_auto_sync_filters_by_source(storage, files, tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_auto_sync_filters_by_session_id(storage, files, tmp_path: Path) -> None:
+    first = tmp_path / "first-session"
+    second = tmp_path / "second-session"
+    first.write_text("one")
+    second.write_text("two")
+
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[FakeIngester("cursor", [first, second])],
+    )
+
+    results = await sync.sync(session_ids=["cursor-first-session"])
+    assert results["sessions_discovered"] == 1
+    assert results["sessions_processed"] == 1
+    assert storage.is_session_processed("cursor-first-session") is True
+    assert storage.is_session_processed("cursor-second-session") is False
+
+
+@pytest.mark.asyncio
+async def test_auto_sync_max_sessions_limits_to_most_recent(
+    storage,
+    files,
+    tmp_path: Path,
+) -> None:
+    old_session = tmp_path / "old-session"
+    new_session = tmp_path / "new-session"
+    old_session.write_text("old")
+    new_session.write_text("new")
+
+    import os
+
+    now = datetime.now(UTC).timestamp()
+    os.utime(old_session, (now - 120, now - 120))
+    os.utime(new_session, (now, now))
+
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[FakeIngester("cursor", [old_session, new_session])],
+    )
+
+    results = await sync.sync(max_sessions=1)
+    assert results["sessions_discovered"] == 1
+    assert results["sessions_processed"] == 1
+    assert storage.is_session_processed("cursor-new-session") is True
+    assert storage.is_session_processed("cursor-old-session") is False
+
+
+@pytest.mark.asyncio
 async def test_sync_and_compact_includes_compaction_results(storage, files, tmp_path: Path) -> None:
     session_path = tmp_path / "cursor-session"
     session_path.write_text("session")
@@ -285,3 +337,35 @@ async def test_auto_sync_timeout_is_reported(storage, files, tmp_path: Path) -> 
     assert results["learnings_extracted"] == 0
     assert len(results["errors"]) == 1
     assert "timed out" in results["errors"][0]
+
+
+def test_auto_sync_list_sessions_includes_titles_and_processed_state(
+    storage,
+    files,
+    tmp_path: Path,
+) -> None:
+    session_path = tmp_path / "session-one"
+    session_path.write_text("session")
+
+    class TitledIngester(FakeIngester):
+        def parse_session(self, path: Path) -> RawSession:
+            parsed = super().parse_session(path)
+            return parsed.model_copy(update={"title": f"Title for {path.stem}"})
+
+    session_id = "cursor-session-one"
+    storage.mark_session_processed(session_id)
+
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[TitledIngester("cursor", [session_path])],
+    )
+
+    listed = sync.list_sessions()
+    assert listed["sessions_discovered"] == 1
+    assert len(listed["sessions"]) == 1
+    row = listed["sessions"][0]
+    assert row["session_id"] == session_id
+    assert row["title"] == "Title for session-one"
+    assert row["processed"] is True

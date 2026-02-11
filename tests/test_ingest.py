@@ -142,6 +142,146 @@ class TestCursorIngester:
         sessions = ingester.discover_sessions()
         assert sessions == [db_path]
 
+    def test_discover_sessions_splits_by_composer(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "state.vscdb"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value BLOB)")
+        conn.execute(
+            "INSERT INTO ItemTable (key, value) VALUES (?, ?)",
+            (
+                "composer.composerData",
+                json.dumps(
+                    {
+                        "allComposers": [
+                            {
+                                "composerId": "composer-a",
+                                "createdAt": 1_740_000_000_000,
+                                "lastUpdatedAt": 1_740_000_001_000,
+                            },
+                            {
+                                "composerId": "composer-b",
+                                "createdAt": 1_740_000_100_000,
+                                "lastUpdatedAt": 1_740_000_101_000,
+                            },
+                        ]
+                    }
+                ),
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        ingester = CursorIngester(
+            project_path=tmp_path,
+            cursor_db_path=db_path,
+            global_storage_db_path=tmp_path / "globalStorage" / "state.vscdb",
+        )
+        sessions = ingester.discover_sessions()
+
+        assert len(sessions) == 2
+        session_ids = {ingester.get_session_id(path) for path in sessions}
+        assert any("composer-a" in session_id for session_id in session_ids)
+        assert any("composer-b" in session_id for session_id in session_ids)
+
+    def test_parse_composer_session_from_global_cursor_kv(self, tmp_path: Path) -> None:
+        workspace_db = tmp_path / "state.vscdb"
+        workspace_conn = sqlite3.connect(str(workspace_db))
+        workspace_conn.execute("CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value BLOB)")
+        workspace_conn.execute(
+            "INSERT INTO ItemTable (key, value) VALUES (?, ?)",
+            (
+                "composer.composerData",
+                json.dumps(
+                    {
+                        "allComposers": [
+                            {
+                                "composerId": "composer-a",
+                                "createdAt": 1_740_000_000_000,
+                                "lastUpdatedAt": 1_740_000_001_000,
+                            }
+                        ]
+                    }
+                ),
+            ),
+        )
+        workspace_conn.commit()
+        workspace_conn.close()
+
+        global_db = tmp_path / "globalStorage" / "state.vscdb"
+        global_db.parent.mkdir(parents=True)
+        global_conn = sqlite3.connect(str(global_db))
+        global_conn.execute("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value BLOB)")
+        global_conn.execute(
+            "INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)",
+            (
+                "composerData:composer-a",
+                json.dumps(
+                    {
+                        "composerId": "composer-a",
+                        "name": "Theme cleanup session",
+                        "createdAt": 1_740_000_000_000,
+                        "lastUpdatedAt": 1_740_000_001_000,
+                        "fullConversationHeadersOnly": [
+                            {"bubbleId": "bubble-user", "type": 1},
+                            {"bubbleId": "bubble-assistant", "type": 2},
+                        ],
+                    }
+                ),
+            ),
+        )
+        global_conn.execute(
+            "INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)",
+            (
+                "bubbleId:composer-a:bubble-user",
+                json.dumps(
+                    {
+                        "type": 1,
+                        "text": "Please move color settings into a theme module.",
+                        "createdAt": "2025-02-19T12:00:00Z",
+                        "requestId": "req-1",
+                    }
+                ),
+            ),
+        )
+        global_conn.execute(
+            "INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)",
+            (
+                "bubbleId:composer-a:bubble-assistant",
+                json.dumps(
+                    {
+                        "type": 2,
+                        "text": "Done. Theme values now come from a shared config.",
+                        "createdAt": "2025-02-19T12:00:01Z",
+                        "toolFormerData": {
+                            "name": "edit_file_v2",
+                            "status": "completed",
+                            "params": "{\"path\":\"src/theme.py\"}",
+                        },
+                    }
+                ),
+            ),
+        )
+        global_conn.commit()
+        global_conn.close()
+
+        ingester = CursorIngester(
+            project_path=tmp_path,
+            cursor_db_path=workspace_db,
+            global_storage_db_path=global_db,
+        )
+        sessions = ingester.discover_sessions()
+        assert len(sessions) == 1
+
+        session = ingester.parse_session(sessions[0])
+        assert session.source == "cursor"
+        assert session.title == "Theme cleanup session"
+        assert len(session.messages) == 2
+        assert session.messages[0].role == "user"
+        assert "theme module" in session.messages[0].content
+        assert session.messages[1].role == "assistant"
+        assert "shared config" in session.messages[1].content
+        assert session.messages[1].tool_calls[0].tool == "edit_file_v2"
+
     def test_parse_ai_service_prompts_and_generations(self, tmp_path: Path) -> None:
         db_path = tmp_path / "state.vscdb"
         conn = sqlite3.connect(str(db_path))
@@ -180,6 +320,8 @@ class TestCursorIngester:
         session = ingester.parse_session(db_path)
 
         assert len(session.messages) == 2
+        assert session.title is not None
+        assert "theme variables" in session.title
         assert session.messages[0].role == "user"
         assert "theme variables" in session.messages[0].content
         assert session.messages[1].role == "assistant"
@@ -238,6 +380,7 @@ class TestClaudeCodeIngester:
         session = ingester.parse_session(session_file)
 
         assert session.source == "claude-code"
+        assert session.title == "Hello"
         assert len(session.messages) == 2
         assert session.messages[0].role == "user"
         assert session.messages[0].content == "Hello"
@@ -262,6 +405,7 @@ class TestClaudeCodeIngester:
         session = ingester.parse_session(session_file)
 
         assert len(session.messages) == 1
+        assert session.title == "test session"
         assert len(session.messages[0].tool_calls) == 1
         assert session.messages[0].tool_calls[0].tool == "Read"
 

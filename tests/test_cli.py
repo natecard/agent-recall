@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from typer.testing import CliRunner
 
 import agent_recall.cli.main as cli_main
+from agent_recall.ingest.base import RawMessage, RawSession
 from agent_recall.llm.base import LLMProvider, LLMResponse, Message
 from agent_recall.storage.files import FileStorage
 from agent_recall.storage.sqlite import SQLiteStorage
@@ -42,6 +44,23 @@ class FakeIngester:
     def discover_sessions(self, since=None):
         _ = since
         return self._sessions
+
+    def get_session_id(self, path: Path) -> str:
+        return f"{self.source_name}-{path.stem}"
+
+    def parse_session(self, path: Path) -> RawSession:
+        return RawSession(
+            source=self.source_name,
+            session_id=self.get_session_id(path),
+            title=f"Session {path.stem}",
+            project_path=path.parent,
+            started_at=datetime.now(UTC),
+            ended_at=datetime.now(UTC),
+            messages=[
+                RawMessage(role="user", content=f"Inspect {path.stem}"),
+                RawMessage(role="assistant", content=f"Reviewed {path.stem}"),
+            ],
+        )
 
 
 def test_cli_help_import_sanity() -> None:
@@ -116,8 +135,8 @@ def test_cli_sync_no_compact(monkeypatch) -> None:
         def __init__(self, *_args, **_kwargs):
             pass
 
-        async def sync(self, since=None, sources=None):
-            _ = (since, sources)
+        async def sync(self, since=None, sources=None, session_ids=None, max_sessions=None):
+            _ = (since, sources, session_ids, max_sessions)
             called["sync"] += 1
             return {
                 "sessions_discovered": 1,
@@ -128,8 +147,15 @@ def test_cli_sync_no_compact(monkeypatch) -> None:
                 "errors": [],
             }
 
-        async def sync_and_compact(self, since=None, sources=None, force_compact=False):
-            _ = (since, sources, force_compact)
+        async def sync_and_compact(
+            self,
+            since=None,
+            sources=None,
+            session_ids=None,
+            max_sessions=None,
+            force_compact=False,
+        ):
+            _ = (since, sources, session_ids, max_sessions, force_compact)
             called["sync_and_compact"] += 1
             return {
                 "sessions_discovered": 1,
@@ -158,6 +184,110 @@ def test_cli_sync_no_compact(monkeypatch) -> None:
         assert called["sync_and_compact"] == 0
 
 
+def test_cli_sync_session_filters_wiring(monkeypatch) -> None:
+    captured: dict[str, object] = {
+        "session_ids": None,
+        "max_sessions": None,
+    }
+
+    class FakeAutoSync:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def sync(self, since=None, sources=None, session_ids=None, max_sessions=None):
+            _ = (since, sources)
+            captured["session_ids"] = session_ids
+            captured["max_sessions"] = max_sessions
+            return {
+                "sessions_discovered": 2,
+                "sessions_processed": 2,
+                "sessions_skipped": 0,
+                "empty_sessions": 0,
+                "learnings_extracted": 0,
+                "by_source": {},
+                "errors": [],
+            }
+
+    monkeypatch.setattr(cli_main, "AutoSync", FakeAutoSync)
+    monkeypatch.setattr(cli_main, "get_llm", lambda: DummyProvider())
+    monkeypatch.setattr(cli_main, "get_default_ingesters", lambda **_kwargs: [])
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(
+            cli_main.app,
+            [
+                "sync",
+                "--no-compact",
+                "--session-id",
+                "cursor-a",
+                "--session-id",
+                "cursor-b",
+                "--max-sessions",
+                "2",
+            ],
+        )
+        assert result.exit_code == 0
+        assert captured["session_ids"] == ["cursor-a", "cursor-b"]
+        assert captured["max_sessions"] == 2
+
+
+def test_cli_sessions_lists_titles(monkeypatch) -> None:
+    captured: dict[str, object] = {
+        "session_ids": None,
+        "max_sessions": None,
+    }
+
+    class FakeAutoSync:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def list_sessions(self, since=None, sources=None, session_ids=None, max_sessions=None):
+            _ = (since, sources)
+            captured["session_ids"] = session_ids
+            captured["max_sessions"] = max_sessions
+            return {
+                "sessions_discovered": 1,
+                "by_source": {"cursor": {"discovered": 1, "listed": 1}},
+                "errors": [],
+                "sessions": [
+                    {
+                        "source": "cursor",
+                        "session_id": "cursor-session-1",
+                        "title": "Refactor theme setup",
+                        "started_at": None,
+                        "ended_at": None,
+                        "message_count": 2,
+                        "processed": False,
+                        "session_path": Path("state.vscdb"),
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(cli_main, "AutoSync", FakeAutoSync)
+    monkeypatch.setattr(cli_main, "get_default_ingesters", lambda **_kwargs: [])
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(
+            cli_main.app,
+            [
+                "sessions",
+                "--session-id",
+                "cursor-session-1",
+                "--max-sessions",
+                "1",
+                "--format",
+                "json",
+            ],
+        )
+        assert result.exit_code == 0
+        assert '"title": "Refactor theme setup"' in result.output
+        assert '"session_id": "cursor-session-1"' in result.output
+        assert captured["session_ids"] == ["cursor-session-1"]
+        assert captured["max_sessions"] == 1
+
+
 def test_cli_sources(monkeypatch) -> None:
     monkeypatch.setattr(
         cli_main,
@@ -174,6 +304,11 @@ def test_cli_sources(monkeypatch) -> None:
         assert result.exit_code == 0
         assert "cursor" in result.output
         assert "claude-code" in result.output
+        assert "Discovered Conversations" in result.output
+        assert "Session a" in result.output
+        assert "Conversation" in result.output
+        assert "Ref" in result.output
+        assert "Session ID" not in result.output
 
 
 def test_cli_providers_command() -> None:
@@ -242,8 +377,8 @@ def test_cli_sync_cursor_override_wiring(monkeypatch) -> None:
         def __init__(self, *_args, **_kwargs):
             pass
 
-        async def sync(self, since=None, sources=None):
-            _ = (since, sources)
+        async def sync(self, since=None, sources=None, session_ids=None, max_sessions=None):
+            _ = (since, sources, session_ids, max_sessions)
             return {
                 "sessions_discovered": 1,
                 "sessions_processed": 1,
@@ -422,8 +557,8 @@ def test_cli_sync_uses_onboarding_selected_sources(monkeypatch) -> None:
         def __init__(self, _storage, _files, _llm, ingesters):
             captured["ingesters"] = [ingester.source_name for ingester in ingesters]
 
-        async def sync(self, since=None, sources=None):
-            _ = since
+        async def sync(self, since=None, sources=None, session_ids=None, max_sessions=None):
+            _ = (since, session_ids, max_sessions)
             captured["sources"] = sources
             return {
                 "sessions_discovered": 1,
@@ -434,8 +569,15 @@ def test_cli_sync_uses_onboarding_selected_sources(monkeypatch) -> None:
                 "errors": [],
             }
 
-        async def sync_and_compact(self, since=None, sources=None, force_compact=False):
-            _ = (since, sources, force_compact)
+        async def sync_and_compact(
+            self,
+            since=None,
+            sources=None,
+            session_ids=None,
+            max_sessions=None,
+            force_compact=False,
+        ):
+            _ = (since, sources, session_ids, max_sessions, force_compact)
             raise AssertionError("sync_and_compact should not be called when --no-compact is set")
 
     monkeypatch.setattr(cli_main, "AutoSync", FakeAutoSync)
@@ -547,6 +689,74 @@ def test_tui_slash_compact_dispatch(monkeypatch) -> None:
     assert should_exit is False
     assert any("/compact --force" in line for line in lines)
     assert any("Compaction complete" in line for line in lines)
+
+
+def test_tui_slash_preserves_table_output(monkeypatch) -> None:
+    class FakeResult:
+        exit_code = 0
+        output = (
+            "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n"
+            "┃ Source        Sessions  Status             ┃\n"
+            "┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩\n"
+            "│ cursor        62        ✓ Available        │\n"
+            "└─────────────────────────────────────────────┘\n"
+        )
+
+    monkeypatch.setattr(
+        cli_main._slash_runner,
+        "invoke",
+        lambda *_args, **_kwargs: FakeResult(),
+    )
+
+    should_exit, lines = cli_main._execute_tui_slash_command("/sources")
+
+    assert should_exit is False
+    assert any("cursor" in line.lower() for line in lines)
+    assert any("┏" in line or "└" in line for line in lines)
+
+
+def test_tui_slash_normalizes_theme_table_rows(monkeypatch) -> None:
+    class FakeResult:
+        exit_code = 0
+        output = (
+            "\x1b[36m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓\x1b[0m\n"
+            "\x1b[36m┃ Name                           ┃ Status     ┃\x1b[0m\n"
+            "\x1b[36m┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩\x1b[0m\n"
+            "\x1b[37m│ dark+                          │ ✓ Current  │\x1b[0m\n"
+            "\x1b[37m│ light+                         │            │\x1b[0m\n"
+            "\x1b[36m└────────────────────────────────┴────────────┘\x1b[0m\n"
+        )
+
+    monkeypatch.setattr(
+        cli_main._slash_runner,
+        "invoke",
+        lambda *_args, **_kwargs: FakeResult(),
+    )
+
+    should_exit, lines = cli_main._execute_tui_slash_command("/theme list")
+
+    assert should_exit is False
+    assert any("dark+" in line for line in lines)
+    assert any("light+" in line for line in lines)
+    assert any("│" in line or "┏" in line or "┗" in line for line in lines)
+
+
+def test_tui_slash_does_not_truncate_output_lines(monkeypatch) -> None:
+    class FakeResult:
+        exit_code = 0
+        output = "\n".join(f"line-{index}" for index in range(1, 13)) + "\n"
+
+    monkeypatch.setattr(
+        cli_main._slash_runner,
+        "invoke",
+        lambda *_args, **_kwargs: FakeResult(),
+    )
+
+    should_exit, lines = cli_main._execute_tui_slash_command("/status")
+
+    assert should_exit is False
+    assert any("line-12" in line for line in lines)
+    assert not any("... and " in line for line in lines)
 
 
 def test_tui_slash_disallows_nested_tui() -> None:
