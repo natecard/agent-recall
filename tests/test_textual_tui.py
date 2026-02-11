@@ -3,6 +3,7 @@ from __future__ import annotations
 from agent_recall.cli.textual_tui import (
     _build_command_suggestions,
     _clean_optional_text,
+    _is_knowledge_run_command,
     _is_palette_cli_command_redundant,
 )
 
@@ -26,9 +27,19 @@ def test_clean_optional_text_handles_none_variants() -> None:
 
 def test_palette_cli_command_redundancy_filter() -> None:
     assert _is_palette_cli_command_redundant("status") is True
+    assert _is_palette_cli_command_redundant("run") is True
     assert _is_palette_cli_command_redundant("sources") is True
     assert _is_palette_cli_command_redundant("sessions") is True
     assert _is_palette_cli_command_redundant("theme list") is True
     assert _is_palette_cli_command_redundant("theme show") is False
     assert _is_palette_cli_command_redundant("config model") is True
     assert _is_palette_cli_command_redundant("providers") is False
+
+
+def test_is_knowledge_run_command() -> None:
+    assert _is_knowledge_run_command("run")
+    assert _is_knowledge_run_command("compact")
+    assert _is_knowledge_run_command("sync")
+    assert _is_knowledge_run_command("sync --source cursor")
+    assert not _is_knowledge_run_command("sync --no-compact")
+    assert not _is_knowledge_run_command("status")

@@ -17,7 +17,11 @@ from rich.panel import Panel
 from rich.table import Table
 
 from agent_recall.ingest import get_default_ingesters
-from agent_recall.llm import create_llm_provider, get_available_providers
+from agent_recall.llm import (
+    create_llm_provider,
+    ensure_provider_dependency,
+    get_available_providers,
+)
 from agent_recall.storage.files import FileStorage
 from agent_recall.storage.models import LLMConfig
 
@@ -811,6 +815,15 @@ def apply_repo_setup(
         parsed = LLMConfig(**llm_payload)
     except Exception as exc:  # noqa: BLE001
         raise ValueError(f"Invalid LLM config: {exc}") from None
+
+    dependency_ok, dependency_message = ensure_provider_dependency(
+        normalized_provider,
+        auto_install=True,
+    )
+    if not dependency_ok:
+        raise ValueError(dependency_message or "Failed installing provider dependency.")
+    if dependency_message:
+        console.print(f"[dim]{dependency_message}[/dim]")
 
     if validate:
         try:

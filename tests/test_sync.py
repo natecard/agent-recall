@@ -93,6 +93,33 @@ class SlowLLM(LLMProvider):
         return True, "ok"
 
 
+class EmptyLearningLLM(LLMProvider):
+    @property
+    def provider_name(self) -> str:
+        return "empty-learning"
+
+    @property
+    def model_name(self) -> str:
+        return "empty-learning-model"
+
+    async def generate(
+        self,
+        messages: list[Message],
+        temperature: float = 0.3,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        _ = (temperature, max_tokens)
+        prompt = messages[-1].content
+        if "Analyze this development session transcript" in prompt:
+            return LLMResponse(content="[]", model="empty-learning-model")
+        if "Current STYLE.md" in prompt or "Current GUARDRAILS.md" in prompt:
+            return LLMResponse(content="NONE", model="empty-learning-model")
+        return LLMResponse(content="", model="empty-learning-model")
+
+    def validate(self) -> tuple[bool, str]:
+        return True, "ok"
+
+
 class FakeIngester(SessionIngester):
     def __init__(self, source_name: str, sessions: list[Path]):
         self._source_name = source_name
@@ -166,6 +193,8 @@ async def test_auto_sync_processes_then_skips_duplicates(storage, files, tmp_pat
     assert second["sessions_discovered"] == 1
     assert second["sessions_processed"] == 0
     assert second["sessions_skipped"] == 1
+    assert second["sessions_already_processed"] == 1
+    assert second["session_diagnostics"][0]["status"] == "skipped_already_processed"
 
 
 @pytest.mark.asyncio
@@ -337,6 +366,54 @@ async def test_auto_sync_timeout_is_reported(storage, files, tmp_path: Path) -> 
     assert results["learnings_extracted"] == 0
     assert len(results["errors"]) == 1
     assert "timed out" in results["errors"][0]
+
+
+@pytest.mark.asyncio
+async def test_auto_sync_warns_when_long_session_yields_no_learnings(
+    storage,
+    files,
+    tmp_path: Path,
+) -> None:
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    class LongConversationIngester(FakeIngester):
+        def parse_session(self, path: Path) -> RawSession:
+            messages = []
+            for index in range(60):
+                role = "user" if index % 2 == 0 else "assistant"
+                messages.append(
+                    RawMessage(
+                        role=role,
+                        content=f"Message {index + 1} about debugging parser behavior",
+                    )
+                )
+            return RawSession(
+                source=self.source_name,
+                session_id=self.get_session_id(path),
+                project_path=path.parent,
+                started_at=datetime.now(UTC),
+                ended_at=datetime.now(UTC),
+                messages=messages,
+            )
+
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=EmptyLearningLLM(),
+        ingesters=[LongConversationIngester("cursor", [session_path])],
+    )
+
+    results = await sync.sync()
+    assert results["sessions_processed"] == 1
+    assert results["learnings_extracted"] == 0
+    assert any("60 messages but yielded 0 learnings" in error for error in results["errors"])
+    diagnostics = results["session_diagnostics"]
+    assert len(diagnostics) == 1
+    assert diagnostics[0]["message_count"] == 60
+    assert diagnostics[0]["learnings_extracted"] == 0
+    assert diagnostics[0]["status"] == "processed"
+    assert "warning" in diagnostics[0]
 
 
 def test_auto_sync_list_sessions_includes_titles_and_processed_state(

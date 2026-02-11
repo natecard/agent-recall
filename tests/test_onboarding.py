@@ -193,6 +193,11 @@ def test_apply_repo_setup_persists_modal_values(monkeypatch, tmp_path: Path) -> 
         "get_default_ingesters",
         lambda **_kwargs: [FakeIngester("cursor", 2), FakeIngester("claude-code", 1)],
     )
+    monkeypatch.setattr(
+        onboarding,
+        "ensure_provider_dependency",
+        lambda *_args, **_kwargs: (True, None),
+    )
 
     changed = apply_repo_setup(
         files,

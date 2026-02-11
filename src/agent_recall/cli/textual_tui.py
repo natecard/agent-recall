@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import shlex
+import time
 from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -25,6 +26,8 @@ DiscoverModelsFn = Callable[[str, str | None, str | None], tuple[list[str], str 
 ThemeDefaultsFn = Callable[[], tuple[list[str], str]]
 ThemeRuntimeFn = Callable[[], tuple[str, Theme]]
 ExecuteCommandFn = Callable[[str, int, int], tuple[bool, list[str]]]
+ListSessionsForPickerFn = Callable[[int, bool], list[dict[str, Any]]]
+_LOADING_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
 _PROVIDER_BASE_URL_DEFAULTS = {
     "anthropic": "https://api.anthropic.com/v1",
@@ -54,6 +57,7 @@ def _build_command_suggestions(cli_commands: list[str]) -> list[str]:
     base = [
         "help",
         "status",
+        "run",
         "sync --no-compact",
         "compact",
         "sources",
@@ -114,6 +118,7 @@ def _is_palette_cli_command_redundant(command: str) -> bool:
 
     exact = {
         "status",
+        "run",
         "sync",
         "compact",
         "sources",
@@ -137,6 +142,24 @@ def _is_palette_cli_command_redundant(command: str) -> bool:
         "config preferences",
     )
     return normalized.startswith(prefixes)
+
+
+def _is_knowledge_run_command(command: str) -> bool:
+    value = command.strip()
+    if not value:
+        return False
+    try:
+        parts = shlex.split(value)
+    except ValueError:
+        return False
+    if not parts:
+        return False
+    action = parts[0].lower()
+    if action in {"run", "compact"}:
+        return True
+    if action == "sync" and "--no-compact" not in parts:
+        return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -857,6 +880,146 @@ class SettingsModal(ModalScreen[dict[str, Any] | None]):
         )
 
 
+class SessionRunModal(ModalScreen[dict[str, Any] | None]):
+    BINDINGS = [
+        Binding("escape", "dismiss(None)", "Close"),
+        Binding("space", "toggle_selection", "Toggle"),
+        Binding("enter", "apply", "Run"),
+    ]
+
+    def __init__(self, sessions: list[dict[str, Any]]):
+        super().__init__()
+        self.sessions = sessions
+        self.filter_query = ""
+        self.selected_session_ids: set[str] = set()
+
+    def compose(self) -> ComposeResult:
+        with Container(id="modal_overlay"):
+            with Vertical(id="modal_card"):
+                yield Static("Run Knowledge Update", classes="modal_title")
+                yield Input(
+                    placeholder="Filter conversations...",
+                    id="run_sessions_filter",
+                    classes="field_input",
+                )
+                yield OptionList(id="run_sessions_list")
+                yield Static("", id="run_sessions_status")
+                with Horizontal(classes="modal_actions"):
+                    yield Button("Run Selected", variant="primary", id="run_sessions_apply")
+                    yield Button("Cancel", id="run_sessions_cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#run_sessions_filter", Input).focus()
+        self._rebuild_options()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "run_sessions_filter":
+            return
+        self.filter_query = event.value
+        self._rebuild_options()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option_list.id != "run_sessions_list":
+            return
+        self._toggle_highlighted()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "run_sessions_cancel":
+            self.dismiss(None)
+            return
+        if event.button.id == "run_sessions_apply":
+            self._submit()
+
+    def action_toggle_selection(self) -> None:
+        self._toggle_highlighted()
+
+    def action_apply(self) -> None:
+        self._submit()
+
+    def _toggle_highlighted(self) -> None:
+        option_list = self.query_one("#run_sessions_list", OptionList)
+        highlighted = option_list.highlighted
+        if highlighted is None:
+            return
+        option = option_list.get_option_at_index(highlighted)
+        option_id = option.id or ""
+        if not option_id.startswith("session:"):
+            return
+        session_id = option_id.split(":", 1)[1]
+        if not session_id:
+            return
+        if session_id in self.selected_session_ids:
+            self.selected_session_ids.remove(session_id)
+        else:
+            self.selected_session_ids.add(session_id)
+        self._rebuild_options()
+
+    def _submit(self) -> None:
+        ordered_selection = [
+            str(session.get("session_id") or "")
+            for session in self.sessions
+            if str(session.get("session_id") or "") in self.selected_session_ids
+        ]
+        ordered_selection = [item for item in ordered_selection if item]
+        if not ordered_selection:
+            self.query_one("#run_sessions_status", Static).update(
+                "[red]Select at least one conversation.[/red]"
+            )
+            return
+        self.dismiss({"session_ids": ordered_selection})
+
+    def _rebuild_options(self) -> None:
+        query = self.filter_query.strip().lower()
+        visible_sessions: list[dict[str, Any]] = []
+        for session in self.sessions:
+            title = str(session.get("title") or "").lower()
+            started = str(session.get("started") or "").lower()
+            source = str(session.get("source") or "").lower()
+            if query and query not in f"{title} {started} {source}":
+                continue
+            visible_sessions.append(session)
+
+        option_list = self.query_one("#run_sessions_list", OptionList)
+        options: list[Option] = []
+        for session in visible_sessions:
+            session_id = str(session.get("session_id") or "")
+            if not session_id:
+                continue
+            selected = session_id in self.selected_session_ids
+            options.append(
+                Option(
+                    self._line_for_session(session, selected),
+                    id=f"session:{session_id}",
+                )
+            )
+
+        if not options:
+            options = [Option("No matching conversations.", id="session:", disabled=True)]
+
+        option_list.set_options(options)
+        for index, option in enumerate(options):
+            if option.disabled:
+                continue
+            option_list.highlighted = index
+            break
+
+        self.query_one("#run_sessions_status", Static).update(
+            f"[dim]{len(visible_sessions)} shown · {len(self.selected_session_ids)} selected"
+            " · Space toggles, Enter runs[/dim]"
+        )
+
+    def _line_for_session(self, session: dict[str, Any], selected: bool) -> str:
+        marker = "[green]✓[/green]" if selected else "[dim]○[/dim]"
+        title = str(session.get("title") or "Untitled conversation")
+        started = str(session.get("started") or "-")
+        message_count = int(session.get("message_count", 0))
+        processed = "processed" if bool(session.get("processed")) else "new"
+        return (
+            f"{marker} {title} "
+            f"[dim]({started} · {message_count} msg · {processed})[/dim]"
+        )
+
+
 class AgentRecallTextualApp(App[None]):
     CSS = """
     #root {
@@ -980,6 +1143,7 @@ class AgentRecallTextualApp(App[None]):
         *,
         render_dashboard: Callable[..., Any],
         execute_command: ExecuteCommandFn,
+        list_sessions_for_picker: ListSessionsForPickerFn,
         run_setup_payload: Callable[[dict[str, object]], tuple[bool, list[str]]],
         run_model_config: Callable[
             [str | None, str | None, str | None, float | None, int | None, bool],
@@ -1000,6 +1164,7 @@ class AgentRecallTextualApp(App[None]):
         super().__init__()
         self._render_dashboard = render_dashboard
         self._execute_command = execute_command
+        self._list_sessions_for_picker = list_sessions_for_picker
         self._run_setup_payload = run_setup_payload
         self._run_model_config = run_model_config
         self._theme_defaults_provider = theme_defaults_provider
@@ -1023,6 +1188,7 @@ class AgentRecallTextualApp(App[None]):
         self._result_list_open = False
         self._refresh_timer = None
         self._worker_context: dict[int, str] = {}
+        self._knowledge_run_workers: set[int] = set()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1116,6 +1282,11 @@ class AgentRecallTextualApp(App[None]):
         lines = "\n".join(history_lines)
         subtitle = f"{self.current_view} · {self.refresh_seconds:.1f}s · Ctrl+P commands"
         title = self.status
+        if self._knowledge_run_workers:
+            frame_index = int(time.time() * 6) % len(_LOADING_FRAMES)
+            frame = _LOADING_FRAMES[frame_index]
+            title = f"Knowledge run in progress {frame} Loading"
+            subtitle = f"{subtitle} · running synthesis"
         if self._worker_context:
             title = f"{title} …"
         self.query_one("#activity_log", Static).update(
@@ -1259,12 +1430,20 @@ class AgentRecallTextualApp(App[None]):
                 "sync ingest",
             ),
             PaletteAction(
-                "compact",
-                "Run compaction",
-                "Compact index/chunks for lower footprint",
+                "run:select",
+                "Run selected conversations",
+                "Pick specific conversations, then run knowledge synthesis",
                 "Session",
                 "",
-                "compact",
+                "sessions select run llm",
+            ),
+            PaletteAction(
+                "knowledge-run",
+                "Run knowledge update",
+                "Synthesize GUARDRAILS/STYLE/RECENT from current learnings",
+                "Session",
+                "",
+                "run compact synthesis",
             ),
             PaletteAction(
                 "sources",
@@ -1387,6 +1566,9 @@ class AgentRecallTextualApp(App[None]):
         if action_id == "theme":
             self._open_inline_theme_picker()
             return
+        if action_id == "run:select":
+            self.action_open_session_run_modal()
+            return
         if action_id == "quit":
             self.exit()
             return
@@ -1400,13 +1582,25 @@ class AgentRecallTextualApp(App[None]):
         command_by_action = {
             "status": "status",
             "sync": "sync --no-compact",
-            "compact": "compact",
+            "knowledge-run": "run",
             "sources": "sources",
             "sessions": "sessions",
         }
         command = command_by_action.get(action_id)
         if command:
             self._run_backend_command(command)
+
+    def action_open_session_run_modal(self) -> None:
+        self.status = "Loading conversations"
+        self._append_activity("Loading conversations for selection...")
+        worker = self.run_worker(
+            lambda: self._list_sessions_for_picker(200, self.all_cursor_workspaces),
+            thread=True,
+            group="tui-ops",
+            exclusive=True,
+            exit_on_error=False,
+        )
+        self._worker_context[id(worker)] = "session_picker"
 
     def _run_backend_command(self, command: str) -> None:
         if self._handle_local_command(command):
@@ -1417,6 +1611,8 @@ class AgentRecallTextualApp(App[None]):
             self._close_inline_result_list(announce=False)
         self._append_activity(f"> {command}")
         self.status = f"Running: {command}"
+        if _is_knowledge_run_command(command):
+            self._append_activity("Knowledge run started. Loading...")
         viewport_width = max(int(self.size.width or 0), 80)
         viewport_height = max(int(self.size.height or 0), 24)
         worker = self.run_worker(
@@ -1426,7 +1622,10 @@ class AgentRecallTextualApp(App[None]):
             exclusive=True,
             exit_on_error=False,
         )
-        self._worker_context[id(worker)] = "command"
+        worker_key = id(worker)
+        self._worker_context[worker_key] = "command"
+        if _is_knowledge_run_command(command):
+            self._knowledge_run_workers.add(worker_key)
 
     def _handle_local_command(self, raw: str) -> bool:
         command = raw.strip()
@@ -1504,6 +1703,10 @@ class AgentRecallTextualApp(App[None]):
             if second == "set" and len(parts) == 2:
                 self._open_inline_theme_picker()
                 return True
+        if action == "run" and len(parts) > 1 and parts[1].lower() == "select":
+            self.action_open_session_run_modal()
+            self.status = "Select conversations"
+            return True
 
         return False
 
@@ -1570,6 +1773,23 @@ class AgentRecallTextualApp(App[None]):
         self._append_activity("Settings updated.")
         self._refresh_dashboard_panel()
 
+    def _apply_session_run_modal_result(self, result: dict[str, Any] | None) -> None:
+        if result is None:
+            return
+        session_ids = [
+            str(item).strip() for item in result.get("session_ids", []) if str(item).strip()
+        ]
+        if not session_ids:
+            self._append_activity("No conversations selected.")
+            return
+        command_parts = ["sync", "--verbose"]
+        for session_id in session_ids:
+            command_parts.append("--session-id")
+            command_parts.append(shlex.quote(session_id))
+        command = " ".join(command_parts)
+        self._append_activity(f"Selected {len(session_ids)} conversation(s) for knowledge run.")
+        self._run_backend_command(command)
+
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         worker_key = id(event.worker)
         context = self._worker_context.get(worker_key)
@@ -1582,12 +1802,14 @@ class AgentRecallTextualApp(App[None]):
         if event.state == WorkerState.SUCCESS:
             self._handle_worker_success(context, event.worker.result)
             self._worker_context.pop(worker_key, None)
+            self._complete_knowledge_worker(worker_key, success=True)
             return
 
         if event.state == WorkerState.CANCELLED:
             self.status = "Operation cancelled"
             self._append_activity("Previous operation cancelled.")
             self._worker_context.pop(worker_key, None)
+            self._complete_knowledge_worker(worker_key, success=False)
             self._refresh_dashboard_panel()
             return
 
@@ -1599,6 +1821,7 @@ class AgentRecallTextualApp(App[None]):
             else:
                 self._append_activity(f"Error: {error}")
             self._worker_context.pop(worker_key, None)
+            self._complete_knowledge_worker(worker_key, success=False)
             self._refresh_dashboard_panel()
 
     def _handle_worker_success(self, context: str, result: object) -> None:
@@ -1633,6 +1856,26 @@ class AgentRecallTextualApp(App[None]):
             self._refresh_dashboard_panel()
             if should_exit:
                 self.exit()
+            return
+
+        if context == "session_picker":
+            sessions = (
+                [item for item in result if isinstance(item, dict)]
+                if isinstance(result, list)
+                else []
+            )
+            if not sessions:
+                self.status = "No conversations found"
+                self._append_activity("No conversations available to select.")
+                self._refresh_dashboard_panel()
+                return
+            self.status = "Select conversations"
+            self._append_activity(f"Loaded {len(sessions)} conversation(s).")
+            self.push_screen(
+                SessionRunModal(sessions),
+                self._apply_session_run_modal_result,
+            )
+            self._refresh_dashboard_panel()
             return
 
         if context == "setup":
@@ -1673,3 +1916,14 @@ class AgentRecallTextualApp(App[None]):
             self.status = "Model configuration updated"
             self._append_activity("Model configuration updated.")
             self._refresh_dashboard_panel()
+
+    def _complete_knowledge_worker(self, worker_key: int, *, success: bool) -> None:
+        if worker_key not in self._knowledge_run_workers:
+            return
+        self._knowledge_run_workers.discard(worker_key)
+        if self._knowledge_run_workers:
+            return
+        if success:
+            self._append_activity("Knowledge run completed.")
+        else:
+            self._append_activity("Knowledge run ended with errors.")

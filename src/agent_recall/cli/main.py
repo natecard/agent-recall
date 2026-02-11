@@ -49,6 +49,7 @@ from agent_recall.ingest import get_default_ingesters, get_ingester
 from agent_recall.llm import (
     Message,
     create_llm_provider,
+    ensure_provider_dependency,
     get_available_providers,
     validate_provider_config,
 )
@@ -212,6 +213,14 @@ def get_llm():
     files = get_files()
     config_dict = files.read_config()
     llm_config = LLMConfig(**config_dict.get("llm", {}))
+    dependency_ok, dependency_message = ensure_provider_dependency(
+        llm_config.provider,
+        auto_install=True,
+    )
+    if not dependency_ok:
+        raise RuntimeError(dependency_message or "Provider dependency setup failed.")
+    if dependency_message:
+        console.print(f"[dim]{dependency_message}[/dim]")
     return create_llm_provider(llm_config)
 
 
@@ -290,7 +299,8 @@ def _tui_help_lines() -> list[str]:
         "[dim]/view overview|sources|llm|knowledge|settings|console|all[/dim] - switch TUI view",
         "[dim]/status[/dim] - Show stats and source availability",
         "[dim]/sync --no-compact[/dim] - Sync sessions quickly",
-        "[dim]/compact[/dim] - Run compaction now",
+        "[dim]/compact[/dim] - Run knowledge synthesis now",
+        "[dim]/run[/dim] - Alias for /sync (includes synthesis by default)",
         "[dim]/sources[/dim] - Show detected session sources",
         "[dim]/config model --temperature 0.2 --max-tokens 8192[/dim] - Tune model settings",
         "[dim]/config setup --force[/dim] - Re-run setup in this repo",
@@ -397,6 +407,7 @@ def _execute_tui_slash_command(
     except ValueError as exc:
         return False, [f"[error]Invalid command: {escape(str(exc))}[/error]"]
 
+    original_parts = list(parts)
     command_name = parts[0].lower()
     if command_name in {"q", "quit", "exit"}:
         return True, ["[dim]Leaving TUI...[/dim]"]
@@ -419,6 +430,11 @@ def _execute_tui_slash_command(
     if command_name == "tui":
         return False, ["[warning]/tui is already running.[/warning]"]
 
+    # User-facing alias: "run" communicates intent better than "compact".
+    if command_name == "run":
+        parts = ["sync", *parts[1:]]
+        command_name = "sync"
+
     invoke_env: dict[str, str] | None = None
     if terminal_width is not None or terminal_height is not None:
         invoke_env = {}
@@ -436,7 +452,8 @@ def _execute_tui_slash_command(
         env=invoke_env,
         terminal_width=max(runner_terminal_width, 80),
     )
-    command_label = "/" + " ".join(parts)
+    command_label_parts = original_parts if original_parts and original_parts[0] == "run" else parts
+    command_label = "/" + " ".join(command_label_parts)
 
     lines: list[str] = []
     if result.exit_code == 0:
@@ -719,6 +736,8 @@ def compact(force: bool = typer.Option(False, "--force", "-f", help="Force compa
             f"Guardrails updated: {results['guardrails_updated']}\n"
             f"Style updated: {results['style_updated']}\n"
             f"Recent updated: {results['recent_updated']}\n"
+            f"LLM requests: {results.get('llm_requests', 0)} "
+            f"(responses: {results.get('llm_responses', 0)})\n"
             f"Chunks indexed: {results['chunks_indexed']}",
             title="Results",
         )
@@ -867,8 +886,22 @@ def sync(
     lines.append(f"Sessions discovered: {results['sessions_discovered']}")
     lines.append(f"Sessions processed:  {results['sessions_processed']}")
     if int(results["sessions_skipped"]) > 0:
-        lines.append(f"Sessions skipped:    {results['sessions_skipped']} (already processed)")
+        lines.append(
+            f"Sessions skipped:    {results['sessions_skipped']} "
+            f"(already processed: {int(results.get('sessions_already_processed', 0))}, "
+            f"empty: {int(results.get('empty_sessions', 0))})"
+        )
     lines.append(f"Learnings extracted: {results['learnings_extracted']}")
+    if session_ids and int(results["sessions_processed"]) == 0:
+        already_processed = int(results.get("sessions_already_processed", 0))
+        if already_processed == int(results["sessions_discovered"]) and already_processed > 0:
+            lines.append(
+                "[warning]Selected sessions were already processed; ingestion did not "
+                "rerun.[/warning]"
+            )
+            lines.append(
+                "[dim]Use `agent-recall reset-sync --session-id <id>` to reprocess a session.[/dim]"
+            )
 
     if verbose and results.get("by_source"):
         lines.append("")
@@ -879,19 +912,68 @@ def sync(
                 f"  {source_name}: {source_stats['processed']}/{source_stats['discovered']} "
                 f"processed, {source_stats['learnings']} learnings"
             )
+            if int(source_stats.get("already_processed", 0)) > 0:
+                lines.append(
+                    f"    [dim]{source_stats['already_processed']} session(s) skipped as already "
+                    "processed[/dim]"
+                )
             if int(source_stats.get("empty", 0)) > 0:
                 lines.append(
                     f"    [dim]{source_stats['empty']} discovered session(s) had no parseable "
                     "messages and were skipped[/dim]"
                 )
+    session_diagnostics = results.get("session_diagnostics") or []
+    if verbose and session_diagnostics:
+        lines.append("")
+        lines.append("[bold]Session diagnostics:[/bold]")
+        for item in session_diagnostics[:30]:
+            source_name = str(item.get("source", "?"))
+            source_session_id = str(item.get("session_id", "?"))
+            status = str(item.get("status", "unknown"))
+            message_count = item.get("message_count")
+            learnings = int(item.get("learnings_extracted", 0))
+            message_text = (
+                f"messages={message_count}" if isinstance(message_count, int) else "messages=?"
+            )
+            lines.append(
+                f"  {source_name}:{source_session_id}  status={status}  "
+                f"{message_text}  learnings={learnings}"
+            )
+            warning = item.get("warning")
+            if warning:
+                lines.append(f"    [warning]{warning}[/warning]")
+        if len(session_diagnostics) > 30:
+            lines.append(
+                f"  [dim]... and {len(session_diagnostics) - 30} more session(s)[/dim]"
+            )
 
     if "compaction" in results:
         comp = results["compaction"]
         lines.append("")
-        lines.append("[bold]Compaction:[/bold]")
+        lines.append("[bold]Knowledge synthesis:[/bold]")
+        lines.append(
+            f"  LLM requests:       {comp.get('llm_requests', 0)} "
+            f"(responses: {comp.get('llm_responses', 0)})"
+        )
         lines.append(f"  Guardrails updated: {'✓' if comp.get('guardrails_updated') else '-'}")
         lines.append(f"  Style updated:      {'✓' if comp.get('style_updated') else '-'}")
+        lines.append(f"  Recent updated:     {'✓' if comp.get('recent_updated') else '-'}")
         lines.append(f"  Chunks indexed:     {comp.get('chunks_indexed', 0)}")
+        changed_files = []
+        if comp.get("guardrails_updated"):
+            changed_files.append(".agent/GUARDRAILS.md")
+        if comp.get("style_updated"):
+            changed_files.append(".agent/STYLE.md")
+        if comp.get("recent_updated"):
+            changed_files.append(".agent/RECENT.md")
+        lines.append(
+            "  Updated files:      " + (", ".join(changed_files) if changed_files else "none")
+        )
+    elif compact:
+        lines.append("")
+        lines.append("[bold]Knowledge synthesis:[/bold]")
+        lines.append("  Status: skipped (no new learnings extracted)")
+        lines.append("[dim]Use `--force` to run synthesis without new ingestion.[/dim]")
 
     if results.get("errors"):
         errors = results["errors"]
@@ -1624,6 +1706,18 @@ def _run_model_config(
         active_console.print(f"[error]Invalid LLM config: {exc}[/error]")
         raise typer.Exit(1) from None
 
+    dependency_ok, dependency_message = ensure_provider_dependency(
+        parsed.provider,
+        auto_install=True,
+    )
+    if not dependency_ok:
+        active_console.print(
+            f"[error]Provider dependency setup failed: {dependency_message}[/error]"
+        )
+        raise typer.Exit(1)
+    if dependency_message:
+        active_console.print(f"[dim]{dependency_message}[/dim]")
+
     if validate and (
         provider or model or base_url or temperature is not None or max_tokens is not None
     ):
@@ -1688,6 +1782,39 @@ def _run_model_config_for_tui(
         output_console=capture_console,
     )
     return [line.strip() for line in temp_output.getvalue().splitlines() if line.strip()][-12:]
+
+
+def _list_sessions_for_tui_picker(
+    max_sessions: int = 200,
+    *,
+    all_cursor_workspaces: bool = False,
+) -> list[dict[str, object]]:
+    ensure_initialized()
+    storage = get_storage()
+    files = get_files()
+    selected_sources = _get_repo_selected_sources(files)
+    ingesters = _filter_ingesters_by_sources(
+        get_default_ingesters(cursor_all_workspaces=all_cursor_workspaces),
+        selected_sources,
+    )
+    auto_sync = AutoSync(storage, files, llm=None, ingesters=ingesters)
+    results = auto_sync.list_sessions(max_sessions=max_sessions)
+    sessions = results.get("sessions", [])
+
+    prepared: list[dict[str, object]] = []
+    for row in sessions:
+        title = str(row.get("title") or "").strip() or "Untitled conversation"
+        prepared.append(
+            {
+                "source": str(row.get("source") or ""),
+                "session_id": str(row.get("session_id") or ""),
+                "title": title,
+                "started": _format_session_time(row.get("started_at")),
+                "message_count": int(row.get("message_count", 0)),
+                "processed": bool(row.get("processed")),
+            }
+        )
+    return prepared
 
 
 def _get_theme_defaults_for_tui() -> tuple[list[str], str]:
@@ -1827,6 +1954,12 @@ def tui(
                 _normalize_tui_command(raw),
                 terminal_width=width,
                 terminal_height=max(height * 2, 200),
+            ),
+            list_sessions_for_picker=(
+                lambda max_items, include_all_cursor: _list_sessions_for_tui_picker(
+                    max_items,
+                    all_cursor_workspaces=include_all_cursor,
+                )
             ),
             run_setup_payload=_run_setup_from_payload,
             run_model_config=_run_model_config_for_tui,

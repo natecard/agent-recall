@@ -4,7 +4,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agent_recall.llm import create_llm_provider, get_available_providers
+from agent_recall.llm import (
+    create_llm_provider,
+    ensure_provider_dependency,
+    get_available_providers,
+)
 from agent_recall.llm.base import LLMConfigError, Message
 from agent_recall.llm.openai_compat import OpenAICompatibleProvider
 from agent_recall.storage.models import LLMConfig
@@ -90,6 +94,39 @@ class TestProviderFactory:
             create_llm_provider(config)
 
         assert "unknown-provider" in str(exc_info.value).lower()
+
+    def test_ensure_provider_dependency_reports_missing_without_install(self, monkeypatch) -> None:
+        monkeypatch.setattr("agent_recall.llm.importlib.util.find_spec", lambda _name: None)
+
+        ok, message = ensure_provider_dependency("google", auto_install=False)
+
+        assert ok is False
+        assert message is not None
+        assert "google-generativeai" in message
+
+    def test_ensure_provider_dependency_installs_when_missing(self, monkeypatch) -> None:
+        state = {"calls": 0}
+
+        def fake_find_spec(_name: str):
+            state["calls"] += 1
+            return None if state["calls"] == 1 else object()
+
+        class Completed:
+            returncode = 0
+            stdout = "ok"
+            stderr = ""
+
+        monkeypatch.setattr("agent_recall.llm.importlib.util.find_spec", fake_find_spec)
+        monkeypatch.setattr(
+            "agent_recall.llm.subprocess.run",
+            lambda *_args, **_kwargs: Completed(),
+        )
+
+        ok, message = ensure_provider_dependency("google", auto_install=True)
+
+        assert ok is True
+        assert message is not None
+        assert "Installed provider dependency" in message
 
 
 class TestLLMGeneration:

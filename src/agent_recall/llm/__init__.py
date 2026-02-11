@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import importlib.util
 import os
+import subprocess
+import sys
 from typing import TYPE_CHECKING
 
 from agent_recall.llm.base import (
@@ -26,13 +29,81 @@ __all__ = [
     "LLMRateLimitError",
     "create_llm_provider",
     "get_available_providers",
+    "ensure_provider_dependency",
     "validate_provider_config",
 ]
+
+_PROVIDER_DEPENDENCIES: dict[str, tuple[str, str]] = {
+    "anthropic": ("anthropic", "anthropic"),
+    "google": ("google.generativeai", "google-generativeai"),
+    "openai": ("openai", "openai"),
+    "ollama": ("openai", "openai"),
+    "vllm": ("openai", "openai"),
+    "lmstudio": ("openai", "openai"),
+    "openai-compatible": ("openai", "openai"),
+    "custom": ("openai", "openai"),
+}
+
+
+def _normalize_provider_name(provider: str) -> str:
+    normalized = provider.strip().lower()
+    if normalized in {"openai_compatible"}:
+        return "openai-compatible"
+    return normalized
+
+
+def ensure_provider_dependency(
+    provider: str,
+    *,
+    auto_install: bool = True,
+) -> tuple[bool, str | None]:
+    """Ensure the selected provider dependency is importable."""
+    normalized = _normalize_provider_name(provider)
+    dependency = _PROVIDER_DEPENDENCIES.get(normalized)
+    if dependency is None:
+        return True, None
+
+    module_name, package_name = dependency
+    if importlib.util.find_spec(module_name) is not None:
+        return True, None
+
+    if not auto_install:
+        return (
+            False,
+            f"Missing dependency '{package_name}'. Install with: pip install {package_name}",
+        )
+
+    command = [sys.executable, "-m", "pip", "install", package_name]
+    completed = subprocess.run(  # noqa: S603
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.strip()
+        stdout = completed.stdout.strip()
+        tail = stderr or stdout or "unknown pip error"
+        return (
+            False,
+            f"Failed installing '{package_name}' for provider '{normalized}': {tail}",
+        )
+
+    if importlib.util.find_spec(module_name) is None:
+        return (
+            False,
+            f"Installed '{package_name}' but module '{module_name}' is still unavailable.",
+        )
+
+    return True, f"Installed provider dependency: {package_name}"
 
 
 def create_llm_provider(config: LLMConfig) -> LLMProvider:
     """Create an LLM provider from config."""
-    provider = config.provider.lower()
+    provider = _normalize_provider_name(config.provider)
+    ok, message = ensure_provider_dependency(provider, auto_install=True)
+    if not ok:
+        raise LLMConfigError(message or f"Provider dependency check failed for '{provider}'.")
 
     if provider == "anthropic":
         from agent_recall.llm.anthropic import AnthropicProvider

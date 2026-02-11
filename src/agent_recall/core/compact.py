@@ -71,6 +71,8 @@ class CompactionEngine:
             "style_updated": False,
             "recent_updated": False,
             "chunks_indexed": 0,
+            "llm_requests": 0,
+            "llm_responses": 0,
         }
 
         guardrail_labels = [
@@ -86,6 +88,7 @@ class CompactionEngine:
         if guardrail_entries:
             current = self.files.read_tier(KnowledgeTier.GUARDRAILS)
             entries_text = "\n".join(f"- [{e.label.value}] {e.content}" for e in guardrail_entries)
+            results["llm_requests"] = int(results["llm_requests"]) + 1
             response = await self.llm.generate(
                 [
                     Message(
@@ -97,6 +100,7 @@ class CompactionEngine:
                     )
                 ]
             )
+            results["llm_responses"] = int(results["llm_responses"]) + 1
 
             if response.content.strip() != "NONE":
                 update = response.content.strip()
@@ -111,6 +115,7 @@ class CompactionEngine:
         if style_entries:
             current = self.files.read_tier(KnowledgeTier.STYLE)
             entries_text = "\n".join(f"- [{e.label.value}] {e.content}" for e in style_entries)
+            results["llm_requests"] = int(results["llm_requests"]) + 1
             response = await self.llm.generate(
                 [
                     Message(
@@ -122,6 +127,7 @@ class CompactionEngine:
                     )
                 ]
             )
+            results["llm_responses"] = int(results["llm_responses"]) + 1
 
             if response.content.strip() != "NONE":
                 update = response.content.strip()
@@ -141,6 +147,7 @@ class CompactionEngine:
                 summary = session.summary or "No summary provided"
                 session_lines.append(f"- {date}: task={session.task}; summary={summary}")
 
+            results["llm_requests"] = int(results["llm_requests"]) + 1
             response = await self.llm.generate(
                 [
                     Message(
@@ -149,6 +156,7 @@ class CompactionEngine:
                     )
                 ]
             )
+            results["llm_responses"] = int(results["llm_responses"]) + 1
 
             if response.content.strip():
                 current_recent = self.files.read_tier(KnowledgeTier.RECENT)

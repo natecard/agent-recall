@@ -116,6 +116,11 @@ def test_cli_invalid_label() -> None:
 
 def test_cli_compact(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "create_llm_provider", lambda *_args, **_kwargs: DummyProvider())
+    monkeypatch.setattr(
+        cli_main,
+        "ensure_provider_dependency",
+        lambda *_args, **_kwargs: (True, None),
+    )
 
     with runner.isolated_filesystem():
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
@@ -230,6 +235,45 @@ def test_cli_sync_session_filters_wiring(monkeypatch) -> None:
         assert result.exit_code == 0
         assert captured["session_ids"] == ["cursor-a", "cursor-b"]
         assert captured["max_sessions"] == 2
+
+
+def test_cli_sync_selected_sessions_already_processed_feedback(monkeypatch) -> None:
+    class FakeAutoSync:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def sync(self, since=None, sources=None, session_ids=None, max_sessions=None):
+            _ = (since, sources, session_ids, max_sessions)
+            return {
+                "sessions_discovered": 1,
+                "sessions_processed": 0,
+                "sessions_skipped": 1,
+                "sessions_already_processed": 1,
+                "empty_sessions": 0,
+                "learnings_extracted": 0,
+                "by_source": {},
+                "errors": [],
+                "session_diagnostics": [],
+            }
+
+    monkeypatch.setattr(cli_main, "AutoSync", FakeAutoSync)
+    monkeypatch.setattr(cli_main, "get_llm", lambda: DummyProvider())
+    monkeypatch.setattr(cli_main, "get_default_ingesters", lambda **_kwargs: [])
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(
+            cli_main.app,
+            [
+                "sync",
+                "--no-compact",
+                "--session-id",
+                "cursor-123",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "already processed" in result.output
+        assert "reset-sync --session-id <id>" in result.output
 
 
 def test_cli_sessions_lists_titles(monkeypatch) -> None:
@@ -361,9 +405,14 @@ def test_cli_providers_command() -> None:
     assert "ollama" in result.output
 
 
-def test_cli_config_llm_no_validate() -> None:
+def test_cli_config_llm_no_validate(monkeypatch) -> None:
     with runner.isolated_filesystem():
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        monkeypatch.setattr(
+            cli_main,
+            "ensure_provider_dependency",
+            lambda *_args, **_kwargs: (True, None),
+        )
         result = runner.invoke(
             cli_main.app,
             ["config-llm", "--provider", "ollama", "--model", "llama3.1", "--no-validate"],
@@ -372,9 +421,14 @@ def test_cli_config_llm_no_validate() -> None:
         assert "LLM Configuration Updated" in result.output
 
 
-def test_cli_config_llm_generation_settings() -> None:
+def test_cli_config_llm_generation_settings(monkeypatch) -> None:
     with runner.isolated_filesystem():
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        monkeypatch.setattr(
+            cli_main,
+            "ensure_provider_dependency",
+            lambda *_args, **_kwargs: (True, None),
+        )
         result = runner.invoke(
             cli_main.app,
             ["config-llm", "--temperature", "0.2", "--max-tokens", "8192", "--no-validate"],
@@ -388,9 +442,14 @@ def test_cli_config_llm_generation_settings() -> None:
         assert config["llm"]["max_tokens"] == 8192
 
 
-def test_cli_config_model_subcommand() -> None:
+def test_cli_config_model_subcommand(monkeypatch) -> None:
     with runner.isolated_filesystem():
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        monkeypatch.setattr(
+            cli_main,
+            "ensure_provider_dependency",
+            lambda *_args, **_kwargs: (True, None),
+        )
         result = runner.invoke(
             cli_main.app,
             ["config", "model", "--provider", "ollama", "--model", "llama3.1", "--no-validate"],
@@ -535,6 +594,10 @@ def test_cli_tui_single_iteration(monkeypatch) -> None:
             FakeIngester("claude-code", []),
         ],
     )
+    monkeypatch.setattr(
+        "agent_recall.core.onboarding.ensure_provider_dependency",
+        lambda *_args, **_kwargs: (True, None),
+    )
 
     with runner.isolated_filesystem():
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
@@ -553,6 +616,10 @@ def test_cli_onboard_quick_persists_repo_setup(monkeypatch) -> None:
             FakeIngester("cursor", [Path("cursor-session")]),
             FakeIngester("claude-code", [Path("claude-session")]),
         ],
+    )
+    monkeypatch.setattr(
+        "agent_recall.core.onboarding.ensure_provider_dependency",
+        lambda *_args, **_kwargs: (True, None),
     )
 
     with runner.isolated_filesystem():
@@ -578,6 +645,10 @@ def test_cli_config_setup_quick_persists_repo_setup(monkeypatch) -> None:
             FakeIngester("cursor", [Path("cursor-session")]),
             FakeIngester("claude-code", [Path("claude-session")]),
         ],
+    )
+    monkeypatch.setattr(
+        "agent_recall.core.onboarding.ensure_provider_dependency",
+        lambda *_args, **_kwargs: (True, None),
     )
 
     with runner.isolated_filesystem():
@@ -744,6 +815,26 @@ def test_tui_slash_compact_dispatch(monkeypatch) -> None:
     assert captured["terminal_width"] == 132
     assert captured["columns"] == "132"
     assert captured["lines"] == "44"
+
+
+def test_tui_slash_run_alias_dispatch(monkeypatch) -> None:
+    captured = {"args": None}
+
+    class FakeResult:
+        exit_code = 0
+        output = "Sync complete\n"
+
+    def fake_invoke(_app, args, **_kwargs):
+        captured["args"] = args
+        return FakeResult()
+
+    monkeypatch.setattr(cli_main._slash_runner, "invoke", fake_invoke)
+
+    should_exit, lines = cli_main._execute_tui_slash_command("/run --max-sessions 2")
+
+    assert should_exit is False
+    assert captured["args"] == ["sync", "--max-sessions", "2"]
+    assert any("/run --max-sessions 2" in line for line in lines)
 
 
 def test_tui_slash_preserves_table_output(monkeypatch) -> None:

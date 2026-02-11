@@ -40,6 +40,7 @@ class AutoSync:
         self.extractor = TranscriptExtractor(llm) if llm else None
         self.ingesters = ingesters or get_default_ingesters(project_path)
         self.extract_timeout_seconds = 45
+        self.zero_learning_warning_min_messages = 50
 
     async def sync(
         self,
@@ -58,9 +59,11 @@ class AutoSync:
             "sessions_discovered": 0,
             "sessions_processed": 0,
             "sessions_skipped": 0,
+            "sessions_already_processed": 0,
             "empty_sessions": 0,
             "learnings_extracted": 0,
             "by_source": {},
+            "session_diagnostics": [],
             "errors": [],
         }
 
@@ -89,17 +92,38 @@ class AutoSync:
 
             if self.storage.is_session_processed(candidate.session_id):
                 source_results["skipped"] += 1
+                source_results["already_processed"] += 1
                 results["sessions_skipped"] += 1
+                results["sessions_already_processed"] += 1
+                results["session_diagnostics"].append(
+                    {
+                        "source": candidate.source_name,
+                        "session_id": candidate.session_id,
+                        "status": "skipped_already_processed",
+                        "message_count": None,
+                        "learnings_extracted": 0,
+                    }
+                )
                 continue
 
             try:
                 raw_session = candidate.ingester.parse_session(candidate.session_path)
-                if len(raw_session.messages) < 2:
+                message_count = len(raw_session.messages)
+                if message_count < 2:
                     self.storage.mark_session_processed(candidate.session_id)
                     source_results["skipped"] += 1
                     source_results["empty"] += 1
                     results["sessions_skipped"] += 1
                     results["empty_sessions"] += 1
+                    results["session_diagnostics"].append(
+                        {
+                            "source": candidate.source_name,
+                            "session_id": candidate.session_id,
+                            "status": "skipped_empty",
+                            "message_count": message_count,
+                            "learnings_extracted": 0,
+                        }
+                    )
                     continue
 
                 try:
@@ -129,9 +153,37 @@ class AutoSync:
                 source_results["learnings"] += len(entries)
                 results["sessions_processed"] += 1
                 results["learnings_extracted"] += len(entries)
+                diagnostic: dict[str, Any] = {
+                    "source": candidate.source_name,
+                    "session_id": candidate.session_id,
+                    "status": "processed",
+                    "message_count": message_count,
+                    "learnings_extracted": len(entries),
+                }
+                if (
+                    message_count >= self.zero_learning_warning_min_messages
+                    and len(entries) == 0
+                ):
+                    warning = (
+                        f"{candidate.source_name}:{candidate.session_id} has "
+                        f"{message_count} messages but yielded 0 learnings"
+                    )
+                    results["errors"].append(warning)
+                    diagnostic["warning"] = warning
+                results["session_diagnostics"].append(diagnostic)
             except Exception as exc:  # noqa: BLE001
                 results["errors"].append(
                     f"{candidate.source_name}:{candidate.session_path.name}: {exc}"
+                )
+                results["session_diagnostics"].append(
+                    {
+                        "source": candidate.source_name,
+                        "session_id": candidate.session_id,
+                        "status": "failed_parse",
+                        "message_count": None,
+                        "learnings_extracted": 0,
+                        "error": str(exc),
+                    }
                 )
 
         return results
@@ -302,6 +354,7 @@ class AutoSync:
                 "discovered": 0,
                 "processed": 0,
                 "skipped": 0,
+                "already_processed": 0,
                 "empty": 0,
                 "learnings": 0,
             }
@@ -365,6 +418,7 @@ class AutoSync:
                     "discovered": 0,
                     "processed": 0,
                     "skipped": 0,
+                    "already_processed": 0,
                     "empty": 0,
                     "learnings": 0,
                 },
