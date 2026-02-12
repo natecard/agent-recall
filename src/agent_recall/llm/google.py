@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib
 import os
-from typing import Any
+from typing import Any, cast
 
 from agent_recall.llm.base import (
     LLMConfigError,
@@ -215,9 +215,13 @@ class GoogleProvider(LLMProvider):
             parts = item.get("parts")
             if isinstance(parts, list) and parts:
                 first_part = parts[0]
-                if isinstance(first_part, dict) and isinstance(first_part.get("text"), str):
-                    first_text = str(first_part["text"])
-                    patched_first = dict(first_part)
+                if isinstance(first_part, dict):
+                    first_part_dict = cast(dict[str, Any], first_part)
+                    first_text = first_part_dict.get("text")
+                else:
+                    first_text = None
+                if isinstance(first_text, str):
+                    patched_first = dict(first_part_dict)
                     patched_first["text"] = f"{prefix}{first_text}"
                     item["parts"] = [patched_first, *parts[1:]]
                 else:

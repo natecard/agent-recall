@@ -1360,8 +1360,8 @@ class AgentRecallTextualApp(App[None]):
             [Option(line, id=f"output:{index}") for index, line in enumerate(lines, start=1)]
         )
         picker.highlighted = 0
-        picker.styles.display = "block"
-        self.query_one("#activity_log", Static).styles.display = "none"
+        picker.display = True
+        self.query_one("#activity_log", Static).display = False
         self._result_list_open = True
         self.status = "Command output list"
         picker.focus()
@@ -1370,8 +1370,8 @@ class AgentRecallTextualApp(App[None]):
         if not self._result_list_open:
             return
         picker = self.query_one("#activity_result_list", OptionList)
-        picker.styles.display = "none"
-        self.query_one("#activity_log", Static).styles.display = "block"
+        picker.display = False
+        self.query_one("#activity_log", Static).display = True
         self._result_list_open = False
         if announce:
             self._append_activity("Closed command output list.")
@@ -1976,11 +1976,11 @@ class AgentRecallTextualApp(App[None]):
             return
 
         if context == "session_picker":
-            sessions = (
-                [item for item in result if isinstance(item, dict)]
-                if isinstance(result, list)
-                else []
-            )
+            sessions: list[dict[str, Any]] = []
+            if isinstance(result, list):
+                for item in result:
+                    if isinstance(item, dict):
+                        sessions.append({str(key): value for key, value in item.items()})
             if not sessions:
                 self.status = "No conversations found"
                 self._append_activity("No conversations available to select.")

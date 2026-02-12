@@ -541,13 +541,14 @@ class CursorIngester(SessionIngester):
                 for key, value in prefix_rows.items():
                     bubble_id = key.rsplit(":", 1)[-1]
                     bubble_payloads[bubble_id] = value
+
+                def _bubble_sort_key(item: tuple[str, dict[str, Any]]) -> float:
+                    timestamp = self._extract_timestamp(item[1])
+                    return timestamp.timestamp() if timestamp else 0.0
+
                 ordered_bubbles = sorted(
                     bubble_payloads.items(),
-                    key=lambda item: (
-                        self._extract_timestamp(item[1]).timestamp()
-                        if self._extract_timestamp(item[1])
-                        else 0.0
-                    ),
+                    key=_bubble_sort_key,
                 )
                 header_items = [(bubble_id, "assistant") for bubble_id, _ in ordered_bubbles]
 
