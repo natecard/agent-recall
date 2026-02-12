@@ -141,6 +141,35 @@ class ThemeConfig(BaseModel):
     name: str = "dark+"
 
 
+class SessionCheckpoint(BaseModel):
+    """Checkpoint for incremental session sync.
+
+    Tracks progress within a session to enable delta-based ingestion.
+    Only new messages beyond the checkpoint will be processed.
+    """
+
+    id: UUID = Field(default_factory=uuid4)
+    source_session_id: str = Field(
+        ..., description="Session identifier from source (e.g., cursor-abc123)"
+    )
+    last_message_timestamp: datetime | None = Field(
+        default=None,
+        description="Timestamp of last processed message (for timestamp-based sources)",
+    )
+    last_message_index: int | None = Field(
+        default=None,
+        description="Index of last processed message (for index-based sources)",
+    )
+    content_hash: str | None = Field(
+        default=None,
+        description="Hash of processed content for detecting changes",
+    )
+    checkpoint_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+    model_config = ConfigDict(frozen=False)
+
+
 class AgentRecallConfig(BaseModel):
     """Root configuration for .agent/config.yaml."""
 

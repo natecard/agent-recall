@@ -15,6 +15,7 @@ from agent_recall.storage.models import (
     LogSource,
     SemanticLabel,
     Session,
+    SessionCheckpoint,
     SessionStatus,
 )
 
@@ -90,6 +91,18 @@ CREATE TABLE IF NOT EXISTS processed_sessions (
 CREATE INDEX IF NOT EXISTS idx_entries_session ON log_entries(session_id);
 CREATE INDEX IF NOT EXISTS idx_entries_label ON log_entries(label);
 CREATE INDEX IF NOT EXISTS idx_chunks_label ON chunks(label);
+
+CREATE TABLE IF NOT EXISTS session_checkpoints (
+    id TEXT PRIMARY KEY,
+    source_session_id TEXT NOT NULL UNIQUE,
+    last_message_timestamp TEXT,
+    last_message_index INTEGER,
+    content_hash TEXT,
+    checkpoint_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON session_checkpoints(source_session_id);
 """
 
 
@@ -145,9 +158,7 @@ class SQLiteStorage:
             ).fetchone()
         return self._row_to_session(row) if row else None
 
-    def list_sessions(
-        self, limit: int = 50, status: SessionStatus | None = None
-    ) -> list[Session]:
+    def list_sessions(self, limit: int = 50, status: SessionStatus | None = None) -> list[Session]:
         with self._connect() as conn:
             if status is None:
                 rows = conn.execute(
@@ -299,7 +310,8 @@ class SQLiteStorage:
 
     def rebuild_chunks_fts(self) -> None:
         """Rebuild chunks FTS table and triggers from canonical chunk rows."""
-        rebuild_script = """
+        rebuild_script = (
+            """
         DROP TRIGGER IF EXISTS chunks_ai;
         DROP TRIGGER IF EXISTS chunks_ad;
         DROP TRIGGER IF EXISTS chunks_au;
@@ -308,9 +320,12 @@ class SQLiteStorage:
         DROP TABLE IF EXISTS chunks_fts_idx;
         DROP TABLE IF EXISTS chunks_fts_docsize;
         DROP TABLE IF EXISTS chunks_fts_config;
-        """ + CHUNKS_FTS_SCHEMA + """
+        """
+            + CHUNKS_FTS_SCHEMA
+            + """
         INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild');
         """
+        )
         with self._connect() as conn:
             conn.executescript(rebuild_script)
 
@@ -398,6 +413,94 @@ class SQLiteStorage:
             cursor = conn.execute("DELETE FROM processed_sessions")
             return int(cursor.rowcount or 0)
 
+    def get_session_checkpoint(self, source_session_id: str) -> SessionCheckpoint | None:
+        """Retrieve checkpoint for a source session, or None if not found."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """SELECT id, source_session_id, last_message_timestamp,
+                          last_message_index, content_hash, checkpoint_at, updated_at
+                   FROM session_checkpoints
+                   WHERE source_session_id = ?""",
+                (source_session_id,),
+            ).fetchone()
+
+        if not row:
+            return None
+
+        return SessionCheckpoint(
+            id=UUID(row["id"]),
+            source_session_id=row["source_session_id"],
+            last_message_timestamp=(
+                datetime.fromisoformat(row["last_message_timestamp"])
+                if row["last_message_timestamp"]
+                else None
+            ),
+            last_message_index=row["last_message_index"],
+            content_hash=row["content_hash"],
+            checkpoint_at=datetime.fromisoformat(row["checkpoint_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
+
+    def save_session_checkpoint(self, checkpoint: SessionCheckpoint) -> None:
+        """Persist or update a session checkpoint."""
+        now = datetime.now(UTC)
+        checkpoint.updated_at = now
+
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO session_checkpoints
+                    (id, source_session_id, last_message_timestamp, last_message_index,
+                     content_hash, checkpoint_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(source_session_id) DO UPDATE SET
+                    last_message_timestamp=excluded.last_message_timestamp,
+                    last_message_index=excluded.last_message_index,
+                    content_hash=excluded.content_hash,
+                    updated_at=excluded.updated_at""",
+                (
+                    str(checkpoint.id),
+                    checkpoint.source_session_id,
+                    checkpoint.last_message_timestamp.isoformat()
+                    if checkpoint.last_message_timestamp
+                    else None,
+                    checkpoint.last_message_index,
+                    checkpoint.content_hash,
+                    checkpoint.checkpoint_at.isoformat(),
+                    checkpoint.updated_at.isoformat(),
+                ),
+            )
+
+    def clear_session_checkpoints(
+        self,
+        source: str | None = None,
+        source_session_id: str | None = None,
+    ) -> int:
+        """Clear session checkpoints and return number removed.
+
+        Args:
+            source: Optional source name to clear all checkpoints for that source
+            source_session_id: Optional specific session ID to clear
+        """
+        with self._connect() as conn:
+            if source_session_id:
+                cursor = conn.execute(
+                    "DELETE FROM session_checkpoints WHERE source_session_id = ?",
+                    (source_session_id,),
+                )
+                return int(cursor.rowcount or 0)
+
+            if source:
+                normalized = source.strip().lower().replace("_", "-")
+                pattern = f"{normalized}-%"
+                cursor = conn.execute(
+                    "DELETE FROM session_checkpoints WHERE source_session_id LIKE ?",
+                    (pattern,),
+                )
+                return int(cursor.rowcount or 0)
+
+            cursor = conn.execute("DELETE FROM session_checkpoints")
+            return int(cursor.rowcount or 0)
+
     def get_stats(self) -> dict[str, int]:
         """Get knowledge base statistics."""
         with self._connect() as conn:
@@ -411,6 +514,9 @@ class SQLiteStorage:
 
             row = conn.execute("SELECT COUNT(*) AS count FROM chunks").fetchone()
             stats["chunks"] = int(row["count"]) if row else 0
+
+            row = conn.execute("SELECT COUNT(*) AS count FROM session_checkpoints").fetchone()
+            stats["checkpoints"] = int(row["count"]) if row else 0
 
         return stats
 

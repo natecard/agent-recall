@@ -2,3 +2,5 @@
 # Append-only: each iteration adds a new timestamped entry.
 2026-02-12T16:30:58Z | Iteration 1 | AR-001 | Tracer-bullet shipped: Codex source discovery/parsing (CODEX_HOME + ~/.codex, json/jsonl, tool calls) with registry/docs/tests; validation green.
 2026-02-12T16:41:27Z | Iteration 1 | AR-001 | Parser hardening: support Codex custom_tool_call/custom_tool_call_output with call_id matching plus regression tests; validation green.
+2026-02-12T17:17:09Z | Iteration 1 | AR-002 | Implemented checkpoint persistence (SessionCheckpoint model, SQLite storage methods, tests); validation green.
+
