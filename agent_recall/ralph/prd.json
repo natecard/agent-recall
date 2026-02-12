@@ -93,7 +93,7 @@
 				"Developer-facing docs match actual implemented feature set."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "AR-006",
@@ -103,9 +103,9 @@
 			"description": "Introduce automation so memory capture and context generation happen without repeated manual CLI steps.",
 			"user_story": "Allow developers to benefit from Agent Recall during normal coding flow with minimal manual intervention.",
 			"steps": [
-				"Add a background/scheduled sync mode with safe locking.",
+				"[done] Add a background/scheduled sync mode with safe locking.",
 				"Add command to refresh context bundles for active task/repo state.",
-				"Persist and display last successful sync/refresh status.",
+				"[done] Persist and display last successful sync/refresh status.",
 				"Provide fail-safe retries and clear failure diagnostics."
 			],
 			"acceptance": [

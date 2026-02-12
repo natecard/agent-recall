@@ -9,6 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from agent_recall.storage.models import (
+    BackgroundSyncStatus,
     Chunk,
     ChunkSource,
     LogEntry,
@@ -103,6 +104,18 @@ CREATE TABLE IF NOT EXISTS session_checkpoints (
 );
 
 CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON session_checkpoints(source_session_id);
+
+CREATE TABLE IF NOT EXISTS background_sync_status (
+    id TEXT PRIMARY KEY,
+    is_running INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT,
+    completed_at TEXT,
+    sessions_processed INTEGER NOT NULL DEFAULT 0,
+    learnings_extracted INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    pid INTEGER,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -582,3 +595,91 @@ class SQLiteStorage:
                 )
 
         return results
+
+    def get_background_sync_status(self) -> BackgroundSyncStatus:
+        """Retrieve current background sync status, creating default if not exists."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """SELECT id, is_running, started_at, completed_at, sessions_processed,
+                          learnings_extracted, error_message, pid, updated_at
+                   FROM background_sync_status
+                   ORDER BY updated_at DESC LIMIT 1"""
+            ).fetchone()
+
+        if not row:
+            return BackgroundSyncStatus()
+
+        return BackgroundSyncStatus(
+            id=UUID(row["id"]),
+            is_running=bool(row["is_running"]),
+            started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
+            completed_at=datetime.fromisoformat(row["completed_at"])
+            if row["completed_at"]
+            else None,
+            sessions_processed=row["sessions_processed"],
+            learnings_extracted=row["learnings_extracted"],
+            error_message=row["error_message"],
+            pid=row["pid"],
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
+
+    def save_background_sync_status(self, status: BackgroundSyncStatus) -> None:
+        """Persist background sync status."""
+        from datetime import UTC
+
+        status.updated_at = datetime.now(UTC)
+
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO background_sync_status
+                    (id, is_running, started_at, completed_at, sessions_processed,
+                     learnings_extracted, error_message, pid, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                    is_running=excluded.is_running,
+                    started_at=excluded.started_at,
+                    completed_at=excluded.completed_at,
+                    sessions_processed=excluded.sessions_processed,
+                    learnings_extracted=excluded.learnings_extracted,
+                    error_message=excluded.error_message,
+                    pid=excluded.pid,
+                    updated_at=excluded.updated_at""",
+                (
+                    str(status.id),
+                    1 if status.is_running else 0,
+                    status.started_at.isoformat() if status.started_at else None,
+                    status.completed_at.isoformat() if status.completed_at else None,
+                    status.sessions_processed,
+                    status.learnings_extracted,
+                    status.error_message,
+                    status.pid,
+                    status.updated_at.isoformat(),
+                ),
+            )
+
+    def start_background_sync(self, pid: int) -> BackgroundSyncStatus:
+        """Mark background sync as started and return updated status."""
+        status = self.get_background_sync_status()
+        status.is_running = True
+        status.pid = pid
+        status.started_at = datetime.now(UTC)
+        status.error_message = None
+        self.save_background_sync_status(status)
+        return status
+
+    def complete_background_sync(
+        self,
+        sessions_processed: int,
+        learnings_extracted: int,
+        error_message: str | None = None,
+    ) -> BackgroundSyncStatus:
+        """Mark background sync as completed and return updated status."""
+        status = self.get_background_sync_status()
+        status.is_running = False
+        status.completed_at = datetime.now(UTC)
+        status.sessions_processed = sessions_processed
+        status.learnings_extracted = learnings_extracted
+        status.error_message = error_message
+        status.pid = None
+        self.save_background_sync_status(status)
+        return status

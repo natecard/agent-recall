@@ -28,6 +28,7 @@ from typer.testing import CliRunner
 
 from agent_recall.cli.banner import print_banner
 from agent_recall.cli.theme import DEFAULT_THEME, ThemeManager
+from agent_recall.core.background_sync import BackgroundSyncManager
 from agent_recall.core.compact import CompactionEngine
 from agent_recall.core.context import ContextAssembler
 from agent_recall.core.ingest import TranscriptIngestor
@@ -459,9 +460,7 @@ def _execute_tui_slash_command(
         env=invoke_env,
         terminal_width=max(runner_terminal_width, 80),
     )
-    command_label_parts = (
-        original_parts if original_parts and original_parts[0] == "run" else parts
-    )
+    command_label_parts = original_parts if original_parts and original_parts[0] == "run" else parts
     command_label = "/" + " ".join(command_label_parts)
 
     lines: list[str] = []
@@ -1041,6 +1040,85 @@ def sync(
     console.print(Panel.fit("\n".join(lines), title=title))
 
 
+@app.command("sync-background")
+def sync_background(
+    source: str | None = typer.Option(
+        None,
+        "--source",
+        "-s",
+        help=f"Only sync from specific source: {SOURCE_CHOICES_TEXT}",
+    ),
+    max_sessions: int | None = typer.Option(
+        None,
+        "--max-sessions",
+        "-n",
+        min=1,
+        help="Limit sync to the most recent N discovered sessions",
+    ),
+    no_compact: bool = typer.Option(
+        False,
+        "--no-compact",
+        help="Skip compaction after sync",
+    ),
+):
+    """Run sync in background with safe locking (prevents duplicate syncs)."""
+    storage = get_storage()
+    files = get_files()
+
+    _get_theme_manager()
+
+    # Check if already running
+    bg_manager = BackgroundSyncManager(storage, files, auto_sync=None)
+    can_start, reason = bg_manager.can_start_sync()
+
+    if not can_start:
+        console.print(f"[warning]Cannot start background sync: {reason}[/warning]")
+        raise typer.Exit(1)
+
+    try:
+        llm = get_llm()
+    except Exception as exc:
+        console.print(f"[error]LLM configuration error: {exc}[/error]")
+        raise typer.Exit(1) from None
+
+    selected_sources = _get_repo_selected_sources(files)
+    sources = None
+    if source:
+        sources = [normalize_source_name(source)]
+    elif selected_sources:
+        sources = selected_sources
+
+    ingesters = get_default_ingesters()
+    ingesters = _filter_ingesters_by_sources(ingesters, selected_sources)
+    auto_sync = AutoSync(storage, files, llm, ingesters)
+
+    # Create manager with actual auto_sync
+    bg_manager = BackgroundSyncManager(storage, files, auto_sync)
+
+    # Run sync
+    result = asyncio.run(
+        bg_manager.run_sync(
+            sources=sources,
+            max_sessions=max_sessions,
+            compact=not no_compact,
+        )
+    )
+
+    if result.was_already_running:
+        console.print("[warning]Sync already running in another process[/warning]")
+        raise typer.Exit(1)
+
+    if result.success:
+        console.print(
+            f"[success]✓ Background sync complete[/success]\n"
+            f"  Sessions processed: {result.sessions_processed}\n"
+            f"  Learnings extracted: {result.learnings_extracted}"
+        )
+    else:
+        console.print(f"[error]Sync failed: {result.error_message}[/error]")
+        raise typer.Exit(1)
+
+
 @app.command("sessions")
 def sessions(
     source: str | None = typer.Option(
@@ -1420,6 +1498,24 @@ def status():
 
     run_with_spinner("Collecting source status...", _collect_source_lines)
     lines.extend(source_lines)
+
+    # Add background sync status
+    lines.append("")
+    lines.append("[bold]Background Sync:[/bold]")
+    bg_manager = BackgroundSyncManager(storage, files, None)
+    bg_status = bg_manager.get_status()
+    if bg_status.is_running:
+        lines.append(f"  Status: [warning]Running (PID: {bg_status.pid})[/warning]")
+    else:
+        lines.append("  Status: [dim]Idle[/dim]")
+    if bg_status.started_at:
+        lines.append(f"  Last started:  {bg_status.started_at.strftime('%Y-%m-%d %H:%M UTC')}")
+    if bg_status.completed_at:
+        lines.append(f"  Last completed: {bg_status.completed_at.strftime('%Y-%m-%d %H:%M UTC')}")
+        lines.append(f"  Last sessions:  {bg_status.sessions_processed}")
+        lines.append(f"  Last learnings: {bg_status.learnings_extracted}")
+    if bg_status.error_message:
+        lines.append(f"  [error]Last error: {bg_status.error_message}[/error]")
 
     console.print(Panel.fit("\n".join(lines), title="Agent Recall Status"))
 
@@ -2188,9 +2284,7 @@ def config_llm(
         None,
         "--provider",
         "-p",
-        help=(
-            "LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"
-        ),
+        help=("LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"),
     ),
     model: str | None = typer.Option(
         None,
@@ -2259,9 +2353,7 @@ def config_model(
         None,
         "--provider",
         "-p",
-        help=(
-            "LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"
-        ),
+        help=("LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"),
     ),
     model: str | None = typer.Option(
         None,

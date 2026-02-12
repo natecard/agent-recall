@@ -170,6 +170,25 @@ class SessionCheckpoint(BaseModel):
     model_config = ConfigDict(frozen=False)
 
 
+class BackgroundSyncStatus(BaseModel):
+    """Status tracking for background sync operations.
+
+    Persisted to enable status queries and prevent duplicate sync races.
+    """
+
+    id: UUID = Field(default_factory=uuid4)
+    is_running: bool = Field(default=False, description="Whether sync is currently active")
+    started_at: datetime | None = Field(default=None, description="When current/last sync started")
+    completed_at: datetime | None = Field(default=None, description="When last sync completed")
+    sessions_processed: int = Field(default=0, description="Number of sessions processed")
+    learnings_extracted: int = Field(default=0, description="Number of learnings extracted")
+    error_message: str | None = Field(default=None, description="Error message if sync failed")
+    pid: int | None = Field(default=None, description="Process ID of running sync")
+    updated_at: datetime = Field(default_factory=utcnow)
+
+    model_config = ConfigDict(frozen=False)
+
+
 class AgentRecallConfig(BaseModel):
     """Root configuration for .agent/config.yaml."""
 
