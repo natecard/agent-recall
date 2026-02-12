@@ -128,6 +128,108 @@ def test_cli_refresh_context_writes_bundle_using_active_task() -> None:
         assert payload["refreshed_at"]
 
 
+def test_cli_refresh_context_retries_transient_failure(monkeypatch) -> None:
+    attempts = {"count": 0}
+
+    class FlakyContextAssembler:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def assemble(self, task: str | None = None) -> str:
+            _ = task
+            attempts["count"] += 1
+            if attempts["count"] < 3:
+                raise RuntimeError("temporary context failure")
+            return "## Guardrails\nRecovered context"
+
+    monkeypatch.setattr(cli_main, "ContextAssembler", FlakyContextAssembler)
+    monkeypatch.setattr(cli_main.time, "sleep", lambda _seconds: None)
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["refresh-context", "--task", "retry diagnostics"])
+        assert result.exit_code == 0
+        assert attempts["count"] == 3
+        assert "Retries:  2" in result.output
+
+
+def test_cli_refresh_context_reports_retry_diagnostics_on_failure(monkeypatch) -> None:
+    attempts = {"count": 0}
+
+    class BrokenContextAssembler:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def assemble(self, task: str | None = None) -> str:
+            _ = task
+            attempts["count"] += 1
+            raise ValueError("assemble exploded")
+
+    monkeypatch.setattr(cli_main, "ContextAssembler", BrokenContextAssembler)
+    monkeypatch.setattr(cli_main.time, "sleep", lambda _seconds: None)
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["refresh-context", "--task", "failing task"])
+        assert result.exit_code == 1
+        assert attempts["count"] == 3
+        assert "Context refresh failed after 3 attempt(s)." in result.output
+        assert "Attempt 3/3 failed: ValueError: assemble exploded" in result.output
+
+
+def test_cli_sync_background_prints_failure_diagnostics(monkeypatch) -> None:
+    class FakeBackgroundSyncManager:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def can_start_sync(self) -> tuple[bool, str | None]:
+            return True, None
+
+        async def run_sync(self, sources=None, max_sessions=None, compact=True):
+            _ = (sources, max_sessions, compact)
+            return type(
+                "Result",
+                (),
+                {
+                    "success": False,
+                    "was_already_running": False,
+                    "error_message": (
+                        "Background sync failed after 3 attempt(s). Last error: "
+                        "RuntimeError: transport unavailable"
+                    ),
+                    "diagnostics": [
+                        (
+                            "Attempt 1/3 failed (sources=all, max_sessions=auto, compact=yes): "
+                            "RuntimeError: transport unavailable"
+                        ),
+                        (
+                            "Attempt 2/3 failed (sources=all, max_sessions=auto, compact=yes): "
+                            "RuntimeError: transport unavailable"
+                        ),
+                        (
+                            "Attempt 3/3 failed (sources=all, max_sessions=auto, compact=yes): "
+                            "RuntimeError: transport unavailable"
+                        ),
+                    ],
+                    "sessions_processed": 0,
+                    "learnings_extracted": 0,
+                },
+            )()
+
+    monkeypatch.setattr(cli_main, "BackgroundSyncManager", FakeBackgroundSyncManager)
+    monkeypatch.setattr(cli_main, "get_llm", lambda: DummyProvider())
+    monkeypatch.setattr(cli_main, "get_default_ingesters", lambda **_kwargs: [])
+    monkeypatch.setattr(cli_main, "AutoSync", lambda *_args, **_kwargs: object())
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["sync-background"])
+        assert result.exit_code == 1
+        assert "Sync failed" in result.output
+        assert "Failure diagnostics:" in result.output
+        assert "Attempt 3/3 failed" in result.output
+
+
 def test_cli_invalid_label() -> None:
     with runner.isolated_filesystem():
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0

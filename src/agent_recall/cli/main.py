@@ -744,27 +744,51 @@ def refresh_context(
     resolved_task = task or (active.task if active else None)
 
     context_asm = ContextAssembler(storage, files)
-    output = context_asm.assemble(task=resolved_task)
-
-    output_dir.mkdir(parents=True, exist_ok=True)
     markdown_path = output_dir / "context.md"
     json_path = output_dir / "context.json"
 
-    markdown_path.write_text(output)
-    payload = {
-        "task": resolved_task,
-        "active_session_id": str(active.id) if active else None,
-        "repo_path": str(Path.cwd().resolve()),
-        "refreshed_at": datetime.now(UTC).isoformat(),
-        "context": output,
-    }
-    json_path.write_text(json.dumps(payload, indent=2))
+    retry_attempts = 3
+    retry_backoff_seconds = 1.0
+    diagnostics: list[str] = []
+    output = ""
+
+    for attempt in range(1, retry_attempts + 1):
+        try:
+            output = context_asm.assemble(task=resolved_task)
+
+            output_dir.mkdir(parents=True, exist_ok=True)
+            markdown_path.write_text(output)
+            payload = {
+                "task": resolved_task,
+                "active_session_id": str(active.id) if active else None,
+                "repo_path": str(Path.cwd().resolve()),
+                "refreshed_at": datetime.now(UTC).isoformat(),
+                "context": output,
+            }
+            json_path.write_text(json.dumps(payload, indent=2))
+            break
+        except Exception as exc:  # noqa: BLE001
+            diagnostics.append(
+                f"Attempt {attempt}/{retry_attempts} failed: {type(exc).__name__}: {exc}"
+            )
+            if attempt < retry_attempts:
+                time.sleep(retry_backoff_seconds * attempt)
+                continue
+
+            console.print(
+                f"[error]Context refresh failed after {retry_attempts} attempt(s).[/error]"
+            )
+            for detail in diagnostics:
+                console.print(f"[dim]- {detail}[/dim]")
+            raise typer.Exit(1) from None
 
     lines = [
         "[success]✓ Context bundle refreshed[/success]",
         f"  Markdown: {markdown_path}",
         f"  JSON:     {json_path}",
     ]
+    if diagnostics:
+        lines.append(f"  Retries:  {len(diagnostics)}")
     if resolved_task:
         lines.append(f"  Task:     {resolved_task}")
     else:
@@ -1168,7 +1192,13 @@ def sync_background(
             f"  Learnings extracted: {result.learnings_extracted}"
         )
     else:
-        console.print(f"[error]Sync failed: {result.error_message}[/error]")
+        console.print("[error]Sync failed[/error]")
+        if result.error_message:
+            console.print(f"[error]{result.error_message}[/error]")
+        if result.diagnostics:
+            console.print("[dim]Failure diagnostics:[/dim]")
+            for detail in result.diagnostics:
+                console.print(f"[dim]- {detail}[/dim]")
         raise typer.Exit(1)
 
 

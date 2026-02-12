@@ -6,9 +6,10 @@ and tracks sync status persistently.
 
 from __future__ import annotations
 
+import asyncio
 import fcntl
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,8 @@ class BackgroundSyncResult:
     learnings_extracted: int = 0
     error_message: str | None = None
     was_already_running: bool = False
+    attempts: int = 1
+    diagnostics: list[str] = field(default_factory=list)
 
 
 class BackgroundSyncLock:
@@ -135,6 +138,8 @@ class BackgroundSyncManager:
     """Manages background sync operations with safe locking and status tracking."""
 
     LOCK_FILENAME = ".background_sync.lock"
+    DEFAULT_RETRY_ATTEMPTS = 3
+    DEFAULT_RETRY_BACKOFF_SECONDS = 2.0
 
     def __init__(
         self,
@@ -142,12 +147,16 @@ class BackgroundSyncManager:
         files: FileStorage,
         auto_sync: AutoSync | None,
         lock_file: Path | None = None,
+        retry_attempts: int = DEFAULT_RETRY_ATTEMPTS,
+        retry_backoff_seconds: float = DEFAULT_RETRY_BACKOFF_SECONDS,
     ):
         self.storage = storage
         self.files = files
         self.auto_sync = auto_sync
         self.lock_file = lock_file or (files.agent_dir / self.LOCK_FILENAME)
         self._lock = BackgroundSyncLock(self.lock_file)
+        self.retry_attempts = max(1, retry_attempts)
+        self.retry_backoff_seconds = max(0.0, retry_backoff_seconds)
 
     def get_status(self) -> BackgroundSyncStatus:
         """Get current background sync status."""
@@ -206,47 +215,85 @@ class BackgroundSyncManager:
                 error_message="AutoSync not initialized",
             )
 
-        pid = os.getpid()
-        self.storage.start_background_sync(pid)
-
-        try:
-            # Run the actual sync
-            if compact:
-                results = await self.auto_sync.sync_and_compact(
-                    sources=sources,
-                    max_sessions=max_sessions,
-                )
-            else:
-                results = await self.auto_sync.sync(
-                    sources=sources,
-                    max_sessions=max_sessions,
-                )
-
-            sessions_processed = int(results.get("sessions_processed", 0))
-            learnings_extracted = int(results.get("learnings_extracted", 0))
-
-            self.storage.complete_background_sync(
-                sessions_processed=sessions_processed,
-                learnings_extracted=learnings_extracted,
-            )
-
-            return BackgroundSyncResult(
-                success=True,
-                sessions_processed=sessions_processed,
-                learnings_extracted=learnings_extracted,
-            )
-
-        except Exception as exc:
-            error_msg = str(exc)
-            self.storage.complete_background_sync(
-                sessions_processed=0,
-                learnings_extracted=0,
-                error_message=error_msg,
-            )
+        if not self._lock.acquire():
+            status = self.get_status()
             return BackgroundSyncResult(
                 success=False,
-                error_message=error_msg,
+                was_already_running=True,
+                error_message=f"Sync already running (PID: {status.pid})",
             )
+
+        pid = os.getpid()
+        diagnostics: list[str] = []
+
+        try:
+            self.storage.start_background_sync(pid)
+
+            for attempt in range(1, self.retry_attempts + 1):
+                try:
+                    if compact:
+                        results = await self.auto_sync.sync_and_compact(
+                            sources=sources,
+                            max_sessions=max_sessions,
+                        )
+                    else:
+                        results = await self.auto_sync.sync(
+                            sources=sources,
+                            max_sessions=max_sessions,
+                        )
+
+                    sessions_processed = int(results.get("sessions_processed", 0))
+                    learnings_extracted = int(results.get("learnings_extracted", 0))
+
+                    self.storage.complete_background_sync(
+                        sessions_processed=sessions_processed,
+                        learnings_extracted=learnings_extracted,
+                    )
+
+                    return BackgroundSyncResult(
+                        success=True,
+                        sessions_processed=sessions_processed,
+                        learnings_extracted=learnings_extracted,
+                        attempts=attempt,
+                        diagnostics=diagnostics,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    detail = (
+                        f"Attempt {attempt}/{self.retry_attempts} failed "
+                        f"(sources={','.join(sources) if sources else 'all'}, "
+                        f"max_sessions={max_sessions if max_sessions is not None else 'auto'}, "
+                        f"compact={'yes' if compact else 'no'}): "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    diagnostics.append(detail)
+                    if attempt < self.retry_attempts:
+                        await asyncio.sleep(self.retry_backoff_seconds * attempt)
+                        continue
+
+                    error_msg = (
+                        f"Background sync failed after {self.retry_attempts} attempt(s). "
+                        f"Last error: {type(exc).__name__}: {exc}"
+                    )
+                    self.storage.complete_background_sync(
+                        sessions_processed=0,
+                        learnings_extracted=0,
+                        error_message=error_msg,
+                    )
+                    return BackgroundSyncResult(
+                        success=False,
+                        error_message=error_msg,
+                        attempts=attempt,
+                        diagnostics=diagnostics,
+                    )
+        finally:
+            self._lock.release()
+
+        return BackgroundSyncResult(
+            success=False,
+            error_message="Background sync ended unexpectedly without a terminal result",
+            attempts=self.retry_attempts,
+            diagnostics=diagnostics,
+        )
 
     def cleanup_stale_lock(self) -> bool:
         """Clean up a stale lock file if the holding process is dead."""

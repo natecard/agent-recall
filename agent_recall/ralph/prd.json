@@ -106,7 +106,7 @@
 				"[done] Add a background/scheduled sync mode with safe locking.",
 				"[done] Add command to refresh context bundles for active task/repo state.",
 				"[done] Persist and display last successful sync/refresh status.",
-				"Provide fail-safe retries and clear failure diagnostics."
+				"[done] Provide fail-safe retries and clear failure diagnostics."
 			],
 			"acceptance": [
 				"Developers can enable unattended sync without duplicate processing races.",
@@ -115,12 +115,12 @@
 				"Manual sync/compact commands remain fully supported."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "AR-003",
 			"category": "functional",
-			"priority": 2,
+			"priority": 1,
 			"title": "Upgrade retrieval quality beyond basic FTS",
 			"description": "Add hybrid retrieval so context assembly returns more relevant results than keyword-only lookup.",
 			"user_story": "Allow developers to get higher-signal context when querying past learnings with varied wording.",
@@ -142,7 +142,7 @@
 		{
 			"id": "AR-004",
 			"category": "functional",
-			"priority": 3,
+			"priority": 2,
 			"title": "Expand indexing to decision and exploration learnings",
 			"description": "Index additional semantic labels so retrieval reflects architecture decisions and experiment outcomes, not only guardrail/style patterns.",
 			"user_story": "Allow developers to recover why prior decisions were made and what alternatives failed.",
@@ -164,7 +164,7 @@
 		{
 			"id": "AR-007",
 			"category": "functional",
-			"priority": 4,
+			"priority": 3,
 			"title": "Introduce optional shared team memory backend",
 			"description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
 			"user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
