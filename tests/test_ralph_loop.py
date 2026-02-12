@@ -149,7 +149,8 @@ def test_ralph_loop_stream_json_completion_marker_exits_success(tmp_path: Path) 
 
     json_agent_cmd = (
         "printf '%s\\n' "
-        "'{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"done\"}]}}' "
+        "'{\"type\":\"assistant\",\"message\":{\"content\":["
+        "{\"type\":\"text\",\"text\":\"done\"}]}}' "
         "'{\"type\":\"result\",\"result\":\"<promise>COMPLETE</promise>\"}'"
     )
     result = _run_loop(

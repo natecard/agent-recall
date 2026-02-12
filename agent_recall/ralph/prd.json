@@ -27,6 +27,160 @@
 				"Changes do not break existing behavior."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-002",
+			"category": "functional",
+			"priority": null,
+			"title": "Add incremental sync for evolving sessions",
+			"description": "Implement delta-based ingestion so active source sessions can be re-synced without duplicate learnings.",
+			"user_story": "Allow developers to run sync repeatedly during long-running conversations and only capture new context.",
+			"steps": [
+				"Persist per-session checkpoints (timestamp/index/hash) for each source.",
+				"Update ingestion flow to process only events newer than the checkpoint.",
+				"Prevent duplicate log/chunk insertion when session content is unchanged.",
+				"Add reset options for checkpoint-only and full reprocess behavior."
+			],
+			"acceptance": [
+				"Re-running sync on an active session ingests only new content.",
+				"No duplicate log entries or chunks are created for unchanged content.",
+				"Existing reset-sync workflows still allow full reprocessing.",
+				"Behavior is verified across Cursor, Claude Code, OpenCode, and Codex sources."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-003",
+			"category": "functional",
+			"priority": null,
+			"title": "Upgrade retrieval quality beyond basic FTS",
+			"description": "Add hybrid retrieval so context assembly returns more relevant results than keyword-only lookup.",
+			"user_story": "Allow developers to get higher-signal context when querying past learnings with varied wording.",
+			"steps": [
+				"Add optional embedding generation/storage for indexed chunks.",
+				"Implement hybrid retrieval (FTS + vector similarity) with deterministic tie-breaking.",
+				"Add optional reranking of top candidates before final output.",
+				"Expose retrieval backend/tuning options in config and CLI."
+			],
+			"acceptance": [
+				"Queries with semantic paraphrases return relevant chunks even when keywords differ.",
+				"Legacy FTS-only mode remains available and stable.",
+				"Context and retrieve commands honor configured retrieval mode/settings.",
+				"Retrieval behavior is covered by deterministic tests."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-004",
+			"category": "functional",
+			"priority": null,
+			"title": "Expand indexing to decision and exploration learnings",
+			"description": "Index additional semantic labels so retrieval reflects architecture decisions and experiment outcomes, not only guardrail/style patterns.",
+			"user_story": "Allow developers to recover why prior decisions were made and what alternatives failed.",
+			"steps": [
+				"Define indexing policy for decision, exploration, and narrative labels.",
+				"Add configurable thresholds to avoid noisy chunk promotion.",
+				"Update compaction/indexing flow to include selected non-style labels.",
+				"Add tests covering indexing and retrieval of decision-oriented entries."
+			],
+			"acceptance": [
+				"Decision and exploration entries can be retrieved through context/retrieve commands.",
+				"Chunk growth stays bounded by configured thresholds.",
+				"Existing guardrails/style indexing behavior is preserved.",
+				"Indexing output is deterministic under repeated compaction runs."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-005",
+			"category": "functional",
+			"priority": null,
+			"title": "Harden Codex source support end-to-end",
+			"description": "Complete production hardening for Codex ingestion with robust parsing, fixtures, and source-specific documentation.",
+			"user_story": "Allow developers using OpenAI Codex to reliably ingest conversations without manual format fixes.",
+			"steps": [
+				"Create fixture corpus for Codex JSON/JSONL variants and malformed edge cases.",
+				"Harden parser behavior for missing fields, tool-output ordering, and partial lines.",
+				"Add source-specific sync/session tests for Codex discovery and extraction quality.",
+				"Update README/CLI reference/onboarding docs to list Codex where sources are enumerated."
+			],
+			"acceptance": [
+				"Codex sessions are discoverable and parseable across supported file variants.",
+				"Malformed or partial events do not crash sync and produce clear diagnostics.",
+				"Codex source appears consistently in docs and source-selection UX.",
+				"Codex integration does not regress other source ingesters."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-006",
+			"category": "functional",
+			"priority": null,
+			"title": "Add automatic background sync and context refresh",
+			"description": "Introduce automation so memory capture and context generation happen without repeated manual CLI steps.",
+			"user_story": "Allow developers to benefit from Agent Recall during normal coding flow with minimal manual intervention.",
+			"steps": [
+				"Add a background/scheduled sync mode with safe locking.",
+				"Add command to refresh context bundles for active task/repo state.",
+				"Persist and display last successful sync/refresh status.",
+				"Provide fail-safe retries and clear failure diagnostics."
+			],
+			"acceptance": [
+				"Developers can enable unattended sync without duplicate processing races.",
+				"Context refresh can run automatically and produce current memory output.",
+				"Status command shows last run time and failure state.",
+				"Manual sync/compact commands remain fully supported."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-007",
+			"category": "functional",
+			"priority": null,
+			"title": "Introduce optional shared team memory backend",
+			"description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
+			"user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
+			"steps": [
+				"Define storage abstraction boundary between local and shared backends.",
+				"Implement first shared backend with auth and namespace isolation.",
+				"Add sync/merge strategy for shared chunks and tier updates.",
+				"Document migration path and opt-in configuration for teams."
+			],
+			"acceptance": [
+				"Team mode supports read/write memory across multiple machines.",
+				"Namespace boundaries prevent cross-project memory leakage.",
+				"Local-only mode remains default and behavior-compatible.",
+				"Shared backend failures degrade gracefully without data corruption."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-008",
+			"category": "functional",
+			"priority": null,
+			"title": "Prepare package for production developer adoption",
+			"description": "Close release-readiness gaps across metadata, docs, and cross-environment validation.",
+			"user_story": "Allow developers to install and trust Agent Recall as a stable tool in real projects.",
+			"steps": [
+				"Finalize package metadata (author, versioning policy, release notes).",
+				"Add explicit compatibility matrix for sources/platforms/Python versions.",
+				"Expand CI to run lint/type/test on supported Python versions and clean env installs.",
+				"Add smoke tests for init/onboarding/sync/context flows in fresh repositories."
+			],
+			"acceptance": [
+				"Package metadata and docs are complete and publication-ready.",
+				"CI enforces supported runtime matrix with passing checks.",
+				"Fresh install-to-first-sync workflow is validated end-to-end.",
+				"Developer-facing docs match actual implemented feature set."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
 			"passes": false
 		}
 	]
