@@ -126,8 +126,11 @@ class CompactionConfig(BaseModel):
     max_sessions_before_compact: int = 5
     promote_pattern_after_occurrences: int = 3
     index_decision_entries: bool = True
+    index_decision_min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
     index_exploration_entries: bool = True
+    index_exploration_min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
     index_narrative_entries: bool = False
+    index_narrative_min_confidence: float = Field(default=0.8, ge=0.0, le=1.0)
     archive_sessions_older_than_days: int = 30
 
 

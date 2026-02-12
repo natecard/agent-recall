@@ -172,6 +172,12 @@ compaction:
   max_recent_tokens: 1500
   max_sessions_before_compact: 5
   promote_pattern_after_occurrences: 3
+  index_decision_entries: true
+  index_decision_min_confidence: 0.7
+  index_exploration_entries: true
+  index_exploration_min_confidence: 0.7
+  index_narrative_entries: false
+  index_narrative_min_confidence: 0.8
   archive_sessions_older_than_days: 30
 
 retrieval:

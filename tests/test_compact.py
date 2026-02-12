@@ -104,6 +104,57 @@ async def test_compaction_indexes_decision_and_exploration_by_default(storage, f
 
 
 @pytest.mark.asyncio
+async def test_compaction_filters_non_style_indexing_by_confidence_thresholds(
+    storage,
+    files,
+) -> None:
+    files.write_config(
+        {
+            "compaction": {
+                "index_decision_entries": True,
+                "index_decision_min_confidence": 0.9,
+                "index_exploration_entries": True,
+                "index_exploration_min_confidence": 0.85,
+            }
+        }
+    )
+
+    log_writer = LogWriter(storage)
+    log_writer.log(
+        content="Decision confidence is too low for indexing",
+        label=SemanticLabel.DECISION_RATIONALE,
+        confidence=0.8,
+    )
+    log_writer.log(
+        content="Exploration confidence is high enough for indexing",
+        label=SemanticLabel.EXPLORATION,
+        confidence=0.9,
+    )
+    log_writer.log(
+        content="Exploration confidence is too low for indexing",
+        label=SemanticLabel.EXPLORATION,
+        confidence=0.6,
+    )
+
+    engine = CompactionEngine(storage=storage, files=files, llm=FakeLLMProvider())
+    results = await engine.compact(force=True)
+
+    assert int(results["chunks_indexed"]) == 1
+    assert storage.has_chunk(
+        "Exploration confidence is high enough for indexing",
+        SemanticLabel.EXPLORATION,
+    )
+    assert not storage.has_chunk(
+        "Decision confidence is too low for indexing",
+        SemanticLabel.DECISION_RATIONALE,
+    )
+    assert not storage.has_chunk(
+        "Exploration confidence is too low for indexing",
+        SemanticLabel.EXPLORATION,
+    )
+
+
+@pytest.mark.asyncio
 async def test_compaction_generates_embeddings_when_enabled(storage, files) -> None:
     files.write_config(
         {

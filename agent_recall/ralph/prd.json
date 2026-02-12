@@ -148,7 +148,7 @@
 			"user_story": "Allow developers to recover why prior decisions were made and what alternatives failed.",
 			"steps": [
 				"[done] Define indexing policy for decision, exploration, and narrative labels.",
-				"Add configurable thresholds to avoid noisy chunk promotion.",
+				"[done] Add configurable thresholds to avoid noisy chunk promotion.",
 				"[done] Update compaction/indexing flow to include selected non-style labels.",
 				"[done] Add tests covering indexing and retrieval of decision-oriented entries."
 			],
@@ -159,12 +159,12 @@
 				"Indexing output is deterministic under repeated compaction runs."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "AR-007",
 			"category": "functional",
-			"priority": 2,
+			"priority": 1,
 			"title": "Introduce optional shared team memory backend",
 			"description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
 			"user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",

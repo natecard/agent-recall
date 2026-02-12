@@ -131,10 +131,14 @@ class CompactionEngine:
         ]
         style_labels = [SemanticLabel.PREFERENCE, SemanticLabel.PATTERN]
         non_style_index_labels = self._resolve_non_style_index_labels(compaction_cfg)
+        non_style_index_thresholds = self._resolve_non_style_index_thresholds(compaction_cfg)
 
         guardrail_entries = self.storage.get_entries_by_label(guardrail_labels)
         style_entries = self.storage.get_entries_by_label(style_labels)
-        non_style_index_entries = self.storage.get_entries_by_label(non_style_index_labels)
+        non_style_index_entries = self._filter_non_style_index_entries(
+            self.storage.get_entries_by_label(non_style_index_labels),
+            non_style_index_thresholds,
+        )
         promoted_style_entries = self._promoted_style_entries(
             style_entries,
             effective_pattern_threshold,
@@ -288,6 +292,60 @@ class CompactionEngine:
             (SemanticLabel.NARRATIVE, compaction_cfg.get("index_narrative_entries", False)),
         ]
         return [label for label, enabled in policies if bool(enabled)]
+
+    @staticmethod
+    def _resolve_non_style_index_thresholds(
+        compaction_cfg: dict[str, Any],
+    ) -> dict[SemanticLabel, float]:
+        defaults = {
+            SemanticLabel.DECISION_RATIONALE: 0.7,
+            SemanticLabel.EXPLORATION: 0.7,
+            SemanticLabel.NARRATIVE: 0.8,
+        }
+        thresholds: dict[SemanticLabel, float] = {}
+        raw_values = [
+            (
+                SemanticLabel.DECISION_RATIONALE,
+                compaction_cfg.get(
+                    "index_decision_min_confidence",
+                    defaults[SemanticLabel.DECISION_RATIONALE],
+                ),
+            ),
+            (
+                SemanticLabel.EXPLORATION,
+                compaction_cfg.get(
+                    "index_exploration_min_confidence",
+                    defaults[SemanticLabel.EXPLORATION],
+                ),
+            ),
+            (
+                SemanticLabel.NARRATIVE,
+                compaction_cfg.get(
+                    "index_narrative_min_confidence",
+                    defaults[SemanticLabel.NARRATIVE],
+                ),
+            ),
+        ]
+
+        for label, raw_value in raw_values:
+            try:
+                value = float(raw_value)
+            except (TypeError, ValueError):
+                value = defaults[label]
+            thresholds[label] = max(0.0, min(1.0, value))
+
+        return thresholds
+
+    @staticmethod
+    def _filter_non_style_index_entries(
+        entries: list[LogEntry],
+        confidence_thresholds: dict[SemanticLabel, float],
+    ) -> list[LogEntry]:
+        return [
+            entry
+            for entry in entries
+            if entry.confidence >= confidence_thresholds.get(entry.label, 0.0)
+        ]
 
     def _recent_evidence_lines(self) -> list[str]:
         completed_sessions = self.storage.list_sessions(limit=20, status=SessionStatus.COMPLETED)
