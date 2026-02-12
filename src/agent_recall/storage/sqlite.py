@@ -400,6 +400,15 @@ class SQLiteStorage:
                 return []
         return [self._row_to_chunk(row) for row in rows]
 
+    def list_chunks_with_embeddings(self) -> list[Chunk]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM chunks
+                   WHERE embedding IS NOT NULL
+                   ORDER BY created_at DESC, id ASC"""
+            ).fetchall()
+        return [self._row_to_chunk(row) for row in rows]
+
     def _row_to_chunk(self, row: sqlite3.Row) -> Chunk:
         return Chunk(
             id=UUID(row["id"]),

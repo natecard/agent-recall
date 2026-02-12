@@ -126,7 +126,7 @@
 			"user_story": "Allow developers to get higher-signal context when querying past learnings with varied wording.",
 			"steps": [
 				"[done] Add optional embedding generation/storage for indexed chunks.",
-				"Implement hybrid retrieval (FTS + vector similarity) with deterministic tie-breaking.",
+				"[done] Implement hybrid retrieval (FTS + vector similarity) with deterministic tie-breaking.",
 				"Add optional reranking of top candidates before final output.",
 				"Expose retrieval backend/tuning options in config and CLI."
 			],

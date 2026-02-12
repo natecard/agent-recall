@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+from collections.abc import Sequence
 
 TOKEN_RE = re.compile(r"[a-z0-9]+")
 
@@ -25,3 +26,17 @@ def generate_embedding(text: str, dimensions: int = 64) -> list[float]:
     if norm == 0.0:
         return vector
     return [value / norm for value in vector]
+
+
+def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
+    """Return cosine similarity for vectors of matching dimensions."""
+    if not left or not right or len(left) != len(right):
+        return 0.0
+
+    left_norm = math.sqrt(sum(value * value for value in left))
+    right_norm = math.sqrt(sum(value * value for value in right))
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+
+    dot = sum(a * b for a, b in zip(left, right, strict=False))
+    return dot / (left_norm * right_norm)
