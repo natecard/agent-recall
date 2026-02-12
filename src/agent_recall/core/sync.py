@@ -9,6 +9,7 @@ from typing import Any
 from agent_recall.core.compact import CompactionEngine
 from agent_recall.core.extract import TranscriptExtractor
 from agent_recall.ingest import SessionIngester, get_default_ingesters
+from agent_recall.ingest.sources import normalize_source_name
 from agent_recall.llm.base import LLMProvider, LLMRateLimitError
 from agent_recall.storage.files import FileStorage
 from agent_recall.storage.sqlite import SQLiteStorage
@@ -474,4 +475,4 @@ class AutoSync:
 
     @staticmethod
     def _normalize_source(source: str) -> str:
-        return source.strip().lower().replace("_", "-")
+        return normalize_source_name(source)

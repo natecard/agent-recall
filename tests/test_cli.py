@@ -678,7 +678,11 @@ def test_cli_onboard_quick_persists_repo_setup(monkeypatch) -> None:
         onboarding = config.get("onboarding", {})
 
         assert onboarding.get("repository_verified") is True
-        assert onboarding.get("selected_agents") == ["cursor", "claude-code"]
+        assert onboarding.get("selected_agents") == [
+            "cursor",
+            "claude-code",
+            "opencode",
+        ]
         assert config.get("llm", {}).get("provider") == "anthropic"
         assert config.get("llm", {}).get("temperature") == 0.3
         assert config.get("llm", {}).get("max_tokens") == 4096
@@ -707,7 +711,11 @@ def test_cli_config_setup_quick_persists_repo_setup(monkeypatch) -> None:
         onboarding = config.get("onboarding", {})
 
         assert onboarding.get("repository_verified") is True
-        assert onboarding.get("selected_agents") == ["cursor", "claude-code"]
+        assert onboarding.get("selected_agents") == [
+            "cursor",
+            "claude-code",
+            "opencode",
+        ]
         assert config.get("llm", {}).get("provider") == "anthropic"
 
 

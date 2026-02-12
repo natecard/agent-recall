@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from agent_recall.ingest import get_default_ingesters, get_ingester
 from agent_recall.ingest.base import RawMessage, RawSession
 from agent_recall.ingest.claude_code import ClaudeCodeIngester
 from agent_recall.ingest.cursor import CursorIngester
+from agent_recall.ingest.opencode import OpenCodeIngester
 from agent_recall.llm.base import LLMProvider, LLMResponse, Message
 
 
@@ -362,6 +364,18 @@ class TestCursorIngester:
         assert "variables are centralized" in session.messages[1].content
 
 
+class TestIngesterRegistry:
+    def test_get_default_ingesters_includes_opencode(self, tmp_path: Path) -> None:
+        names = [item.source_name for item in get_default_ingesters(project_path=tmp_path)]
+        assert "cursor" in names
+        assert "claude-code" in names
+        assert "opencode" in names
+
+    def test_get_ingester_normalizes_aliases(self, tmp_path: Path) -> None:
+        assert get_ingester("claudecode", project_path=tmp_path).source_name == "claude-code"
+        assert get_ingester("open_code", project_path=tmp_path).source_name == "opencode"
+
+
 class TestClaudeCodeIngester:
     def test_source_name(self) -> None:
         ingester = ClaudeCodeIngester()
@@ -408,6 +422,222 @@ class TestClaudeCodeIngester:
         assert session.title == "test session"
         assert len(session.messages[0].tool_calls) == 1
         assert session.messages[0].tool_calls[0].tool == "Read"
+
+
+class TestOpenCodeIngester:
+    def _write_json(self, path: Path, payload: dict) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload))
+
+    def test_source_name(self, tmp_path: Path) -> None:
+        ingester = OpenCodeIngester(project_path=tmp_path, opencode_dir=tmp_path / "opencode")
+        assert ingester.source_name == "opencode"
+
+    def test_discover_sessions_matches_project(self, tmp_path: Path) -> None:
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        other_repo = tmp_path / "other-repo"
+        other_repo.mkdir()
+
+        opencode_dir = tmp_path / "opencode"
+        storage = opencode_dir / "storage"
+
+        self._write_json(
+            storage / "project" / "proj-main.json",
+            {
+                "id": "proj-main",
+                "worktree": str(repo_path),
+                "time": {"created": 1_766_000_000_000, "updated": 1_766_000_500_000},
+            },
+        )
+        self._write_json(
+            storage / "project" / "proj-other.json",
+            {
+                "id": "proj-other",
+                "worktree": str(other_repo),
+                "time": {"created": 1_766_000_000_000, "updated": 1_766_000_500_000},
+            },
+        )
+
+        wanted = storage / "session" / "proj-main" / "ses_main.json"
+        other = storage / "session" / "proj-other" / "ses_other.json"
+
+        self._write_json(
+            wanted,
+            {
+                "id": "ses_main",
+                "projectID": "proj-main",
+                "directory": str(repo_path),
+                "title": "Main session",
+                "time": {"created": 1_766_000_000_000, "updated": 1_766_000_500_000},
+            },
+        )
+        self._write_json(
+            other,
+            {
+                "id": "ses_other",
+                "projectID": "proj-other",
+                "directory": str(other_repo),
+                "title": "Other session",
+                "time": {"created": 1_766_001_000_000, "updated": 1_766_001_500_000},
+            },
+        )
+
+        ingester = OpenCodeIngester(project_path=repo_path, opencode_dir=opencode_dir)
+
+        sessions = ingester.discover_sessions()
+        assert sessions == [wanted]
+
+        since = datetime.fromtimestamp(1_766_000_600, tz=UTC)
+        filtered = ingester.discover_sessions(since=since)
+        assert filtered == []
+
+    def test_parse_session_extracts_messages_and_tools(self, tmp_path: Path) -> None:
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        opencode_dir = tmp_path / "opencode"
+        storage = opencode_dir / "storage"
+
+        self._write_json(
+            storage / "project" / "proj-main.json",
+            {
+                "id": "proj-main",
+                "worktree": str(repo_path),
+                "time": {"created": 1_766_000_000_000, "updated": 1_766_000_900_000},
+            },
+        )
+
+        session_path = storage / "session" / "proj-main" / "ses_main.json"
+        self._write_json(
+            session_path,
+            {
+                "id": "ses_main",
+                "projectID": "proj-main",
+                "directory": str(repo_path),
+                "title": "Playback fixes",
+                "time": {"created": 1_766_000_000_000, "updated": 1_766_000_900_000},
+            },
+        )
+
+        self._write_json(
+            storage / "message" / "ses_main" / "msg_user.json",
+            {
+                "id": "msg_user",
+                "sessionID": "ses_main",
+                "role": "user",
+                "time": {"created": 1_766_000_010_000},
+            },
+        )
+        self._write_json(
+            storage / "message" / "ses_main" / "msg_assistant.json",
+            {
+                "id": "msg_assistant",
+                "sessionID": "ses_main",
+                "role": "assistant",
+                "time": {"created": 1_766_000_020_000, "completed": 1_766_000_030_000},
+            },
+        )
+        self._write_json(
+            storage / "message" / "ses_main" / "msg_noise.json",
+            {
+                "id": "msg_noise",
+                "sessionID": "ses_main",
+                "role": "assistant",
+                "time": {"created": 1_766_000_015_000},
+            },
+        )
+
+        self._write_json(
+            storage / "part" / "msg_user" / "prt_user_text.json",
+            {
+                "id": "prt_user_text",
+                "type": "text",
+                "text": "Please fix duplicate playback when opening from multiple screens.",
+                "time": {"start": 1_766_000_010_000, "end": 1_766_000_010_001},
+            },
+        )
+        self._write_json(
+            storage / "part" / "msg_user" / "prt_user_file.json",
+            {
+                "id": "prt_user_file",
+                "type": "file",
+                "filename": "PlexPlayer/Shared/PrimaryTabView.swift",
+            },
+        )
+
+        self._write_json(
+            storage / "part" / "msg_assistant" / "prt_assistant_text.json",
+            {
+                "id": "prt_assistant_text",
+                "type": "text",
+                "text": (
+                    "Implemented a single-player ownership guard and verified playback handoff."
+                ),
+                "time": {"start": 1_766_000_020_500, "end": 1_766_000_020_501},
+            },
+        )
+        self._write_json(
+            storage / "part" / "msg_assistant" / "prt_assistant_tool.json",
+            {
+                "id": "prt_assistant_tool",
+                "type": "tool",
+                "tool": "bash",
+                "state": {
+                    "status": "completed",
+                    "input": {"command": "xcodebuild -scheme PlexPlayer build"},
+                    "output": "Build succeeded",
+                    "time": {"start": 1_766_000_021_000, "end": 1_766_000_022_000},
+                },
+            },
+        )
+        self._write_json(
+            storage / "part" / "msg_assistant" / "prt_assistant_patch.json",
+            {
+                "id": "prt_assistant_patch",
+                "type": "patch",
+                "hash": "abc123",
+                "files": ["PlexPlayer/Features/Player/ViewModels/GlobalPlayerManager.swift"],
+            },
+        )
+
+        self._write_json(
+            storage / "part" / "msg_noise" / "prt_noise_text.json",
+            {
+                "id": "prt_noise_text",
+                "type": "text",
+                "text": (
+                    "Called the Read tool with the following input: "
+                    "{\"filePath\":\"foo.swift\"}"
+                ),
+            },
+        )
+
+        ingester = OpenCodeIngester(project_path=repo_path, opencode_dir=opencode_dir)
+        session = ingester.parse_session(session_path)
+
+        assert session.source == "opencode"
+        assert session.session_id == "opencode-ses_main"
+        assert session.title == "Playback fixes"
+        assert session.project_path == repo_path
+        assert len(session.messages) == 2
+
+        user_message = session.messages[0]
+        assert user_message.role == "user"
+        assert "duplicate playback" in user_message.content
+        assert "Attached files:" in user_message.content
+        assert "PrimaryTabView.swift" in user_message.content
+
+        assistant_message = session.messages[1]
+        assert assistant_message.role == "assistant"
+        assert "single-player ownership guard" in assistant_message.content
+        assert len(assistant_message.tool_calls) == 2
+        assert assistant_message.tool_calls[0].tool == "bash"
+        assert (
+            assistant_message.tool_calls[0].args["command"]
+            == "xcodebuild -scheme PlexPlayer build"
+        )
+        assert assistant_message.tool_calls[0].duration_ms == 1000
+        assert assistant_message.tool_calls[1].tool == "patch"
 
 
 class MockLLM(LLMProvider):

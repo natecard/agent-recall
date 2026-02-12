@@ -826,16 +826,18 @@ def sync(
         raise typer.Exit(1) from None
 
     since = datetime.now(UTC) - timedelta(days=since_days) if since_days else None
+    normalized_source = normalize_source_name(source) if source else None
     selected_sources = None if source else _get_repo_selected_sources(files)
-    sources = [source] if source else selected_sources
+    sources = [normalized_source] if normalized_source else selected_sources
     selected_session_ids = [item.strip() for item in (session_id or []) if item.strip()]
     session_ids = selected_session_ids or None
 
     if source:
+        ingester_source = normalized_source or source
         try:
             ingesters = [
                 get_ingester(
-                    source,
+                    ingester_source,
                     cursor_db_path=cursor_db_path,
                     workspace_storage_dir=cursor_storage_dir,
                     cursor_all_workspaces=all_cursor_workspaces,
@@ -1058,16 +1060,18 @@ def sessions(
     files = get_files()
 
     since = datetime.now(UTC) - timedelta(days=since_days) if since_days else None
+    normalized_source = normalize_source_name(source) if source else None
     selected_sources = None if source else _get_repo_selected_sources(files)
-    sources = [source] if source else selected_sources
+    sources = [normalized_source] if normalized_source else selected_sources
     selected_session_ids = [item.strip() for item in (session_id or []) if item.strip()]
     session_ids = selected_session_ids or None
 
     if source:
+        ingester_source = normalized_source or source
         try:
             ingesters = [
                 get_ingester(
-                    source,
+                    ingester_source,
                     cursor_db_path=cursor_db_path,
                     workspace_storage_dir=cursor_storage_dir,
                     cursor_all_workspaces=all_cursor_workspaces,
