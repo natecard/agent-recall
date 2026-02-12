@@ -162,3 +162,31 @@ def test_ralph_loop_stream_json_completion_marker_exits_success(tmp_path: Path) 
 
     assert result.returncode == 0
     assert "Completion marker seen and validation green. Exiting early." in result.stdout
+
+
+def test_ralph_loop_runtime_validation_signal_enriches_memory_files(tmp_path: Path) -> None:
+    _write_default_repo_layout(tmp_path)
+
+    noisy_validate_cmd = (
+        "printf '%s\\n' "
+        "'============================= test session starts ==============================' "
+        "'platform darwin -- Python 3.12.0' "
+        "'E   AssertionError: expected 2 == 3'; "
+        "exit 1"
+    )
+    result = _run_loop(
+        tmp_path,
+        "--validate-cmd",
+        noisy_validate_cmd,
+    )
+
+    assert result.returncode == 2
+
+    guardrails = (tmp_path / ".agent" / "GUARDRAILS.md").read_text()
+    style = (tmp_path / ".agent" / "STYLE.md").read_text()
+    recent = (tmp_path / ".agent" / "RECENT.md").read_text()
+
+    assert "Primary actionable signal: E AssertionError: expected 2 == 3" in guardrails
+    assert "Runtime logs: agent_recall/ralph/.runtime/agent-1.log" in guardrails
+    assert "first actionable validation line: E AssertionError: expected 2 == 3" in style
+    assert "Validation signal: E AssertionError: expected 2 == 3" in recent

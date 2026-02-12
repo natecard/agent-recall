@@ -582,11 +582,59 @@ run_notify() {
   set -e
 }
 
+validation_log_path() {
+  local iteration="$1"
+  printf '%s/validate-%s.log' "$RUNTIME_DIR" "$iteration"
+}
+
+agent_log_path() {
+  local iteration="$1"
+  printf '%s/agent-%s.log' "$RUNTIME_DIR" "$iteration"
+}
+
+normalize_runtime_line() {
+  local value="$1"
+  printf '%s\n' "$value" | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
+}
+
+extract_actionable_validation_lines() {
+  local iteration="$1"
+  local max_lines="${2:-6}"
+  local log_file
+  log_file="$(validation_log_path "$iteration")"
+
+  if [[ ! -s "$log_file" ]]; then
+    return 0
+  fi
+
+  local filtered
+  filtered="$(
+    sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//' "$log_file" \
+      | sed '/^$/d' \
+      | grep -Eiv '^(=+|-+|=+.*=+)$' \
+      | grep -Eiv '(test session starts|test session ends|^platform |^rootdir:|^configfile:|^plugins:|^collected [0-9]+ items?)' \
+      | head -n "$max_lines" || true
+  )"
+
+  if [[ -n "$filtered" ]]; then
+    printf '%s\n' "$filtered"
+    return 0
+  fi
+
+  sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//' "$log_file" | sed '/^$/d' | head -n "$max_lines"
+}
+
+extract_validation_hint() {
+  local iteration="$1"
+  extract_actionable_validation_lines "$iteration" 1 | head -n 1
+}
+
 append_guardrail_note() {
   local iteration="$1"
   local item_id="$2"
   local item_title="$3"
   local reason="$4"
+  local validation_hint="$5"
   local timestamp
   timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -611,12 +659,17 @@ append_guardrail_note() {
     else
       echo "- Keep changes isolated and verifiable before commit."
     fi
+    if [[ -n "$validation_hint" ]]; then
+      echo "- Runtime validation signal: $(normalize_runtime_line "$validation_hint")"
+    fi
+    echo "- Runtime logs: $(agent_log_path "$iteration"), $(validation_log_path "$iteration")"
   } >> "$GUARDRAILS_FILE"
 }
 
 append_hard_failure_guardrail() {
   local iteration="$1"
   local next_item_json="$2"
+  local validation_hint="$3"
   local timestamp
   timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -626,7 +679,10 @@ append_hard_failure_guardrail() {
   item_title="$(printf '%s\n' "$next_item_json" | jq -r '.title // .description // "untitled"')"
 
   local top_errors
-  top_errors="$(printf '%s\n' "$LAST_VALIDATE_OUTPUT" | sed '/^[[:space:]]*$/d' | sed -n '1,6p')"
+  top_errors="$(extract_actionable_validation_lines "$iteration" 6)"
+  if [[ -z "$top_errors" ]]; then
+    top_errors="$(printf '%s\n' "$LAST_VALIDATE_OUTPUT" | sed '/^[[:space:]]*$/d' | sed -n '1,6p')"
+  fi
 
   {
     echo ""
@@ -643,12 +699,17 @@ append_hard_failure_guardrail() {
     else
       echo "- Validation failed without captured output."
     fi
+    if [[ -n "$validation_hint" ]]; then
+      echo "- Primary actionable signal: $(normalize_runtime_line "$validation_hint")"
+    fi
+    echo "- Runtime logs: $(agent_log_path "$iteration"), $(validation_log_path "$iteration")"
   } >> "$GUARDRAILS_FILE"
 }
 
 append_style_note() {
   local iteration="$1"
   local item_id="$2"
+  local validation_hint="$3"
   local timestamp
   timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -661,6 +722,12 @@ append_style_note() {
     else
       echo "- Run local checks before commit when available."
     fi
+    if [[ -n "$validation_hint" ]]; then
+      echo "- Start debugging from the first actionable validation line: $(normalize_runtime_line "$validation_hint")"
+    else
+      echo "- Keep runtime validate logs concise so the first actionable line is obvious."
+    fi
+    echo "- Runtime logs: $(agent_log_path "$iteration"), $(validation_log_path "$iteration")"
   } >> "$STYLE_FILE"
 }
 
@@ -672,6 +739,7 @@ append_recent_note() {
   local agent_exit="$5"
   local validate_exit="$6"
   local reason="$7"
+  local validation_hint="$8"
   local timestamp
   timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -688,6 +756,10 @@ append_recent_note() {
     echo "- Agent exit code: ${agent_exit}"
     echo "- Validation: ${validate_status}"
     echo "- Outcome: ${reason}"
+    if [[ -n "$validation_hint" ]]; then
+      echo "- Validation signal: $(normalize_runtime_line "$validation_hint")"
+    fi
+    echo "- Runtime logs: $(agent_log_path "$iteration"), $(validation_log_path "$iteration")"
   } >> "$RECENT_FILE"
 }
 
@@ -701,6 +773,7 @@ enforce_memory_updates() {
   local pre_guard_hash="$7"
   local pre_style_hash="$8"
   local pre_recent_hash="$9"
+  local validation_hint="${10}"
 
   local item_id
   local item_title
@@ -727,15 +800,15 @@ enforce_memory_updates() {
   post_recent_hash="$(file_hash "$RECENT_FILE")"
 
   if [[ "$post_guard_hash" == "$pre_guard_hash" ]]; then
-    append_guardrail_note "$iteration" "$item_id" "$item_title" "$reason"
+    append_guardrail_note "$iteration" "$item_id" "$item_title" "$reason" "$validation_hint"
   fi
 
   if [[ "$post_style_hash" == "$pre_style_hash" ]]; then
-    append_style_note "$iteration" "$item_id"
+    append_style_note "$iteration" "$item_id" "$validation_hint"
   fi
 
   if [[ "$post_recent_hash" == "$pre_recent_hash" ]]; then
-    append_recent_note "$iteration" "$item_id" "$item_title" "$work_mode" "$agent_exit" "$LAST_VALIDATE_EXIT" "$reason"
+    append_recent_note "$iteration" "$item_id" "$item_title" "$work_mode" "$agent_exit" "$LAST_VALIDATE_EXIT" "$reason" "$validation_hint"
   fi
 }
 
@@ -985,6 +1058,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   fi
 
   run_validation "$i" || true
+  VALIDATION_HINT="$(extract_validation_hint "$i")"
 
   HAS_COMPLETE=0
   if [[ "$AGENT_OUTPUT_MODE" == "stream-json" ]]; then
@@ -1015,10 +1089,10 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   fi
 
   if [[ $LAST_VALIDATE_EXIT -ne 0 ]]; then
-    append_hard_failure_guardrail "$i" "$MEMORY_ITEM"
+    append_hard_failure_guardrail "$i" "$MEMORY_ITEM" "$VALIDATION_HINT"
   fi
 
-  enforce_memory_updates "$i" "$MEMORY_ITEM" "$WORK_MODE" "$AGENT_EXIT" "$AGENT_TIMED_OUT" "$ABORT_SEEN" "$PRE_GUARD_HASH" "$PRE_STYLE_HASH" "$PRE_RECENT_HASH"
+  enforce_memory_updates "$i" "$MEMORY_ITEM" "$WORK_MODE" "$AGENT_EXIT" "$AGENT_TIMED_OUT" "$ABORT_SEEN" "$PRE_GUARD_HASH" "$PRE_STYLE_HASH" "$PRE_RECENT_HASH" "$VALIDATION_HINT"
 
   SHOULD_COMPACT=0
   if [[ "$COMPACT_MODE" == "always" ]]; then
