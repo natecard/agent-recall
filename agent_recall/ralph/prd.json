@@ -81,9 +81,9 @@
 			"description": "Close release-readiness gaps across metadata, docs, and cross-environment validation.",
 			"user_story": "Allow developers to install and trust Agent Recall as a stable tool in real projects.",
 			"steps": [
-				"Finalize package metadata (author, versioning policy, release notes).",
-				"Add explicit compatibility matrix for sources/platforms/Python versions.",
-				"Expand CI to run lint/type/test on supported Python versions and clean env installs.",
+				"[done] Finalize package metadata (author, versioning policy, release notes).",
+				"[done] Add explicit compatibility matrix for sources/platforms/Python versions.",
+				"[done] Expand CI to run lint/type/test on supported Python versions and clean env installs.",
 				"Add smoke tests for init/onboarding/sync/context flows in fresh repositories."
 			],
 			"acceptance": [

@@ -8,6 +8,36 @@ Persistent memory for AI coding agents. Learn from past sessions and share knowl
 pip install agent-recall
 ```
 
+## Compatibility
+
+### Python Versions
+
+| Python | Status |
+|--------|--------|
+| 3.11   | Supported |
+| 3.12   | Supported |
+| 3.13   | Supported |
+
+### Agent Sources
+
+| Source | macOS | Linux | Windows | Status |
+|--------|-------|-------|---------|--------|
+| Cursor | ✓ | ✓ | ✓ | Stable |
+| Claude Code | ✓ | ✓ | ✓ | Stable |
+| OpenCode | ✓ | ✓ | ✓ | Stable |
+| OpenAI Codex | ✓ | ✓ | ✓ | Stable |
+
+### LLM Providers
+
+| Provider | Required Package | Notes |
+|----------|-----------------|-------|
+| Anthropic | `pip install agent-recall[anthropic]` | Claude models |
+| OpenAI | Built-in | GPT models |
+| Google | `pip install agent-recall[google]` | Gemini models |
+| Ollama | Built-in | Local models via OpenAI-compatible API |
+| vLLM | Built-in | Self-hosted models |
+| LM Studio | Built-in | Local models |
+
 ## Quick Start
 
 ```bash
