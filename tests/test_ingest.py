@@ -10,6 +10,7 @@ import pytest
 from agent_recall.ingest import get_default_ingesters, get_ingester
 from agent_recall.ingest.base import RawMessage, RawSession
 from agent_recall.ingest.claude_code import ClaudeCodeIngester
+from agent_recall.ingest.codex import CodexIngester
 from agent_recall.ingest.cursor import CursorIngester
 from agent_recall.ingest.opencode import OpenCodeIngester
 from agent_recall.llm.base import LLMProvider, LLMResponse, Message
@@ -365,15 +366,17 @@ class TestCursorIngester:
 
 
 class TestIngesterRegistry:
-    def test_get_default_ingesters_includes_opencode(self, tmp_path: Path) -> None:
+    def test_get_default_ingesters_includes_codex(self, tmp_path: Path) -> None:
         names = [item.source_name for item in get_default_ingesters(project_path=tmp_path)]
         assert "cursor" in names
         assert "claude-code" in names
         assert "opencode" in names
+        assert "codex" in names
 
     def test_get_ingester_normalizes_aliases(self, tmp_path: Path) -> None:
         assert get_ingester("claudecode", project_path=tmp_path).source_name == "claude-code"
         assert get_ingester("open_code", project_path=tmp_path).source_name == "opencode"
+        assert get_ingester("openai_codex", project_path=tmp_path).source_name == "codex"
 
 
 class TestClaudeCodeIngester:
@@ -638,6 +641,273 @@ class TestOpenCodeIngester:
         )
         assert assistant_message.tool_calls[0].duration_ms == 1000
         assert assistant_message.tool_calls[1].tool == "patch"
+
+
+class TestCodexIngester:
+    def _write_json(self, path: Path, payload: dict) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload))
+
+    def _write_jsonl(self, path: Path, events: list[dict]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(json.dumps(event) for event in events) + "\n")
+
+    def test_source_name(self, tmp_path: Path) -> None:
+        ingester = CodexIngester(project_path=tmp_path, codex_dir=tmp_path / ".codex")
+        assert ingester.source_name == "codex"
+
+    def test_discover_sessions_matches_project(self, tmp_path: Path) -> None:
+        project_path = tmp_path / "repo"
+        project_path.mkdir()
+        other_path = tmp_path / "other"
+        other_path.mkdir()
+
+        codex_dir = tmp_path / ".codex"
+        wanted = codex_dir / "sessions" / "2026" / "02" / "12" / "rollout-main.jsonl"
+        ignored = codex_dir / "sessions" / "2026" / "02" / "12" / "rollout-other.jsonl"
+
+        self._write_jsonl(
+            wanted,
+            [
+                {
+                    "timestamp": "2026-02-12T16:00:00Z",
+                    "type": "session_meta",
+                    "payload": {
+                        "id": "session-main",
+                        "cwd": str(project_path),
+                        "timestamp": "2026-02-12T16:00:00Z",
+                    },
+                }
+            ],
+        )
+        self._write_jsonl(
+            ignored,
+            [
+                {
+                    "timestamp": "2026-02-12T16:00:01Z",
+                    "type": "session_meta",
+                    "payload": {
+                        "id": "session-other",
+                        "cwd": str(other_path),
+                        "timestamp": "2026-02-12T16:00:01Z",
+                    },
+                }
+            ],
+        )
+
+        ingester = CodexIngester(project_path=project_path, codex_dir=codex_dir)
+        sessions = ingester.discover_sessions()
+        assert sessions == [wanted]
+
+        since = datetime.fromisoformat("2026-02-12T16:00:01+00:00")
+        filtered = ingester.discover_sessions(since=since)
+        assert filtered == []
+
+    def test_parse_jsonl_extracts_messages_and_tool_calls(self, tmp_path: Path) -> None:
+        project_path = tmp_path / "repo"
+        project_path.mkdir()
+        codex_dir = tmp_path / ".codex"
+        session_path = codex_dir / "sessions" / "2026" / "02" / "12" / "rollout-main.jsonl"
+
+        self._write_jsonl(
+            session_path,
+            [
+                {
+                    "timestamp": "2026-02-12T16:00:00Z",
+                    "type": "session_meta",
+                    "payload": {
+                        "id": "session-main",
+                        "cwd": str(project_path),
+                        "timestamp": "2026-02-12T16:00:00Z",
+                    },
+                },
+                {
+                    "timestamp": "2026-02-12T16:00:01Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": "Please clean up duplicate session parsing.",
+                            }
+                        ],
+                    },
+                },
+                {
+                    "timestamp": "2026-02-12T16:00:02Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "function_call",
+                        "name": "exec_command",
+                        "arguments": "{\"cmd\": \"rg --files\"}",
+                        "call_id": "call-1",
+                    },
+                },
+                {
+                    "timestamp": "2026-02-12T16:00:03Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "function_call_output",
+                        "call_id": "call-1",
+                        "output": {"status": "ok"},
+                    },
+                },
+                {
+                    "timestamp": "2026-02-12T16:00:04Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "Done. Session parsing now uses a single pass.",
+                            }
+                        ],
+                    },
+                },
+            ],
+        )
+
+        ingester = CodexIngester(project_path=project_path, codex_dir=codex_dir)
+        session = ingester.parse_session(session_path)
+
+        assert session.source == "codex"
+        assert session.session_id == "codex-session-main"
+        assert session.project_path == project_path
+        assert session.title == "Please clean up duplicate session parsing."
+        assert len(session.messages) == 2
+
+        user_message = session.messages[0]
+        assert user_message.role == "user"
+        assert "duplicate session parsing" in user_message.content
+
+        assistant_message = session.messages[1]
+        assert assistant_message.role == "assistant"
+        assert "single pass" in assistant_message.content
+        assert len(assistant_message.tool_calls) == 1
+        assert assistant_message.tool_calls[0].tool == "exec_command"
+        assert assistant_message.tool_calls[0].args["cmd"] == "rg --files"
+        assert assistant_message.tool_calls[0].result == '{"status": "ok"}'
+
+    def test_parse_jsonl_extracts_custom_tool_calls(self, tmp_path: Path) -> None:
+        project_path = tmp_path / "repo"
+        project_path.mkdir()
+        codex_dir = tmp_path / ".codex"
+        session_path = codex_dir / "sessions" / "2026" / "02" / "12" / "rollout-custom.jsonl"
+
+        self._write_jsonl(
+            session_path,
+            [
+                {
+                    "timestamp": "2026-02-12T16:00:00Z",
+                    "type": "session_meta",
+                    "payload": {
+                        "id": "session-custom",
+                        "cwd": str(project_path),
+                        "timestamp": "2026-02-12T16:00:00Z",
+                    },
+                },
+                {
+                    "timestamp": "2026-02-12T16:00:01Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": "Please patch this file safely."}
+                        ],
+                    },
+                },
+                {
+                    "timestamp": "2026-02-12T16:00:02Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "custom_tool_call",
+                        "name": "apply_patch",
+                        "input": "*** Begin Patch\n*** End Patch",
+                        "call_id": "call-custom-1",
+                    },
+                },
+                {
+                    "timestamp": "2026-02-12T16:00:03Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "custom_tool_call_output",
+                        "call_id": "call-custom-1",
+                        "output": "{\"output\":\"Success\"}",
+                    },
+                },
+                {
+                    "timestamp": "2026-02-12T16:00:04Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                            {"type": "output_text", "text": "Applied the patch successfully."}
+                        ],
+                    },
+                },
+            ],
+        )
+
+        ingester = CodexIngester(project_path=project_path, codex_dir=codex_dir)
+        session = ingester.parse_session(session_path)
+
+        assert len(session.messages) == 2
+        assistant_message = session.messages[1]
+        assert assistant_message.role == "assistant"
+        assert len(assistant_message.tool_calls) == 1
+        assert assistant_message.tool_calls[0].tool == "apply_patch"
+        assert assistant_message.tool_calls[0].args["raw"] == "*** Begin Patch\n*** End Patch"
+        assert assistant_message.tool_calls[0].result == '{"output":"Success"}'
+
+    def test_parse_legacy_json_extracts_messages(self, tmp_path: Path) -> None:
+        project_path = tmp_path / "repo"
+        project_path.mkdir()
+        codex_dir = tmp_path / ".codex"
+        session_path = codex_dir / "sessions" / "rollout-legacy.json"
+
+        self._write_json(
+            session_path,
+            {
+                "session": {
+                    "id": "legacy-session",
+                    "timestamp": "2025-04-18T15:46:21.101Z",
+                    "cwd": str(project_path),
+                },
+                "items": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Please explain this traceback quickly."}
+                        ],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "text", "text": "The constructor call is missing mesh args."}
+                        ],
+                    },
+                ],
+            },
+        )
+
+        ingester = CodexIngester(project_path=project_path, codex_dir=codex_dir)
+        sessions = ingester.discover_sessions()
+        assert sessions == [session_path]
+
+        session = ingester.parse_session(session_path)
+        assert session.source == "codex"
+        assert session.session_id == "codex-legacy-session"
+        assert len(session.messages) == 2
+        assert session.messages[0].role == "user"
+        assert "traceback" in session.messages[0].content
+        assert session.messages[1].role == "assistant"
+        assert "mesh args" in session.messages[1].content
 
 
 class MockLLM(LLMProvider):

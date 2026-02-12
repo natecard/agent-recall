@@ -1,26 +1,33 @@
 {
-  "project": "Agent Recall Ralph Loop",
-  "items": [
-    {
-      "id": "AR-001",
-      "priority": 1,
-      "title": "Implement one high-value reliability improvement",
-      "user_story": "As a maintainer, I want one focused reliability improvement implemented with tests and memory updates.",
-      "passes": false
-    },
-    {
-      "id": "AR-002",
-      "priority": 2,
-      "title": "Refine CLI or compaction UX based on findings",
-      "user_story": "As a user, I want clearer feedback from CLI workflows and compaction operations.",
-      "passes": false
-    },
-    {
-      "id": "AR-003",
-      "priority": 3,
-      "title": "Stabilize edge-case behavior discovered during validation",
-      "user_story": "As a maintainer, I want known edge cases fixed so regressions are less likely.",
-      "passes": false
-    }
-  ]
+	"project": "Agent Recall Super Ralph",
+	"version": 2,
+	"selection_policy": {
+		"agent_decides_priority": true,
+		"priority_scale": "1 = highest priority",
+		"order_of_operations": ["critical bugfixes", "tracer-bullet feature slices", "polish and quick wins", "refactors"]
+	},
+	"items": [
+		{
+			"id": "AR-001",
+			"category": "functional",
+			"priority": 1,
+			"title": "Add support for OpenAI Codex",
+			"description": "Add support for the new OpenAI Codex App",
+			"user_story": "Allow users to select OpenAI Codex as one of the agents they can use for the Agent Recall package.",
+			"steps": [
+				"[done] Find the path for the OpenAI Codex App session files.",
+				"Verify this works across path variations by exploring filesystem path logic.",
+				"[done] Add structured outputs to extract conversations for Agent Recall.",
+				"[done] Harden parsing against different conversation styles (including custom_tool_call/custom_tool_call_output)."
+			],
+			"acceptance": [
+				"Conversation extraction works.",
+				"Conversations are compacted correctly.",
+				"Usage in other repositories works.",
+				"Changes do not break existing behavior."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		}
+	]
 }

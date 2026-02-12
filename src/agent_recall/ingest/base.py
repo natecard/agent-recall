@@ -29,7 +29,7 @@ class RawMessage(BaseModel):
 class RawSession(BaseModel):
     """Normalized session from any agent tool."""
 
-    source: str  # "cursor" | "claude-code" | "opencode"
+    source: str  # "cursor" | "claude-code" | "opencode" | "codex"
     session_id: str
     title: str | None = None
     project_path: Path | None = None

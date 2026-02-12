@@ -35,6 +35,13 @@ SOURCE_DEFINITIONS: tuple[SourceDefinition, ...] = (
         location_attr="opencode_dir",
         location_suffix=("storage", "session"),
     ),
+    SourceDefinition(
+        name="codex",
+        display_name="OpenAI Codex",
+        aliases=("codex", "openai-codex", "openai_codex"),
+        location_attr="codex_dir",
+        location_suffix=("sessions",),
+    ),
 )
 
 SOURCE_BY_NAME: dict[str, SourceDefinition] = {item.name: item for item in SOURCE_DEFINITIONS}

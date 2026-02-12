@@ -682,6 +682,7 @@ def test_cli_onboard_quick_persists_repo_setup(monkeypatch) -> None:
             "cursor",
             "claude-code",
             "opencode",
+            "codex",
         ]
         assert config.get("llm", {}).get("provider") == "anthropic"
         assert config.get("llm", {}).get("temperature") == 0.3
@@ -715,6 +716,7 @@ def test_cli_config_setup_quick_persists_repo_setup(monkeypatch) -> None:
             "cursor",
             "claude-code",
             "opencode",
+            "codex",
         ]
         assert config.get("llm", {}).get("provider") == "anthropic"
 

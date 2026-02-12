@@ -4,6 +4,7 @@ from pathlib import Path
 
 from agent_recall.ingest.base import RawMessage, RawSession, RawToolCall, SessionIngester
 from agent_recall.ingest.claude_code import ClaudeCodeIngester
+from agent_recall.ingest.codex import CodexIngester
 from agent_recall.ingest.cursor import CursorIngester
 from agent_recall.ingest.opencode import OpenCodeIngester
 from agent_recall.ingest.sources import VALID_SOURCE_NAMES, normalize_source_name
@@ -16,6 +17,7 @@ __all__ = [
     "CursorIngester",
     "ClaudeCodeIngester",
     "OpenCodeIngester",
+    "CodexIngester",
     "VALID_SOURCE_NAMES",
     "normalize_source_name",
     "get_default_ingesters",
@@ -29,6 +31,7 @@ def get_default_ingesters(
     workspace_storage_dir: Path | None = None,
     cursor_all_workspaces: bool = False,
     opencode_dir: Path | None = None,
+    codex_dir: Path | None = None,
 ) -> list[SessionIngester]:
     """Return ingesters for all supported native session sources."""
     return [
@@ -40,6 +43,7 @@ def get_default_ingesters(
         ),
         ClaudeCodeIngester(project_path),
         OpenCodeIngester(project_path=project_path, opencode_dir=opencode_dir),
+        CodexIngester(project_path=project_path, codex_dir=codex_dir),
     ]
 
 
@@ -50,6 +54,7 @@ def get_ingester(
     workspace_storage_dir: Path | None = None,
     cursor_all_workspaces: bool = False,
     opencode_dir: Path | None = None,
+    codex_dir: Path | None = None,
 ) -> SessionIngester:
     """Return a specific ingester by source name."""
     normalized = normalize_source_name(source)
@@ -64,6 +69,10 @@ def get_ingester(
         "opencode": lambda: OpenCodeIngester(
             project_path=project_path,
             opencode_dir=opencode_dir,
+        ),
+        "codex": lambda: CodexIngester(
+            project_path=project_path,
+            codex_dir=codex_dir,
         ),
     }
     factory = factories.get(normalized)
