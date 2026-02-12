@@ -71,3 +71,27 @@ async def test_compaction_updates_tiers_and_indexes(storage, files) -> None:
     assert "[GOTCHA] Verify lock ordering" in guardrails
     assert "[PATTERN] Use repository pattern" in style
     assert "2026-02-09" in recent
+
+
+@pytest.mark.asyncio
+async def test_compaction_generates_embeddings_when_enabled(storage, files) -> None:
+    files.write_config(
+        {
+            "llm": {"provider": "openai", "model": "gpt-4o-mini"},
+            "retrieval": {"embedding_enabled": True, "embedding_dimensions": 16},
+        }
+    )
+
+    session_mgr = SessionManager(storage)
+    log_writer = LogWriter(storage)
+    session = session_mgr.start("Improve auth")
+    log_writer.log(content="Avoid weak password hashing rounds", label=SemanticLabel.GOTCHA)
+    session_mgr.end(session.id, "Completed")
+
+    engine = CompactionEngine(storage=storage, files=files, llm=FakeLLMProvider())
+    await engine.compact(force=True)
+
+    chunks = storage.search_chunks_fts("password", top_k=5)
+    assert len(chunks) == 1
+    assert chunks[0].embedding is not None
+    assert len(chunks[0].embedding or []) == 16

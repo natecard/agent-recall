@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 
+from agent_recall.core.embeddings import generate_embedding
 from agent_recall.llm.base import LLMProvider, Message
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.models import Chunk, ChunkSource, LogEntry, SemanticLabel, SessionStatus
@@ -111,9 +112,17 @@ class CompactionEngine:
         compaction_cfg = config.get("compaction") if isinstance(config, dict) else {}
         if not isinstance(compaction_cfg, dict):
             compaction_cfg = {}
+        retrieval_cfg = config.get("retrieval") if isinstance(config, dict) else {}
+        if not isinstance(retrieval_cfg, dict):
+            retrieval_cfg = {}
+
         pattern_threshold = int(compaction_cfg.get("promote_pattern_after_occurrences", 3))
         effective_pattern_threshold = 1 if force else max(1, pattern_threshold)
         recent_token_budget = int(compaction_cfg.get("max_recent_tokens", 1500))
+        embedding_enabled = bool(retrieval_cfg.get("embedding_enabled", False))
+        embedding_dimensions = int(retrieval_cfg.get("embedding_dimensions", 64))
+        if embedding_dimensions < 8:
+            embedding_dimensions = 8
 
         guardrail_labels = [
             SemanticLabel.HARD_FAILURE,
@@ -214,6 +223,11 @@ class CompactionEngine:
             indexed_entry_ids.add(entry_id)
             if self.storage.has_chunk(entry.content, entry.label):
                 continue
+            embedding = (
+                generate_embedding(entry.content, dimensions=embedding_dimensions)
+                if embedding_enabled
+                else None
+            )
             self.storage.store_chunk(
                 Chunk(
                     source=ChunkSource.LOG_ENTRY,
@@ -221,6 +235,7 @@ class CompactionEngine:
                     content=entry.content,
                     label=entry.label,
                     tags=entry.tags,
+                    embedding=embedding,
                 )
             )
             results["chunks_indexed"] = int(results["chunks_indexed"]) + 1

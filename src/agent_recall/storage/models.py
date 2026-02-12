@@ -133,6 +133,8 @@ class RetrievalConfig(BaseModel):
 
     backend: str = "fts5"
     top_k: int = 5
+    embedding_enabled: bool = False
+    embedding_dimensions: int = Field(default=64, ge=8, le=4096)
 
 
 class ThemeConfig(BaseModel):

@@ -177,6 +177,8 @@ compaction:
 retrieval:
   backend: fts5
   top_k: 5
+  embedding_enabled: false
+  embedding_dimensions: 64
 
 theme:
   name: dark+

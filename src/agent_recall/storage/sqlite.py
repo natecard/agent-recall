@@ -299,7 +299,7 @@ class SQLiteStorage:
                             json.dumps(chunk.tags),
                             chunk.created_at.isoformat(),
                             chunk.token_count,
-                            None,
+                            self._serialize_embedding(chunk.embedding),
                         ),
                     )
                 return
@@ -355,6 +355,37 @@ class SQLiteStorage:
             row = conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()
         return int(row["n"]) if row else 0
 
+    @staticmethod
+    def _serialize_embedding(embedding: list[float] | None) -> bytes | None:
+        if embedding is None:
+            return None
+        return json.dumps(embedding).encode("utf-8")
+
+    @staticmethod
+    def _deserialize_embedding(raw: Any) -> list[float] | None:
+        if raw is None:
+            return None
+
+        if isinstance(raw, bytes):
+            serialized = raw.decode("utf-8", errors="ignore")
+        else:
+            serialized = str(raw)
+
+        try:
+            payload = json.loads(serialized)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, list):
+            return None
+
+        embedding: list[float] = []
+        for value in payload:
+            if isinstance(value, (int, float)):
+                embedding.append(float(value))
+            else:
+                return None
+        return embedding
+
     def search_chunks_fts(self, query: str, top_k: int = 5) -> list[Chunk]:
         with self._connect() as conn:
             try:
@@ -379,7 +410,7 @@ class SQLiteStorage:
             tags=json.loads(row["tags"]),
             created_at=datetime.fromisoformat(row["created_at"]),
             token_count=row["token_count"],
-            embedding=None,
+            embedding=self._deserialize_embedding(row["embedding"]),
         )
 
     def is_session_processed(self, source_session_id: str) -> bool:

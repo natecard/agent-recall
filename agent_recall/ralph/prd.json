@@ -125,7 +125,7 @@
 			"description": "Add hybrid retrieval so context assembly returns more relevant results than keyword-only lookup.",
 			"user_story": "Allow developers to get higher-signal context when querying past learnings with varied wording.",
 			"steps": [
-				"Add optional embedding generation/storage for indexed chunks.",
+				"[done] Add optional embedding generation/storage for indexed chunks.",
 				"Implement hybrid retrieval (FTS + vector similarity) with deterministic tie-breaking.",
 				"Add optional reranking of top candidates before final output.",
 				"Expose retrieval backend/tuning options in config and CLI."
