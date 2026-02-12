@@ -11,3 +11,4 @@
 2026-02-12T20:51:11Z | Iteration 2 | AR-006 | Added bounded retries + clear diagnostics for sync-background + refresh-context, fixed lock acquisition in run_sync, added retry-path tests; validation green.
 2026-02-12T20:59:22Z | Iteration 1 | AR-003 | Completed tracer-bullet step 1: optional deterministic embedding generation during compaction with SQLite embedding persistence + retrieval round-trip tests; validation green.
 2026-02-12T21:04:50Z | Iteration 2 | AR-003 | Implemented hybrid retrieval rank fusion (FTS + vector similarity) with deterministic tie-breaking and regression tests; validation green.
+2026-02-12T21:10:09Z | Iteration 1 | AR-003 | Added optional retrieval reranking stage (default off) with deterministic scoring/tie-breaks and focused regression tests; validation green.

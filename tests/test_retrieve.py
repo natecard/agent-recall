@@ -97,3 +97,61 @@ def test_retrieval_hybrid_tie_breaks_deterministically(storage) -> None:
     results = retriever.search(query, top_k=2, backend="hybrid")
 
     assert [chunk.id for chunk in results] == [first.id, second.id]
+
+
+def test_retrieval_optional_rerank_promotes_semantic_match(storage, monkeypatch) -> None:
+    query = "bounded retry policy"
+
+    lexical_chunk = Chunk(
+        source=ChunkSource.MANUAL,
+        source_ids=[],
+        content="bounded policy documented for sync workers",
+        label=SemanticLabel.PATTERN,
+    )
+    semantic_chunk = Chunk(
+        source=ChunkSource.MANUAL,
+        source_ids=[],
+        content="fallback strategy details",
+        label=SemanticLabel.PATTERN,
+        embedding=generate_embedding(query, dimensions=16),
+    )
+
+    def _stub_search_chunks_fts(query: str, top_k: int) -> list[Chunk]:
+        if top_k <= 1:
+            return [lexical_chunk]
+        return [lexical_chunk, semantic_chunk][:top_k]
+
+    monkeypatch.setattr(storage, "search_chunks_fts", _stub_search_chunks_fts)
+
+    retriever = Retriever(storage)
+    without_rerank = retriever.search(query=query, top_k=1, rerank=False)
+    with_rerank = retriever.search(query=query, top_k=1, rerank=True, rerank_candidate_k=2)
+
+    assert without_rerank[0].id == lexical_chunk.id
+    assert with_rerank[0].id == semantic_chunk.id
+
+
+def test_retrieval_optional_rerank_tie_stays_deterministic(storage, monkeypatch) -> None:
+    query = "alpha beta"
+
+    first = Chunk(
+        id=UUID("00000000-0000-0000-0000-000000000011"),
+        source=ChunkSource.MANUAL,
+        source_ids=[],
+        content="gamma delta",
+        label=SemanticLabel.PATTERN,
+    )
+    second = Chunk(
+        id=UUID("00000000-0000-0000-0000-000000000012"),
+        source=ChunkSource.MANUAL,
+        source_ids=[],
+        content="theta lambda",
+        label=SemanticLabel.PATTERN,
+    )
+
+    monkeypatch.setattr(storage, "search_chunks_fts", lambda query, top_k: [first, second][:top_k])
+
+    retriever = Retriever(storage)
+    results = retriever.search(query=query, top_k=2, rerank=True, rerank_candidate_k=2)
+
+    assert [chunk.id for chunk in results] == [first.id, second.id]

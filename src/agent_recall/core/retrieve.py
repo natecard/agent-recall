@@ -1,17 +1,29 @@
 from __future__ import annotations
 
+import re
 from uuid import UUID
 
 from agent_recall.core.embeddings import cosine_similarity, generate_embedding
 from agent_recall.storage.models import Chunk, SemanticLabel
 from agent_recall.storage.sqlite import SQLiteStorage
 
+_TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
+
 
 class Retriever:
-    def __init__(self, storage: SQLiteStorage, backend: str = "fts5", fusion_k: int = 60):
+    def __init__(
+        self,
+        storage: SQLiteStorage,
+        backend: str = "fts5",
+        fusion_k: int = 60,
+        rerank_enabled: bool = False,
+        rerank_candidate_k: int = 20,
+    ):
         self.storage = storage
         self.backend = backend
         self.fusion_k = max(1, fusion_k)
+        self.rerank_enabled = rerank_enabled
+        self.rerank_candidate_k = max(1, rerank_candidate_k)
 
     def search(
         self,
@@ -19,18 +31,28 @@ class Retriever:
         top_k: int = 5,
         labels: list[SemanticLabel] | None = None,
         backend: str | None = None,
+        rerank: bool | None = None,
+        rerank_candidate_k: int | None = None,
     ) -> list[Chunk]:
         selected_backend = (backend or self.backend).strip().lower()
+        selected_rerank = self.rerank_enabled if rerank is None else rerank
+        candidate_k = (
+            max(top_k, rerank_candidate_k or self.rerank_candidate_k) if selected_rerank else top_k
+        )
 
         if selected_backend == "hybrid":
-            chunks = self._search_hybrid(query=query, top_k=top_k)
+            chunks = self._search_hybrid(query=query, top_k=candidate_k)
         else:
-            chunks = self.storage.search_chunks_fts(query=query, top_k=top_k)
+            chunks = self.storage.search_chunks_fts(query=query, top_k=candidate_k)
 
-        if not labels:
-            return chunks
-        allowed = {label.value for label in labels}
-        return [chunk for chunk in chunks if chunk.label.value in allowed]
+        if labels:
+            allowed = {label.value for label in labels}
+            chunks = [chunk for chunk in chunks if chunk.label.value in allowed]
+
+        if selected_rerank:
+            return self._rerank_chunks(query=query, chunks=chunks, top_k=top_k)
+
+        return chunks[:top_k]
 
     def _search_hybrid(self, query: str, top_k: int) -> list[Chunk]:
         candidate_k = max(top_k, top_k * 4)
@@ -95,3 +117,57 @@ class Retriever:
 
         scored.sort(key=lambda row: (-row[1], str(row[0].id)))
         return scored
+
+    def _rerank_chunks(self, query: str, chunks: list[Chunk], top_k: int) -> list[Chunk]:
+        if not chunks:
+            return []
+
+        query_terms = self._tokenize(query)
+        query_text = query.strip().lower()
+        dimensions = next((len(chunk.embedding) for chunk in chunks if chunk.embedding), 0)
+        query_embedding = (
+            generate_embedding(query, dimensions=dimensions) if dimensions > 0 else None
+        )
+
+        scored: list[tuple[float, float, float, int, str, Chunk]] = []
+        for rank, chunk in enumerate(chunks, start=1):
+            lexical_score = self._lexical_overlap_score(
+                query_terms=query_terms,
+                query_text=query_text,
+                chunk=chunk,
+            )
+            similarity = 0.0
+            if (
+                query_embedding is not None
+                and chunk.embedding is not None
+                and len(chunk.embedding) == dimensions
+            ):
+                similarity = max(0.0, cosine_similarity(query_embedding, chunk.embedding))
+
+            score = lexical_score + (similarity * 0.75)
+            scored.append((score, similarity, lexical_score, rank, str(chunk.id), chunk))
+
+        scored.sort(key=lambda row: (-row[0], -row[1], -row[2], row[3], row[4]))
+        return [chunk for *_meta, chunk in scored[:top_k]]
+
+    @staticmethod
+    def _tokenize(text: str) -> set[str]:
+        return {match.group(0) for match in _TOKEN_PATTERN.finditer(text.lower())}
+
+    def _lexical_overlap_score(
+        self,
+        query_terms: set[str],
+        query_text: str,
+        chunk: Chunk,
+    ) -> float:
+        if not query_terms:
+            return 0.0
+
+        searchable = f"{chunk.content} {' '.join(chunk.tags)}"
+        chunk_terms = self._tokenize(searchable)
+        if not chunk_terms:
+            return 0.0
+
+        overlap = len(query_terms & chunk_terms) / float(len(query_terms))
+        phrase_bonus = 0.15 if query_text and query_text in searchable.lower() else 0.0
+        return overlap + phrase_bonus
