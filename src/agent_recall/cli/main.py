@@ -720,6 +720,59 @@ def context(
     raise typer.Exit(1)
 
 
+@app.command("refresh-context")
+def refresh_context(
+    task: str | None = typer.Option(
+        None,
+        "--task",
+        "-t",
+        help="Task for relevant retrieval (defaults to active session task)",
+    ),
+    output_dir: Path = typer.Option(
+        AGENT_DIR / "context",
+        "--output-dir",
+        help="Directory where refreshed context bundle files are written",
+    ),
+):
+    """Refresh context bundle files for active task and repository state."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+
+    session_mgr = SessionManager(storage)
+    active = session_mgr.get_active()
+    resolved_task = task or (active.task if active else None)
+
+    context_asm = ContextAssembler(storage, files)
+    output = context_asm.assemble(task=resolved_task)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    markdown_path = output_dir / "context.md"
+    json_path = output_dir / "context.json"
+
+    markdown_path.write_text(output)
+    payload = {
+        "task": resolved_task,
+        "active_session_id": str(active.id) if active else None,
+        "repo_path": str(Path.cwd().resolve()),
+        "refreshed_at": datetime.now(UTC).isoformat(),
+        "context": output,
+    }
+    json_path.write_text(json.dumps(payload, indent=2))
+
+    lines = [
+        "[success]✓ Context bundle refreshed[/success]",
+        f"  Markdown: {markdown_path}",
+        f"  JSON:     {json_path}",
+    ]
+    if resolved_task:
+        lines.append(f"  Task:     {resolved_task}")
+    else:
+        lines.append("  Task:     none (set --task or start a session for task retrieval)")
+
+    console.print("\n".join(lines))
+
+
 @app.command()
 def compact(force: bool = typer.Option(False, "--force", "-f", help="Force compaction")):
     """Run compaction to update knowledge tiers from logs."""

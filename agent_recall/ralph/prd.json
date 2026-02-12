@@ -98,13 +98,13 @@
 		{
 			"id": "AR-006",
 			"category": "functional",
-			"priority": 4,
+			"priority": 1,
 			"title": "Add automatic background sync and context refresh",
 			"description": "Introduce automation so memory capture and context generation happen without repeated manual CLI steps.",
 			"user_story": "Allow developers to benefit from Agent Recall during normal coding flow with minimal manual intervention.",
 			"steps": [
 				"[done] Add a background/scheduled sync mode with safe locking.",
-				"Add command to refresh context bundles for active task/repo state.",
+				"[done] Add command to refresh context bundles for active task/repo state.",
 				"[done] Persist and display last successful sync/refresh status.",
 				"Provide fail-safe retries and clear failure diagnostics."
 			],
@@ -120,7 +120,7 @@
 		{
 			"id": "AR-003",
 			"category": "functional",
-			"priority": 5,
+			"priority": 2,
 			"title": "Upgrade retrieval quality beyond basic FTS",
 			"description": "Add hybrid retrieval so context assembly returns more relevant results than keyword-only lookup.",
 			"user_story": "Allow developers to get higher-signal context when querying past learnings with varied wording.",
@@ -142,7 +142,7 @@
 		{
 			"id": "AR-004",
 			"category": "functional",
-			"priority": 6,
+			"priority": 3,
 			"title": "Expand indexing to decision and exploration learnings",
 			"description": "Index additional semantic labels so retrieval reflects architecture decisions and experiment outcomes, not only guardrail/style patterns.",
 			"user_story": "Allow developers to recover why prior decisions were made and what alternatives failed.",
@@ -164,7 +164,7 @@
 		{
 			"id": "AR-007",
 			"category": "functional",
-			"priority": 7,
+			"priority": 4,
 			"title": "Introduce optional shared team memory backend",
 			"description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
 			"user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",

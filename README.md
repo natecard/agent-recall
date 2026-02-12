@@ -64,6 +64,9 @@ agent-recall end "Implemented JWT auth with refresh tokens"
 # Get context for a new session
 agent-recall context --task "add password reset"
 
+# Refresh persisted context bundles for active task/repo state
+agent-recall refresh-context
+
 # Run compaction to update knowledge files
 agent-recall compact
 

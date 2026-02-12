@@ -6,6 +6,7 @@
 - `agent-recall log <content> --label <semantic_label> [--tags x,y]`
 - `agent-recall end <summary>`
 - `agent-recall context [--task <task>] [--format md|json]`
+- `agent-recall refresh-context [--task <task>] [--output-dir PATH]`
 - `agent-recall compact [--force]`
 - `agent-recall sync [--source cursor|claude-code|opencode|codex] [--since-days N] [--session-id ID --session-id ID2] [--max-sessions N] [--compact/--no-compact] [--cursor-db-path PATH] [--cursor-storage-dir PATH] [--all-cursor-workspaces] [--verbose]`
 - `agent-recall sessions [--source cursor|claude-code|opencode|codex] [--since-days N] [--session-id ID --session-id ID2] [--max-sessions N] [--format table|json] [--cursor-db-path PATH] [--cursor-storage-dir PATH] [--all-cursor-workspaces]`

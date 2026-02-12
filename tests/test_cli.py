@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -101,6 +102,30 @@ def test_cli_session_flow() -> None:
         status_result = runner.invoke(cli_main.app, ["status"])
         assert status_result.exit_code == 0
         assert "Log entries:" in status_result.output
+
+
+def test_cli_refresh_context_writes_bundle_using_active_task() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        assert runner.invoke(cli_main.app, ["start", "implement oauth callback"]).exit_code == 0
+
+        result = runner.invoke(cli_main.app, ["refresh-context"])
+        assert result.exit_code == 0
+        assert "Context bundle refreshed" in result.output
+        assert "implement oauth callback" in result.output
+
+        bundle_dir = Path(".agent") / "context"
+        markdown_path = bundle_dir / "context.md"
+        json_path = bundle_dir / "context.json"
+        assert markdown_path.exists()
+        assert json_path.exists()
+        assert "## Guardrails" in markdown_path.read_text()
+
+        payload = json.loads(json_path.read_text())
+        assert payload["task"] == "implement oauth callback"
+        assert payload["active_session_id"] is not None
+        assert payload["repo_path"]
+        assert payload["refreshed_at"]
 
 
 def test_cli_invalid_label() -> None:
