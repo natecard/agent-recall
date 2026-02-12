@@ -3,4 +3,4 @@
 2026-02-12T16:30:58Z | Iteration 1 | AR-001 | Tracer-bullet shipped: Codex source discovery/parsing (CODEX_HOME + ~/.codex, json/jsonl, tool calls) with registry/docs/tests; validation green.
 2026-02-12T16:41:27Z | Iteration 1 | AR-001 | Parser hardening: support Codex custom_tool_call/custom_tool_call_output with call_id matching plus regression tests; validation green.
 2026-02-12T17:17:09Z | Iteration 1 | AR-002 | Implemented checkpoint persistence (SessionCheckpoint model, SQLite storage methods, tests); validation green.
-
+2026-02-12T17:33:00Z | Iteration 2 | AR-002 | Integrated checkpoints into sync flow: incremental message filtering, content hash change detection, checkpoint updates after processing, reset options (reset_checkpoints/reset_full); validation green.

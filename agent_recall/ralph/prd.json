@@ -38,9 +38,9 @@
 			"user_story": "Allow developers to run sync repeatedly during long-running conversations and only capture new context.",
 			"steps": [
 				"[done] Persist per-session checkpoints (timestamp/index/hash) for each source.",
-				"Update ingestion flow to process only events newer than the checkpoint.",
-				"Prevent duplicate log/chunk insertion when session content is unchanged.",
-				"Add reset options for checkpoint-only and full reprocess behavior."
+				"[done] Update ingestion flow to process only events newer than the checkpoint.",
+				"[done] Prevent duplicate log/chunk insertion when session content is unchanged.",
+				"[done] Add reset options for checkpoint-only and full reprocess behavior."
 			],
 			"acceptance": [
 				"Re-running sync on an active session ingests only new content.",
@@ -49,7 +49,7 @@
 				"Behavior is verified across Cursor, Claude Code, OpenCode, and Codex sources."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "AR-005",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -10,9 +11,11 @@ from typing import Any
 from agent_recall.core.compact import CompactionEngine
 from agent_recall.core.extract import TranscriptExtractor
 from agent_recall.ingest import SessionIngester, get_default_ingesters
+from agent_recall.ingest.base import RawSession
 from agent_recall.ingest.sources import normalize_source_name
 from agent_recall.llm.base import LLMProvider, LLMRateLimitError
 from agent_recall.storage.files import FileStorage
+from agent_recall.storage.models import SessionCheckpoint
 from agent_recall.storage.sqlite import SQLiteStorage
 
 
@@ -54,6 +57,8 @@ class AutoSync:
         sources: list[str] | None = None,
         session_ids: list[str] | None = None,
         max_sessions: int | None = None,
+        reset_checkpoints: bool = False,
+        reset_full: bool = False,
     ) -> dict[str, Any]:
         if self.extractor is None:
             msg = "LLM provider is required for sync"
@@ -66,6 +71,7 @@ class AutoSync:
             "sessions_processed": 0,
             "sessions_skipped": 0,
             "sessions_already_processed": 0,
+            "sessions_incremental": 0,
             "empty_sessions": 0,
             "learnings_extracted": 0,
             "llm_requests": 0,
@@ -73,6 +79,20 @@ class AutoSync:
             "session_diagnostics": [],
             "errors": [],
         }
+
+        # Handle reset options
+        if reset_full:
+            self.storage.clear_processed_sessions()
+            self.storage.clear_session_checkpoints()
+        elif reset_checkpoints:
+            if session_ids:
+                for session_id in session_ids:
+                    self.storage.clear_session_checkpoints(source_session_id=session_id)
+            elif sources:
+                for source in sources:
+                    self.storage.clear_session_checkpoints(source=source)
+            else:
+                self.storage.clear_session_checkpoints()
 
         active_ingesters, candidates, discovery_errors = self._discover_candidates(
             since=since,
@@ -87,9 +107,7 @@ class AutoSync:
             max_sessions=max_sessions,
         )
         if missing_ids:
-            results["errors"].append(
-                f"Requested session IDs not found: {', '.join(missing_ids)}"
-            )
+            results["errors"].append(f"Requested session IDs not found: {', '.join(missing_ids)}")
 
         results["sessions_discovered"] = len(selected_candidates)
         self._populate_source_discovery_counts(results, selected_candidates)
@@ -97,7 +115,13 @@ class AutoSync:
         for candidate in selected_candidates:
             source_results = results["by_source"][candidate.source_name]
 
-            if self.storage.is_session_processed(candidate.session_id):
+            # Check for existing checkpoint to enable incremental sync
+            checkpoint = self.storage.get_session_checkpoint(candidate.session_id)
+            is_fully_processed = self.storage.is_session_processed(candidate.session_id)
+
+            # Skip only if fully processed AND no checkpoint (legacy) or content unchanged
+            # Don't skip if we're resetting checkpoints
+            if is_fully_processed and checkpoint is None and not reset_checkpoints:
                 source_results["skipped"] += 1
                 source_results["already_processed"] += 1
                 results["sessions_skipped"] += 1
@@ -115,9 +139,38 @@ class AutoSync:
 
             try:
                 raw_session = candidate.ingester.parse_session(candidate.session_path)
+                original_message_count = len(raw_session.messages)
+
+                # Check for content changes using hash
+                content_hash = self._compute_session_hash(raw_session)
+                if checkpoint and checkpoint.content_hash == content_hash:
+                    # Content unchanged, skip - report as already_processed for compatibility
+                    source_results["skipped"] += 1
+                    source_results["already_processed"] += 1
+                    results["sessions_skipped"] += 1
+                    results["sessions_already_processed"] += 1
+                    results["session_diagnostics"].append(
+                        {
+                            "source": candidate.source_name,
+                            "session_id": candidate.session_id,
+                            "status": "skipped_already_processed",
+                            "message_count": original_message_count,
+                            "learnings_extracted": 0,
+                        }
+                    )
+                    continue
+
+                # Filter messages based on checkpoint for incremental sync
+                raw_session, messages_filtered = self._filter_messages_from_checkpoint(
+                    raw_session, checkpoint
+                )
                 message_count = len(raw_session.messages)
+
                 if message_count < 2:
-                    self.storage.mark_session_processed(candidate.session_id)
+                    # Update checkpoint even for empty sessions
+                    self._update_checkpoint(candidate.session_id, raw_session, content_hash)
+                    if not is_fully_processed:
+                        self.storage.mark_session_processed(candidate.session_id)
                     source_results["skipped"] += 1
                     source_results["empty"] += 1
                     results["sessions_skipped"] += 1
@@ -129,6 +182,7 @@ class AutoSync:
                             "status": "skipped_empty",
                             "message_count": message_count,
                             "learnings_extracted": 0,
+                            "incremental": messages_filtered,
                         }
                     )
                     continue
@@ -205,12 +259,17 @@ class AutoSync:
                 for entry in entries:
                     self.storage.append_entry(entry)
 
-                self.storage.mark_session_processed(candidate.session_id)
+                # Update checkpoint for incremental sync
+                self._update_checkpoint(candidate.session_id, raw_session, content_hash)
+                if not is_fully_processed:
+                    self.storage.mark_session_processed(candidate.session_id)
 
                 source_results["processed"] += 1
                 source_results["learnings"] += len(entries)
                 source_results["llm_batches"] += len(batch_events)
                 results["sessions_processed"] += 1
+                if messages_filtered:
+                    results["sessions_incremental"] += 1
                 results["learnings_extracted"] += len(entries)
                 results["llm_requests"] += len(batch_events)
                 diagnostic: dict[str, Any] = {
@@ -218,14 +277,13 @@ class AutoSync:
                     "session_id": candidate.session_id,
                     "status": "processed",
                     "message_count": message_count,
+                    "original_message_count": original_message_count,
                     "learnings_extracted": len(entries),
+                    "incremental": messages_filtered,
                 }
                 if batch_events:
                     diagnostic["llm_batches"] = len(batch_events)
-                if (
-                    message_count >= self.zero_learning_warning_min_messages
-                    and len(entries) == 0
-                ):
+                if message_count >= self.zero_learning_warning_min_messages and len(entries) == 0:
                     warning = (
                         f"{candidate.source_name}:{candidate.session_id} has "
                         f"{message_count} messages but yielded 0 learnings"
@@ -257,12 +315,16 @@ class AutoSync:
         session_ids: list[str] | None = None,
         max_sessions: int | None = None,
         force_compact: bool = False,
+        reset_checkpoints: bool = False,
+        reset_full: bool = False,
     ) -> dict[str, Any]:
         sync_results = await self.sync(
             since=since,
             sources=sources,
             session_ids=session_ids,
             max_sessions=max_sessions,
+            reset_checkpoints=reset_checkpoints,
+            reset_full=reset_full,
         )
 
         if int(sync_results["learnings_extracted"]) > 0 or force_compact:
@@ -306,9 +368,7 @@ class AutoSync:
             max_sessions=max_sessions,
         )
         if missing_ids:
-            results["errors"].append(
-                f"Requested session IDs not found: {', '.join(missing_ids)}"
-            )
+            results["errors"].append(f"Requested session IDs not found: {', '.join(missing_ids)}")
 
         results["sessions_discovered"] = len(selected_candidates)
         for candidate in selected_candidates:
@@ -450,9 +510,7 @@ class AutoSync:
         missing_ids: list[str] = []
 
         if session_ids:
-            requested_ids = {
-                session_id.strip() for session_id in session_ids if session_id.strip()
-            }
+            requested_ids = {session_id.strip() for session_id in session_ids if session_id.strip()}
             selected = [
                 candidate for candidate in selected if candidate.session_id in requested_ids
             ]
@@ -513,3 +571,67 @@ class AutoSync:
             self.progress_callback(payload)
         except Exception:  # noqa: BLE001
             return
+
+    def _compute_session_hash(self, raw_session: RawSession) -> str:
+        """Compute a hash of session content for change detection."""
+        content_parts = []
+        for msg in raw_session.messages:
+            content_parts.append(f"{msg.role}:{msg.content}")
+        content_str = "|".join(content_parts)
+        return hashlib.sha256(content_str.encode()).hexdigest()[:32]
+
+    def _filter_messages_from_checkpoint(
+        self,
+        raw_session: RawSession,
+        checkpoint: SessionCheckpoint | None,
+    ) -> tuple[RawSession, bool]:
+        """Filter messages to only those after the checkpoint.
+
+        Returns:
+            Tuple of (filtered session, bool indicating if messages were filtered)
+        """
+        if checkpoint is None:
+            return raw_session, False
+
+        if checkpoint.last_message_index is not None:
+            # Index-based filtering
+            if checkpoint.last_message_index < len(raw_session.messages) - 1:
+                filtered_messages = raw_session.messages[checkpoint.last_message_index + 1 :]
+                return raw_session.model_copy(update={"messages": filtered_messages}), True
+            return raw_session, False
+
+        if checkpoint.last_message_timestamp is not None:
+            # Timestamp-based filtering
+            checkpoint_time = checkpoint.last_message_timestamp
+            filtered_messages = [
+                msg
+                for msg in raw_session.messages
+                if msg.timestamp is None or msg.timestamp > checkpoint_time
+            ]
+            if len(filtered_messages) < len(raw_session.messages):
+                return raw_session.model_copy(update={"messages": filtered_messages}), True
+            return raw_session, False
+
+        return raw_session, False
+
+    def _update_checkpoint(
+        self,
+        session_id: str,
+        raw_session: RawSession,
+        content_hash: str,
+    ) -> None:
+        """Update checkpoint after processing a session."""
+        if not raw_session.messages:
+            return
+
+        last_message = raw_session.messages[-1]
+        last_index = len(raw_session.messages) - 1
+        last_timestamp = last_message.timestamp
+
+        checkpoint = SessionCheckpoint(
+            source_session_id=session_id,
+            last_message_index=last_index,
+            last_message_timestamp=last_timestamp,
+            content_hash=content_hash,
+        )
+        self.storage.save_session_checkpoint(checkpoint)

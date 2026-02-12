@@ -32,9 +32,9 @@ class AdaptiveLLM(LLMProvider):
         if "Analyze this development session transcript" in prompt:
             return LLMResponse(
                 content=(
-                    "[{\"label\": \"pattern\", \"content\": "
-                    "\"Use explicit transactions around writes\", "
-                    "\"tags\": [\"db\"], \"confidence\": 0.8}]"
+                    '[{"label": "pattern", "content": '
+                    '"Use explicit transactions around writes", '
+                    '"tags": ["db"], "confidence": 0.8}]'
                 ),
                 model="mock",
             )
@@ -145,8 +145,8 @@ class FlakyRateLimitedLLM(LLMProvider):
             raise LLMRateLimitError("retry later")
         return LLMResponse(
             content=(
-                "[{\"label\": \"pattern\", \"content\": \"Use checkpoints in migrations\", "
-                "\"tags\": [\"db\"], \"confidence\": 0.8}]"
+                '[{"label": "pattern", "content": "Use checkpoints in migrations", '
+                '"tags": ["db"], "confidence": 0.8}]'
             ),
             model="flaky-rate-limit-model",
         )
@@ -536,14 +536,10 @@ async def test_auto_sync_batches_extraction_and_emits_progress(
     assert results["by_source"]["cursor"]["llm_batches"] == 3
 
     session_events = [
-        event
-        for event in progress_events
-        if event.get("event") == "extraction_session_started"
+        event for event in progress_events if event.get("event") == "extraction_session_started"
     ]
     batch_events = [
-        event
-        for event in progress_events
-        if event.get("event") == "extraction_batch_complete"
+        event for event in progress_events if event.get("event") == "extraction_batch_complete"
     ]
     assert len(session_events) == 1
     assert len(batch_events) == 3
@@ -582,3 +578,163 @@ def test_auto_sync_list_sessions_includes_titles_and_processed_state(
     assert row["session_id"] == session_id
     assert row["title"] == "Title for session-one"
     assert row["processed"] is True
+
+
+class GrowingSessionIngester(FakeIngester):
+    """Ingester that simulates a growing session with new messages added each time."""
+
+    def __init__(self, source_name: str, sessions: list[Path], message_count: int = 2):
+        super().__init__(source_name, sessions)
+        self._message_count = message_count
+
+    def parse_session(self, path: Path) -> RawSession:
+        messages = []
+        for i in range(self._message_count):
+            role = "user" if i % 2 == 0 else "assistant"
+            # Use content that matches the AdaptiveLLM pattern for extracting learnings
+            if i == 0:
+                content = (
+                    "Please fix the migration ordering and make sure rollbacks are safe "
+                    "for partial writes."
+                )
+            else:
+                content = (
+                    "I wrapped writes in explicit transactions, added rollback behavior, "
+                    "and validated the migration sequence."
+                )
+            messages.append(
+                RawMessage(
+                    role=role,
+                    content=content,
+                )
+            )
+        return RawSession(
+            source=self.source_name,
+            session_id=self.get_session_id(path),
+            project_path=path.parent,
+            started_at=datetime.now(UTC),
+            ended_at=datetime.now(UTC),
+            messages=messages,
+        )
+
+
+@pytest.mark.asyncio
+async def test_incremental_sync_processes_only_new_messages(storage, files, tmp_path: Path) -> None:
+    """Test that incremental sync only processes messages after the checkpoint."""
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    # First sync with 2 messages
+    ingester_v1 = GrowingSessionIngester("cursor", [session_path], message_count=2)
+    sync_v1 = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[ingester_v1],
+    )
+
+    first = await sync_v1.sync()
+    assert first["sessions_processed"] == 1
+    assert first["learnings_extracted"] == 1
+    assert first["sessions_incremental"] == 0  # First sync is not incremental
+
+    # Verify checkpoint was created
+    checkpoint = storage.get_session_checkpoint("cursor-cursor-session")
+    assert checkpoint is not None
+    assert checkpoint.last_message_index == 1  # 0-indexed, 2 messages = index 1
+
+    # Second sync with 4 messages (2 new)
+    ingester_v2 = GrowingSessionIngester("cursor", [session_path], message_count=4)
+    sync_v2 = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[ingester_v2],
+    )
+
+    second = await sync_v2.sync()
+    assert second["sessions_processed"] == 1
+    assert second["sessions_incremental"] == 1  # This is an incremental sync
+    # The diagnostic should show we processed only the new messages
+    assert second["session_diagnostics"][0]["message_count"] == 2  # Only 2 new messages
+    assert second["session_diagnostics"][0]["original_message_count"] == 4
+
+
+@pytest.mark.asyncio
+async def test_incremental_sync_no_changes_skips(storage, files, tmp_path: Path) -> None:
+    """Test that sync skips when content hasn't changed."""
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    ingester = GrowingSessionIngester("cursor", [session_path], message_count=2)
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[ingester],
+    )
+
+    # First sync
+    first = await sync.sync()
+    assert first["sessions_processed"] == 1
+
+    # Second sync with same content
+    second = await sync.sync()
+    assert second["sessions_processed"] == 0
+    assert second["sessions_skipped"] == 1
+    assert second["sessions_already_processed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_reset_checkpoints_clears_and_reprocesses(storage, files, tmp_path: Path) -> None:
+    """Test that reset_checkpoints clears checkpoints and allows reprocessing."""
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    ingester = GrowingSessionIngester("cursor", [session_path], message_count=2)
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[ingester],
+    )
+
+    # First sync
+    first = await sync.sync()
+    assert first["sessions_processed"] == 1
+
+    # Reset checkpoints and sync again - should reprocess
+    second = await sync.sync(reset_checkpoints=True)
+    assert second["sessions_processed"] == 1
+    assert second["sessions_incremental"] == 0  # Full reprocess, not incremental
+
+
+@pytest.mark.asyncio
+async def test_reset_full_clears_everything(storage, files, tmp_path: Path) -> None:
+    """Test that reset_full clears both checkpoints and processed markers."""
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    ingester = GrowingSessionIngester("cursor", [session_path], message_count=2)
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[ingester],
+    )
+
+    # First sync
+    first = await sync.sync()
+    assert first["sessions_processed"] == 1
+
+    # Verify checkpoint and processed marker exist
+    assert storage.get_session_checkpoint("cursor-cursor-session") is not None
+    assert storage.is_session_processed("cursor-cursor-session") is True
+
+    # Reset full and sync again
+    second = await sync.sync(reset_full=True)
+    assert second["sessions_processed"] == 1
+
+    # Check that we have fresh checkpoint
+    checkpoint = storage.get_session_checkpoint("cursor-cursor-session")
+    assert checkpoint is not None
