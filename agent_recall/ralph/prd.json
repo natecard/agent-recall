@@ -1,0 +1,26 @@
+{
+  "project": "Agent Recall Ralph Loop",
+  "items": [
+    {
+      "id": "AR-001",
+      "priority": 1,
+      "title": "Implement one high-value reliability improvement",
+      "user_story": "As a maintainer, I want one focused reliability improvement implemented with tests and memory updates.",
+      "passes": false
+    },
+    {
+      "id": "AR-002",
+      "priority": 2,
+      "title": "Refine CLI or compaction UX based on findings",
+      "user_story": "As a user, I want clearer feedback from CLI workflows and compaction operations.",
+      "passes": false
+    },
+    {
+      "id": "AR-003",
+      "priority": 3,
+      "title": "Stabilize edge-case behavior discovered during validation",
+      "user_story": "As a maintainer, I want known edge cases fixed so regressions are less likely.",
+      "passes": false
+    }
+  ]
+}

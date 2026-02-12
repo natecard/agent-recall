@@ -23,3 +23,5 @@ build/
 .agent/logs/
 .agent/archive/
 .agent/*
+
+agent_recall/ralph/.runtime

@@ -1,0 +1,2 @@
+# Agent Recall Ralph Progress Log
+# Append-only: each iteration adds a new timestamped entry.

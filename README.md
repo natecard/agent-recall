@@ -37,11 +37,14 @@ agent-recall context --task "add password reset"
 # Run compaction to update knowledge files
 agent-recall compact
 
-# Auto-ingest Cursor / Claude Code sessions
+# Auto-ingest Cursor / Claude Code / OpenCode sessions
 agent-recall sync --verbose
 
 # Force Cursor DB during testing
 agent-recall sync --source cursor --cursor-db-path "/path/to/state.vscdb" --no-compact --verbose
+
+# Force OpenCode storage root during testing
+agent-recall sync --source opencode --no-compact --verbose
 ```
 
 ## How It Works
