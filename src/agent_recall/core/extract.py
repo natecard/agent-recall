@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from agent_recall.ingest.base import RawSession
+from agent_recall.ingest.base import RawMessage, RawSession
 from agent_recall.llm.base import LLMProvider, Message
 from agent_recall.storage.models import LogEntry, LogSource, SemanticLabel
 
@@ -41,6 +42,7 @@ Session source: {source}
 Project: {project_path}
 Date: {date}
 Duration: {duration}
+Segment: {segment}
 
 === TRANSCRIPT START ===
 {transcript}
@@ -65,8 +67,9 @@ JSON array:"""
 class TranscriptExtractor:
     """Extract semantic learnings from normalized session transcripts."""
 
-    def __init__(self, llm: LLMProvider):
+    def __init__(self, llm: LLMProvider, messages_per_batch: int = 100):
         self.llm = llm
+        self.messages_per_batch = max(1, int(messages_per_batch))
 
     def _format_transcript(self, session: RawSession, max_chars: int = 5_000) -> str:
         lines: list[str] = []
@@ -296,14 +299,15 @@ class TranscriptExtractor:
             }
             return fallback.get(label_str, SemanticLabel.PATTERN)
 
-    async def extract(self, session: RawSession) -> list[LogEntry]:
-        if len(session.messages) < 2:
-            return []
+    @staticmethod
+    def _chunk_messages(messages: list[RawMessage], chunk_size: int) -> list[list[RawMessage]]:
+        return [
+            messages[start : start + chunk_size]
+            for start in range(0, len(messages), chunk_size)
+        ]
 
-        transcript = self._format_transcript(session)
-        if len(transcript) < 200:
-            return []
-
+    @staticmethod
+    def _build_duration(session: RawSession) -> str:
         duration = "unknown"
         if session.ended_at:
             delta = session.ended_at - session.started_at
@@ -312,23 +316,91 @@ class TranscriptExtractor:
                 duration = f"{minutes} minutes"
             else:
                 duration = f"{minutes // 60}h {minutes % 60}m"
+        return duration
 
-        response = await self.llm.generate(
-            [
-                Message(role="system", content=EXTRACTION_SYSTEM_PROMPT),
-                Message(
-                    role="user",
-                    content=EXTRACTION_USER_PROMPT.format(
-                        source=session.source,
-                        project_path=session.project_path or "unknown",
-                        date=session.started_at.strftime("%Y-%m-%d %H:%M"),
-                        duration=duration,
-                        transcript=transcript,
+    @staticmethod
+    def _emit_progress(
+        callback: Callable[[dict[str, Any]], None] | None,
+        payload: dict[str, Any],
+    ) -> None:
+        if callback is None:
+            return
+        try:
+            callback(payload)
+        except Exception:  # noqa: BLE001
+            return
+
+    @staticmethod
+    def _deduplicate_entries(entries: list[LogEntry]) -> list[LogEntry]:
+        deduped: list[LogEntry] = []
+        seen_keys: set[tuple[str, str]] = set()
+        for entry in entries:
+            key = (entry.label.value, entry.content.strip().lower())
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            deduped.append(entry)
+        return deduped
+
+    async def extract(
+        self,
+        session: RawSession,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> list[LogEntry]:
+        if len(session.messages) < 2:
+            return []
+
+        batches = self._chunk_messages(session.messages, self.messages_per_batch)
+        if not batches:
+            return []
+
+        total_messages = len(session.messages)
+        duration = self._build_duration(session)
+        combined_entries: list[LogEntry] = []
+        messages_processed = 0
+
+        for batch_index, batch_messages in enumerate(batches, start=1):
+            messages_processed += len(batch_messages)
+            batch_session = session.model_copy(update={"messages": batch_messages})
+
+            transcript = self._format_transcript(batch_session)
+            if len(transcript) < 200:
+                continue
+
+            response = await self.llm.generate(
+                [
+                    Message(role="system", content=EXTRACTION_SYSTEM_PROMPT),
+                    Message(
+                        role="user",
+                        content=EXTRACTION_USER_PROMPT.format(
+                            source=session.source,
+                            project_path=session.project_path or "unknown",
+                            date=session.started_at.strftime("%Y-%m-%d %H:%M"),
+                            duration=duration,
+                            segment=f"batch {batch_index}/{len(batches)}",
+                            transcript=transcript,
+                        ),
                     ),
-                ),
-            ],
-            temperature=0.1,
-            max_tokens=700,
-        )
+                ],
+                temperature=0.1,
+                max_tokens=700,
+            )
 
-        return self._parse_llm_response(response.content, session)
+            batch_entries = self._parse_llm_response(response.content, batch_session)
+            combined_entries.extend(batch_entries)
+            self._emit_progress(
+                progress_callback,
+                {
+                    "event": "extraction_batch_complete",
+                    "source": session.source,
+                    "session_id": session.session_id,
+                    "batch_index": batch_index,
+                    "batch_count": len(batches),
+                    "batch_messages": len(batch_messages),
+                    "messages_processed": messages_processed,
+                    "messages_total": total_messages,
+                    "batch_learnings": len(batch_entries),
+                },
+            )
+
+        return self._deduplicate_entries(combined_entries)

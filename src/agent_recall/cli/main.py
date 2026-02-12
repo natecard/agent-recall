@@ -8,15 +8,15 @@ import re
 import shlex
 import shutil
 import sys
+import textwrap
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import typer
 from rich import box
-from rich.columns import Columns
 from rich.console import Console, Group
 from rich.markup import escape
 from rich.panel import Panel
@@ -33,8 +33,8 @@ from agent_recall.core.context import ContextAssembler
 from agent_recall.core.ingest import TranscriptIngestor
 from agent_recall.core.log import LogWriter
 from agent_recall.core.onboarding import (
+    API_KEY_ENV_BY_PROVIDER,
     apply_repo_setup,
-    default_agent_recall_home,
     discover_provider_models,
     ensure_repo_onboarding,
     get_onboarding_defaults,
@@ -854,7 +854,39 @@ def sync(
         )
         ingesters = _filter_ingesters_by_sources(ingesters, selected_sources)
 
+    def _sync_progress_logger(event: dict[str, Any]) -> None:
+        event_name = str(event.get("event", ""))
+        if event_name == "extraction_session_started":
+            source_name = str(event.get("source", "?"))
+            source_session_id = str(event.get("session_id", "?"))
+            total_messages = event.get("messages_total")
+            message_text = (
+                str(int(total_messages)) if isinstance(total_messages, int | float) else "?"
+            )
+            console.print(
+                f"[dim]{source_name}:{source_session_id} extraction started "
+                f"({message_text} messages).[/dim]"
+            )
+            return
+
+        if event_name != "extraction_batch_complete":
+            return
+
+        source_name = str(event.get("source", "?"))
+        source_session_id = str(event.get("session_id", "?"))
+        processed = int(event.get("messages_processed", 0))
+        total = int(event.get("messages_total", 0))
+        batch_index = int(event.get("batch_index", 0))
+        batch_count = int(event.get("batch_count", 0))
+        learnings = int(event.get("batch_learnings", 0))
+        console.print(
+            f"[dim]{source_name}:{source_session_id} sent {processed}/{total} messages "
+            f"to LLM (batch {batch_index}/{batch_count}, learnings={learnings}).[/dim]"
+        )
+
     auto_sync = AutoSync(storage, files, llm, ingesters)
+    if hasattr(auto_sync, "progress_callback"):
+        auto_sync.progress_callback = _sync_progress_logger
 
     with Progress(
         SpinnerColumn(),
@@ -904,6 +936,7 @@ def sync(
             f"empty: {int(results.get('empty_sessions', 0))})"
         )
     lines.append(f"Learnings extracted: {results['learnings_extracted']}")
+    lines.append(f"LLM extraction requests: {results.get('llm_requests', 0)}")
     if session_ids and int(results["sessions_processed"]) == 0:
         already_processed = int(results.get("sessions_already_processed", 0))
         if already_processed == int(results["sessions_discovered"]) and already_processed > 0:
@@ -924,6 +957,7 @@ def sync(
                 f"  {source_name}: {source_stats['processed']}/{source_stats['discovered']} "
                 f"processed, {source_stats['learnings']} learnings"
             )
+            lines.append(f"    [dim]LLM extraction requests: {source_stats['llm_batches']}[/dim]")
             if int(source_stats.get("already_processed", 0)) > 0:
                 lines.append(
                     f"    [dim]{source_stats['already_processed']} session(s) skipped as already "
@@ -1412,55 +1446,148 @@ def _build_tui_dashboard(
 
     config_dict = files.read_config()
     llm_config = LLMConfig(**config_dict.get("llm", {}))
+    provider_key = llm_config.provider.strip().lower()
+    api_key_env = API_KEY_ENV_BY_PROVIDER.get(provider_key)
+    api_key_set = bool(os.environ.get(api_key_env, "").strip()) if api_key_env else True
+    api_key_set_display = "Yes" if api_key_set else "No"
     selected_sources = _get_repo_selected_sources(files)
     repo_root = _resolve_repo_root_for_display()
     repo_name = repo_root.name
+    configured_agents = ", ".join(selected_sources) if selected_sources else "all"
+
+    # Keep long source lists readable in half-width panels (all view).
+    if view == "all":
+        wrap_width = max(24, min(44, (max(console.size.width, 100) // 2) - 24))
+    else:
+        wrap_width = 52
+    configured_agents_wrapped = textwrap.fill(
+        configured_agents,
+        width=wrap_width,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+
+    source_table = Table(
+        expand=True,
+        box=box.SIMPLE,
+        pad_edge=False,
+        collapse_padding=True,
+    )
+    source_table.add_column("Source", style="table_header")
+    source_table.add_column("Status")
+    source_table.add_column("Sessions", justify="right")
+
+    source_compact_lines: list[str] = []
+    active_source_names: list[str] = []
+
+    ingesters = _filter_ingesters_by_sources(
+        get_default_ingesters(cursor_all_workspaces=all_cursor_workspaces),
+        selected_sources,
+    )
+
+    for ingester in ingesters:
+        try:
+            sessions = ingester.discover_sessions()
+            session_count = len(sessions)
+            available = session_count > 0
+            status_text = "✓ Available" if available else "- No sessions"
+            status_style = "success" if available else "dim"
+
+            if available:
+                active_source_names.append(ingester.source_name)
+
+            source_table.add_row(
+                ingester.source_name,
+                f"[{status_style}]{status_text}[/{status_style}]",
+                str(session_count),
+            )
+            source_compact_lines.append(
+                f"[table_header]{ingester.source_name}[/table_header]  "
+                f"[{status_style}]{status_text}[/{status_style}]  "
+                f"({session_count} session{'s' if session_count != 1 else ''})"
+            )
+        except Exception:  # noqa: BLE001
+            source_table.add_row(
+                ingester.source_name,
+                "[error]✗ Error[/error]",
+                "-",
+            )
+            source_compact_lines.append(
+                f"[table_header]{ingester.source_name}[/table_header]  [error]✗ Error[/error]"
+            )
+
+    if not source_compact_lines:
+        source_compact_lines.append("[dim]No configured session sources.[/dim]")
+
+    last_processed_at = storage.get_last_processed_at()
+    if last_processed_at is None:
+        last_synced_display = "Never"
+    else:
+        normalized_last_processed = (
+            last_processed_at.replace(tzinfo=UTC)
+            if last_processed_at.tzinfo is None
+            else last_processed_at.astimezone(UTC)
+        )
+        last_synced_display = normalized_last_processed.strftime("%Y-%m-%d %H:%M UTC")
+
+    active_agents = ", ".join(active_source_names) if active_source_names else "none"
+    active_agents_wrapped = textwrap.fill(
+        active_agents,
+        width=wrap_width,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
 
     # Create banner header
     banner_renderer = BannerRenderer(console, _theme_manager)
     header_text = banner_renderer.get_tui_header_text()
 
-    knowledge_summary = Group(
-        (
-            "[table_header]Repo[/table_header] "
-            f"{repo_name}    "
-            "[table_header]Agents[/table_header] "
-            f"{', '.join(selected_sources) if selected_sources else 'all'}"
-        ),
-        (
-            "[table_header]Processed[/table_header] "
-            f"{stats.get('processed_sessions', 0)}    "
-            "[table_header]Logs[/table_header] "
-            f"{stats.get('log_entries', 0)}    "
-            "[table_header]Chunks[/table_header] "
-            f"{stats.get('chunks', 0)}"
-        ),
-        (
-            "[table_header]Files[/table_header] "
-            f"GUARDRAILS {len(guardrails):,}c  |  "
-            f"STYLE {len(style):,}c  |  "
-            f"RECENT {len(recent):,}c"
-        ),
+    knowledge_summary = Table(
+        expand=True,
+        box=box.SIMPLE,
+        pad_edge=False,
+        collapse_padding=True,
     )
+    knowledge_summary.add_column("Item", style="table_header", width=12, no_wrap=True)
+    knowledge_summary.add_column("Value", overflow="fold")
+    knowledge_summary.add_row("Repository", repo_name)
+    knowledge_summary.add_row("Processed", str(stats.get("processed_sessions", 0)))
+    knowledge_summary.add_row("Logs", str(stats.get("log_entries", 0)))
+    knowledge_summary.add_row("Chunks", str(stats.get("chunks", 0)))
+    knowledge_summary.add_row("GUARDRAILS", f"{len(guardrails):,} chars")
+    knowledge_summary.add_row("STYLE", f"{len(style):,} chars")
+    knowledge_summary.add_row("RECENT", f"{len(recent):,} chars")
 
+    llm_base_url_display = llm_config.base_url or "default"
     llm_summary = Table(
         expand=True,
         box=box.SIMPLE,
         pad_edge=False,
         collapse_padding=True,
     )
-    llm_summary.add_column("Provider", style="table_header")
-    llm_summary.add_column("Model", style="table_header", overflow="fold")
-    llm_summary.add_column("Base URL", style="table_header", overflow="fold")
-    llm_summary.add_column("Temperature", style="table_header")
-    llm_summary.add_column("Max tokens", style="table_header")
-    llm_summary.add_row(
-        llm_config.provider,
-        llm_config.model,
-        llm_config.base_url or "default",
-        str(llm_config.temperature),
-        str(llm_config.max_tokens),
-    )
+    if view == "all":
+        llm_summary.add_column("Setting", style="table_header", width=12, no_wrap=True)
+        llm_summary.add_column("Value", overflow="fold")
+        llm_summary.add_row("Provider", llm_config.provider)
+        llm_summary.add_row("Model", llm_config.model)
+        llm_summary.add_row("Temperature", str(llm_config.temperature))
+        llm_summary.add_row("Max tokens", str(llm_config.max_tokens))
+        llm_summary.add_row("API Key Set", api_key_set_display)
+    else:
+        llm_summary.add_column("Provider", style="table_header")
+        llm_summary.add_column("Model", style="table_header", overflow="fold")
+        llm_summary.add_column("Base URL", style="table_header", overflow="fold")
+        llm_summary.add_column("Temperature", style="table_header")
+        llm_summary.add_column("Max tokens", style="table_header")
+        llm_summary.add_column("API Key Set", style="table_header")
+        llm_summary.add_row(
+            llm_config.provider,
+            llm_config.model,
+            llm_base_url_display,
+            str(llm_config.temperature),
+            str(llm_config.max_tokens),
+            api_key_set_display,
+        )
 
     settings_table = Table(
         expand=True,
@@ -1472,72 +1599,14 @@ def _build_tui_dashboard(
     settings_table.add_column("Value", overflow="fold")
     settings_table.add_row("Current view", view)
     settings_table.add_row("Refresh seconds", str(refresh_seconds))
-    settings_table.add_row("Interactive shell", "yes" if is_interactive_terminal() else "no")
     settings_table.add_row("Theme", _theme_manager.get_theme_name())
-    settings_table.add_row("Repository", repo_name)
-    settings_table.add_row("Repository path", str(repo_root))
+    if view != "all":
+        settings_table.add_row("Interactive shell", "yes" if is_interactive_terminal() else "no")
+        settings_table.add_row("Repository", repo_name)
     settings_table.add_row(
-        "Configured agents",
-        ", ".join(selected_sources) if selected_sources else "all",
+        "Active agents" if view == "all" else "Configured agents",
+        active_agents_wrapped if view == "all" else configured_agents_wrapped,
     )
-    settings_table.add_row("Config path", str((AGENT_DIR / "config.yaml").resolve()))
-    settings_table.add_row("Local home", str(default_agent_recall_home()))
-
-    source_table = Table(
-        expand=True,
-        box=box.SIMPLE,
-        pad_edge=False,
-        collapse_padding=True,
-    )
-    source_table.add_column("Source", style="table_header")
-    source_table.add_column("Status")
-    source_table.add_column("Sessions", justify="right")
-    source_table.add_column("Location", overflow="fold")
-
-    source_compact_lines: list[str] = []
-
-    ingesters = _filter_ingesters_by_sources(
-        get_default_ingesters(cursor_all_workspaces=all_cursor_workspaces),
-        selected_sources,
-    )
-
-    for ingester in ingesters:
-        try:
-            sessions = ingester.discover_sessions()
-            available = len(sessions) > 0
-            status_text = "✓ Available" if available else "- No sessions"
-            status_style = "success" if available else "dim"
-
-            if available:
-                location = str(sessions[0].resolve())
-            else:
-                hint = resolve_source_location_hint(ingester)
-                location = str(hint) if hint else "Unknown"
-
-            source_table.add_row(
-                ingester.source_name,
-                f"[{status_style}]{status_text}[/{status_style}]",
-                str(len(sessions)),
-                _as_clickable_uri(location),
-            )
-            source_compact_lines.append(
-                f"[table_header]{ingester.source_name}[/table_header]  "
-                f"[{status_style}]{status_text}[/{status_style}]  "
-                f"({len(sessions)} session{'s' if len(sessions) != 1 else ''})"
-            )
-        except Exception as exc:  # noqa: BLE001
-            source_table.add_row(
-                ingester.source_name,
-                "[error]✗ Error[/error]",
-                "-",
-                f"[error]{str(exc)[:40]}[/error]",
-            )
-            source_compact_lines.append(
-                f"[table_header]{ingester.source_name}[/table_header]  [error]✗ Error[/error]"
-            )
-
-    if not source_compact_lines:
-        source_compact_lines.append("[dim]No configured session sources.[/dim]")
 
     now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -1555,13 +1624,25 @@ def _build_tui_dashboard(
 
     knowledge_panel = Panel(knowledge_summary, title="Knowledge Base", border_style="accent")
     llm_panel = Panel(llm_summary, title="LLM Configuration", border_style="accent")
-    sources_panel = Panel(source_table, title="Session Sources", border_style="accent")
+    sources_panel = Panel(
+        Group(source_table, f"[dim]Last Synced:[/dim] {last_synced_display}"),
+        title="Session Sources",
+        border_style="accent",
+    )
+    source_compact_lines.append(f"[dim]Last Synced:[/dim] {last_synced_display}")
     sources_compact_panel = Panel(
         "\n".join(source_compact_lines),
         title="Session Sources",
         border_style="accent",
     )
     settings_panel = Panel(settings_table, title="Settings", border_style="accent")
+
+    def _two_panel_row(left: Panel, right: Panel) -> Table:
+        row = Table.grid(expand=True, padding=(0, 2))
+        row.add_column(ratio=1)
+        row.add_column(ratio=1)
+        row.add_row(left, right)
+        return row
 
     if view == "knowledge":
         panels.append(knowledge_panel)
@@ -1574,9 +1655,14 @@ def _build_tui_dashboard(
     elif view == "console":
         pass
     elif view == "all":
-        panels.extend([knowledge_panel, llm_panel, sources_panel, settings_panel])
+        panels.extend(
+            [
+                _two_panel_row(knowledge_panel, llm_panel),
+                _two_panel_row(sources_panel, settings_panel),
+            ]
+        )
     else:
-        panels.append(Columns([knowledge_panel, sources_compact_panel], expand=True, equal=True))
+        panels.append(_two_panel_row(knowledge_panel, sources_compact_panel))
 
     if show_slash_console:
         slash_lines = slash_output or _tui_help_lines()
@@ -2072,9 +2158,7 @@ def reset_sync(
     if source:
         normalized = normalize_source_name(source)
         if normalized not in VALID_SOURCE_NAMES:
-            console.print(
-                f"[error]Invalid source. Use one of: {SOURCE_CHOICES_TEXT}[/error]"
-            )
+            console.print(f"[error]Invalid source. Use one of: {SOURCE_CHOICES_TEXT}[/error]")
             raise typer.Exit(1)
         source = normalized
 

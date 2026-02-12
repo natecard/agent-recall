@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -34,12 +35,14 @@ class AutoSync:
         llm: LLMProvider | None,
         ingesters: list[SessionIngester] | None = None,
         project_path: Path | None = None,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ):
         self.storage = storage
         self.files = files
         self.llm = llm
         self.extractor = TranscriptExtractor(llm) if llm else None
         self.ingesters = ingesters or get_default_ingesters(project_path)
+        self.progress_callback = progress_callback
         self.extract_timeout_seconds = 45
         self.extract_retry_attempts = 3
         self.extract_retry_backoff_seconds = 2.0
@@ -65,6 +68,7 @@ class AutoSync:
             "sessions_already_processed": 0,
             "empty_sessions": 0,
             "learnings_extracted": 0,
+            "llm_requests": 0,
             "by_source": {},
             "session_diagnostics": [],
             "errors": [],
@@ -130,11 +134,30 @@ class AutoSync:
                     continue
 
                 entries: list[Any] = []
+                batch_events: list[dict[str, Any]] = []
                 extraction_error: str | None = None
+                self._emit_progress(
+                    {
+                        "event": "extraction_session_started",
+                        "source": candidate.source_name,
+                        "session_id": candidate.session_id,
+                        "messages_total": message_count,
+                    }
+                )
+
+                def _on_extract_progress(event: dict[str, Any]) -> None:
+                    if event.get("event") == "extraction_batch_complete":
+                        batch_events.append(event)
+                    self._emit_progress(event)
+
                 for attempt in range(1, self.extract_retry_attempts + 1):
                     try:
+                        batch_events.clear()
                         entries = await asyncio.wait_for(
-                            extractor.extract(raw_session),
+                            extractor.extract(
+                                raw_session,
+                                progress_callback=_on_extract_progress,
+                            ),
                             timeout=self.extract_timeout_seconds,
                         )
                         extraction_error = None
@@ -186,8 +209,10 @@ class AutoSync:
 
                 source_results["processed"] += 1
                 source_results["learnings"] += len(entries)
+                source_results["llm_batches"] += len(batch_events)
                 results["sessions_processed"] += 1
                 results["learnings_extracted"] += len(entries)
+                results["llm_requests"] += len(batch_events)
                 diagnostic: dict[str, Any] = {
                     "source": candidate.source_name,
                     "session_id": candidate.session_id,
@@ -195,6 +220,8 @@ class AutoSync:
                     "message_count": message_count,
                     "learnings_extracted": len(entries),
                 }
+                if batch_events:
+                    diagnostic["llm_batches"] = len(batch_events)
                 if (
                     message_count >= self.zero_learning_warning_min_messages
                     and len(entries) == 0
@@ -393,6 +420,7 @@ class AutoSync:
                 "extraction_failed": 0,
                 "empty": 0,
                 "learnings": 0,
+                "llm_batches": 0,
             }
 
     @staticmethod
@@ -458,6 +486,7 @@ class AutoSync:
                     "extraction_failed": 0,
                     "empty": 0,
                     "learnings": 0,
+                    "llm_batches": 0,
                 },
             )
             source_results["discovered"] += 1
@@ -476,3 +505,11 @@ class AutoSync:
     @staticmethod
     def _normalize_source(source: str) -> str:
         return normalize_source_name(source)
+
+    def _emit_progress(self, payload: dict[str, Any]) -> None:
+        if self.progress_callback is None:
+            return
+        try:
+            self.progress_callback(payload)
+        except Exception:  # noqa: BLE001
+            return

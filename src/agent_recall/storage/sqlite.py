@@ -414,6 +414,22 @@ class SQLiteStorage:
 
         return stats
 
+    def get_last_processed_at(self) -> datetime | None:
+        """Return the most recent processed-session timestamp."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT MAX(processed_at) AS last_processed FROM processed_sessions"
+            ).fetchone()
+        if not row:
+            return None
+        raw_value = row["last_processed"]
+        if not raw_value:
+            return None
+        try:
+            return datetime.fromisoformat(str(raw_value))
+        except ValueError:
+            return None
+
     def list_recent_source_sessions(self, limit: int = 20) -> list[dict[str, Any]]:
         """Summarize recent source sessions inferred from log entries."""
         with self._connect() as conn:

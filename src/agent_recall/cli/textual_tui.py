@@ -1104,13 +1104,15 @@ class AgentRecallTextualApp(App[None]):
 
     BINDINGS = [
         Binding("ctrl+p", "command_palette", "Commands"),
+        Binding("f1", "open_command_palette", "Commands", show=False),
         Binding("ctrl+g", "open_settings_modal", "Settings"),
         Binding("ctrl+r", "refresh_now", "Refresh"),
         Binding("ctrl+k", "run_knowledge_update", "Run"),
         Binding("ctrl+y", "sync_conversations", "Sync"),
         Binding("ctrl+t", "open_theme_modal", "Theme"),
+        Binding("ctrl+c", "request_quit", "Quit", show=False, priority=True),
         Binding("escape", "close_inline_picker", "Close picker", show=False),
-        Binding("ctrl+q", "quit", "Quit"),
+        Binding("ctrl+q", "request_quit", "Quit", priority=True),
     ]
 
     def __init__(
@@ -1168,9 +1170,11 @@ class AgentRecallTextualApp(App[None]):
         self._theme_preview_origin: str | None = None
         self._result_list_open = False
         self._refresh_timer = None
+        self._resize_refresh_timer = None
         self._worker_context: dict[int, str] = {}
         self._knowledge_run_workers: set[int] = set()
         self._pending_setup_payload: dict[str, Any] | None = None
+        self._last_activity_render: tuple[str, str, str] | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1196,8 +1200,17 @@ class AgentRecallTextualApp(App[None]):
             self._append_activity("Onboarding required. Opening setup wizard...")
             self.call_after_refresh(self.action_open_setup_modal)
 
+    def on_unmount(self) -> None:
+        self._teardown_runtime()
+
     def action_command_palette(self) -> None:
         self.action_open_command_palette()
+
+    def action_request_quit(self) -> None:
+        self.status = "Closing..."
+        self._append_activity("Stopping background operations...")
+        self._teardown_runtime()
+        self.exit()
 
     def action_open_command_palette(self) -> None:
         self.push_screen(
@@ -1252,7 +1265,14 @@ class AgentRecallTextualApp(App[None]):
 
     def on_resize(self, event: events.Resize) -> None:
         _ = event
-        self.call_after_refresh(self._refresh_dashboard_panel)
+        if self._resize_refresh_timer is not None:
+            self._resize_refresh_timer.stop()
+        # Debounce resize-driven refreshes to avoid event-loop saturation.
+        self._resize_refresh_timer = self.set_timer(0.12, self._flush_resize_refresh)
+
+    def _flush_resize_refresh(self) -> None:
+        self._resize_refresh_timer = None
+        self._refresh_dashboard_panel()
 
     def action_refresh_now(self) -> None:
         self._refresh_dashboard_panel()
@@ -1268,6 +1288,17 @@ class AgentRecallTextualApp(App[None]):
         if self._refresh_timer is not None:
             self._refresh_timer.stop()
         self._refresh_timer = self.set_interval(refresh_seconds, self._refresh_dashboard_panel)
+
+    def _teardown_runtime(self) -> None:
+        if self._refresh_timer is not None:
+            self._refresh_timer.stop()
+            self._refresh_timer = None
+        if self._resize_refresh_timer is not None:
+            self._resize_refresh_timer.stop()
+            self._resize_refresh_timer = None
+        self.workers.cancel_all()
+        self._worker_context.clear()
+        self._knowledge_run_workers.clear()
 
     def _refresh_dashboard_panel(self) -> None:
         self._sync_runtime_theme()
@@ -1293,8 +1324,27 @@ class AgentRecallTextualApp(App[None]):
             subtitle = f"{subtitle} · running synthesis"
         if self._worker_context:
             title = f"{title} …"
-        self.query_one("#activity_log", Static).update(
-            Panel(lines, title=title, subtitle=subtitle)
+        render_key = (title, subtitle, lines)
+        if render_key == self._last_activity_render:
+            return
+
+        activity_widget = self.query_one("#activity_log", Static)
+        was_at_bottom = activity_widget.is_vertical_scroll_end
+        previous_scroll_x = activity_widget.scroll_x
+        previous_scroll_y = activity_widget.scroll_y
+
+        activity_widget.update(Panel(lines, title=title, subtitle=subtitle))
+        self._last_activity_render = render_key
+
+        if was_at_bottom:
+            activity_widget.scroll_end(animate=False)
+            return
+
+        activity_widget.scroll_to(
+            x=previous_scroll_x,
+            y=previous_scroll_y,
+            animate=False,
+            force=True,
         )
 
     def _append_activity(self, line: str) -> None:
@@ -1451,7 +1501,7 @@ class AgentRecallTextualApp(App[None]):
                 "Setup",
                 "Configure sources and model defaults for this repo",
                 "Core",
-                shortcut="/setup · configure this repo",
+                shortcut="configure repository setup",
                 keywords="onboarding setup",
             ),
             PaletteAction(
@@ -1459,7 +1509,8 @@ class AgentRecallTextualApp(App[None]):
                 "Run Knowledge Update",
                 "Ingest conversations and synthesize GUARDRAILS, STYLE, and RECENT",
                 "Core",
-                shortcut="/run · ingest + synthesize",
+                shortcut="ingest + synthesize",
+                binding="Ctrl+K",
                 keywords="run compact synthesis llm",
             ),
             PaletteAction(
@@ -1467,7 +1518,7 @@ class AgentRecallTextualApp(App[None]):
                 "Run Selected Conversations",
                 "Choose specific conversations for a targeted knowledge update",
                 "Core",
-                shortcut="/run select · targeted",
+                shortcut="targeted run",
                 keywords="sessions select run llm",
             ),
             PaletteAction(
@@ -1475,7 +1526,8 @@ class AgentRecallTextualApp(App[None]):
                 "Sync Conversations",
                 "Ingest from enabled sources without running synthesis",
                 "Core",
-                shortcut="/sync --no-compact · ingest only",
+                shortcut="ingest only",
+                binding="Ctrl+Y",
                 keywords="sync ingest",
             ),
             PaletteAction(
@@ -1483,7 +1535,7 @@ class AgentRecallTextualApp(App[None]):
                 "Refresh Dashboard",
                 "Reload all dashboard panels now",
                 "Core",
-                shortcut="/status",
+                shortcut="refresh now",
                 binding="Ctrl+R",
                 keywords="status dashboard refresh",
             ),
@@ -1492,7 +1544,7 @@ class AgentRecallTextualApp(App[None]):
                 "Source Health",
                 "Check source availability and discovered conversation counts",
                 "Sessions",
-                shortcut="/sources",
+                shortcut="availability + counts",
                 keywords="sources cursor claude",
             ),
             PaletteAction(
@@ -1500,7 +1552,8 @@ class AgentRecallTextualApp(App[None]):
                 "Theme",
                 "Switch themes instantly with arrows and Enter",
                 "Sessions",
-                shortcut="/theme",
+                shortcut="preview + apply",
+                binding="Ctrl+T",
                 keywords="theme list set",
             ),
             PaletteAction(
@@ -1508,7 +1561,7 @@ class AgentRecallTextualApp(App[None]):
                 "Conversations",
                 "Browse discovered conversations for this repository",
                 "Sessions",
-                shortcut="/sessions",
+                shortcut="browse conversation list",
                 keywords="sessions conversations history",
             ),
             PaletteAction(
@@ -1516,7 +1569,6 @@ class AgentRecallTextualApp(App[None]):
                 "Overview",
                 "High-level repository status and health",
                 "Views",
-                shortcut="/view overview",
                 keywords="view overview",
             ),
             PaletteAction(
@@ -1524,7 +1576,6 @@ class AgentRecallTextualApp(App[None]):
                 "Sources View",
                 "Source connectivity and ingestion status",
                 "Views",
-                shortcut="/view sources",
                 keywords="view sources",
             ),
             PaletteAction(
@@ -1532,7 +1583,6 @@ class AgentRecallTextualApp(App[None]):
                 "LLM View",
                 "Provider, model, and synthesis configuration",
                 "Views",
-                shortcut="/view llm",
                 keywords="view llm",
             ),
             PaletteAction(
@@ -1540,7 +1590,6 @@ class AgentRecallTextualApp(App[None]):
                 "Knowledge View",
                 "Knowledge base artifacts and indexed chunks",
                 "Views",
-                shortcut="/view knowledge",
                 keywords="view knowledge",
             ),
             PaletteAction(
@@ -1548,7 +1597,6 @@ class AgentRecallTextualApp(App[None]):
                 "Settings View",
                 "Runtime and interface settings",
                 "Views",
-                shortcut="/view settings",
                 keywords="view settings",
             ),
             PaletteAction(
@@ -1556,7 +1604,6 @@ class AgentRecallTextualApp(App[None]):
                 "Console View",
                 "Recent command output and activity history",
                 "Views",
-                shortcut="/view console",
                 keywords="view console",
             ),
             PaletteAction(
@@ -1564,7 +1611,6 @@ class AgentRecallTextualApp(App[None]):
                 "All Views",
                 "Show all dashboard panels together",
                 "Views",
-                shortcut="/view all",
                 keywords="view all",
             ),
             PaletteAction(
@@ -1572,7 +1618,7 @@ class AgentRecallTextualApp(App[None]):
                 "Model Preferences",
                 "Adjust provider, model, base URL, and generation defaults",
                 "Settings",
-                shortcut="/model",
+                shortcut="provider + model config",
                 keywords="provider model temperature max tokens",
             ),
             PaletteAction(
@@ -1580,8 +1626,8 @@ class AgentRecallTextualApp(App[None]):
                 "Workspace Preferences",
                 "Change default view, refresh speed, and workspace scope",
                 "Settings",
-                shortcut="/settings",
-                binding="Ctrl+,",
+                shortcut="refresh/view/workspaces",
+                binding="Ctrl+G",
                 keywords="settings preferences",
             ),
             PaletteAction(
@@ -1621,7 +1667,7 @@ class AgentRecallTextualApp(App[None]):
             self.action_open_session_run_modal()
             return
         if action_id == "quit":
-            self.exit()
+            self.action_request_quit()
             return
         if action_id.startswith("run:"):
             self._run_backend_command(action_id.split(":", 1)[1])
@@ -1926,7 +1972,7 @@ class AgentRecallTextualApp(App[None]):
             self._finalize_theme_commit(success=True)
             self._refresh_dashboard_panel()
             if should_exit:
-                self.exit()
+                self.action_request_quit()
             return
 
         if context == "session_picker":

@@ -489,6 +489,69 @@ async def test_auto_sync_warns_when_long_session_yields_no_learnings(
     assert "warning" in diagnostics[0]
 
 
+@pytest.mark.asyncio
+async def test_auto_sync_batches_extraction_and_emits_progress(
+    storage,
+    files,
+    tmp_path: Path,
+) -> None:
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    class VeryLongConversationIngester(FakeIngester):
+        def parse_session(self, path: Path) -> RawSession:
+            messages = []
+            for index in range(205):
+                role = "user" if index % 2 == 0 else "assistant"
+                messages.append(
+                    RawMessage(
+                        role=role,
+                        content=(
+                            f"Message {index + 1}: harden migration sequencing, retry handling, "
+                            "and rollback guarantees for partial failures."
+                        ),
+                    )
+                )
+            return RawSession(
+                source=self.source_name,
+                session_id=self.get_session_id(path),
+                project_path=path.parent,
+                started_at=datetime.now(UTC),
+                ended_at=datetime.now(UTC),
+                messages=messages,
+            )
+
+    progress_events: list[dict[str, object]] = []
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[VeryLongConversationIngester("cursor", [session_path])],
+        progress_callback=progress_events.append,
+    )
+
+    results = await sync.sync()
+    assert results["sessions_processed"] == 1
+    assert results["llm_requests"] == 3
+    assert results["by_source"]["cursor"]["llm_batches"] == 3
+
+    session_events = [
+        event
+        for event in progress_events
+        if event.get("event") == "extraction_session_started"
+    ]
+    batch_events = [
+        event
+        for event in progress_events
+        if event.get("event") == "extraction_batch_complete"
+    ]
+    assert len(session_events) == 1
+    assert len(batch_events) == 3
+    assert batch_events[0]["messages_processed"] == 100
+    assert batch_events[1]["messages_processed"] == 200
+    assert batch_events[2]["messages_processed"] == 205
+
+
 def test_auto_sync_list_sessions_includes_titles_and_processed_state(
     storage,
     files,

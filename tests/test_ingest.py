@@ -879,3 +879,70 @@ class TestTranscriptExtractor:
         assert len(entries) == 1
         assert entries[0].label.value == "gotcha"
         assert "ItemTable" in entries[0].content
+
+    @pytest.mark.asyncio
+    async def test_extract_batches_large_sessions_and_reports_progress(self) -> None:
+        from agent_recall.core.extract import TranscriptExtractor
+
+        class BatchedLLM(LLMProvider):
+            def __init__(self) -> None:
+                self.calls = 0
+
+            @property
+            def provider_name(self) -> str:
+                return "batched"
+
+            @property
+            def model_name(self) -> str:
+                return "mock"
+
+            async def generate(
+                self,
+                messages: list[Message],
+                temperature: float = 0.3,
+                max_tokens: int = 4096,
+            ) -> LLMResponse:
+                _ = (messages, temperature, max_tokens)
+                self.calls += 1
+                return LLMResponse(
+                    content=(
+                        "[{\"label\":\"pattern\",\"content\":\"Batch learning "
+                        + str(self.calls)
+                        + "\",\"tags\":[\"batch\"],\"confidence\":0.8}]"
+                    ),
+                    model="mock",
+                )
+
+            def validate(self) -> tuple[bool, str]:
+                return True, "ok"
+
+        llm = BatchedLLM()
+        extractor = TranscriptExtractor(llm, messages_per_batch=100)
+        session = RawSession(
+            source="test",
+            session_id="test-batched",
+            started_at=datetime.now(UTC),
+            ended_at=datetime.now(UTC),
+            messages=[
+                RawMessage(
+                    role="user" if index % 2 == 0 else "assistant",
+                    content=(
+                        f"Message {index + 1}: update migration ordering, add retry guards, "
+                        "and validate rollback safety for transaction boundaries."
+                    ),
+                )
+                for index in range(205)
+            ],
+        )
+
+        progress_events: list[dict[str, object]] = []
+        entries = await extractor.extract(session, progress_callback=progress_events.append)
+
+        assert llm.calls == 3
+        assert len(entries) == 3
+        assert len(progress_events) == 3
+        assert progress_events[0]["messages_processed"] == 100
+        assert progress_events[1]["messages_processed"] == 200
+        assert progress_events[2]["messages_processed"] == 205
+        assert progress_events[2]["messages_total"] == 205
+        assert progress_events[2]["batch_count"] == 3
