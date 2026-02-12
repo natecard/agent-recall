@@ -74,6 +74,36 @@ async def test_compaction_updates_tiers_and_indexes(storage, files) -> None:
 
 
 @pytest.mark.asyncio
+async def test_compaction_indexes_decision_and_exploration_by_default(storage, files) -> None:
+    log_writer = LogWriter(storage)
+    log_writer.log(
+        content="Chose event-sourcing boundaries for audit consistency",
+        label=SemanticLabel.DECISION_RATIONALE,
+    )
+    log_writer.log(
+        content="Explored optimistic locking but write contention remained high",
+        label=SemanticLabel.EXPLORATION,
+    )
+    log_writer.log(
+        content="General retrospective notes from the session",
+        label=SemanticLabel.NARRATIVE,
+    )
+
+    engine = CompactionEngine(storage=storage, files=files, llm=FakeLLMProvider())
+    results = await engine.compact(force=True)
+
+    assert int(results["chunks_indexed"]) == 2
+
+    decision_chunks = storage.search_chunks_fts("audit consistency", top_k=5)
+    exploration_chunks = storage.search_chunks_fts("write contention", top_k=5)
+    narrative_chunks = storage.search_chunks_fts("retrospective notes", top_k=5)
+
+    assert any(chunk.label == SemanticLabel.DECISION_RATIONALE for chunk in decision_chunks)
+    assert any(chunk.label == SemanticLabel.EXPLORATION for chunk in exploration_chunks)
+    assert all(chunk.label != SemanticLabel.NARRATIVE for chunk in narrative_chunks)
+
+
+@pytest.mark.asyncio
 async def test_compaction_generates_embeddings_when_enabled(storage, files) -> None:
     files.write_config(
         {

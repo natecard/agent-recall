@@ -147,10 +147,10 @@
 			"description": "Index additional semantic labels so retrieval reflects architecture decisions and experiment outcomes, not only guardrail/style patterns.",
 			"user_story": "Allow developers to recover why prior decisions were made and what alternatives failed.",
 			"steps": [
-				"Define indexing policy for decision, exploration, and narrative labels.",
+				"[done] Define indexing policy for decision, exploration, and narrative labels.",
 				"Add configurable thresholds to avoid noisy chunk promotion.",
-				"Update compaction/indexing flow to include selected non-style labels.",
-				"Add tests covering indexing and retrieval of decision-oriented entries."
+				"[done] Update compaction/indexing flow to include selected non-style labels.",
+				"[done] Add tests covering indexing and retrieval of decision-oriented entries."
 			],
 			"acceptance": [
 				"Decision and exploration entries can be retrieved through context/retrieve commands.",

@@ -130,9 +130,11 @@ class CompactionEngine:
             SemanticLabel.CORRECTION,
         ]
         style_labels = [SemanticLabel.PREFERENCE, SemanticLabel.PATTERN]
+        non_style_index_labels = self._resolve_non_style_index_labels(compaction_cfg)
 
         guardrail_entries = self.storage.get_entries_by_label(guardrail_labels)
         style_entries = self.storage.get_entries_by_label(style_labels)
+        non_style_index_entries = self.storage.get_entries_by_label(non_style_index_labels)
         promoted_style_entries = self._promoted_style_entries(
             style_entries,
             effective_pattern_threshold,
@@ -216,7 +218,7 @@ class CompactionEngine:
                     results["recent_updated"] = True
 
         indexed_entry_ids: set[str] = set()
-        for entry in [*guardrail_entries, *promoted_style_entries]:
+        for entry in [*guardrail_entries, *promoted_style_entries, *non_style_index_entries]:
             entry_id = str(entry.id)
             if entry_id in indexed_entry_ids:
                 continue
@@ -277,6 +279,15 @@ class CompactionEngine:
                 if pattern_counts[normalized] >= max(1, pattern_threshold):
                     promoted.append(entry)
         return promoted
+
+    @staticmethod
+    def _resolve_non_style_index_labels(compaction_cfg: dict[str, Any]) -> list[SemanticLabel]:
+        policies = [
+            (SemanticLabel.DECISION_RATIONALE, compaction_cfg.get("index_decision_entries", True)),
+            (SemanticLabel.EXPLORATION, compaction_cfg.get("index_exploration_entries", True)),
+            (SemanticLabel.NARRATIVE, compaction_cfg.get("index_narrative_entries", False)),
+        ]
+        return [label for label, enabled in policies if bool(enabled)]
 
     def _recent_evidence_lines(self) -> list[str]:
         completed_sessions = self.storage.list_sessions(limit=20, status=SessionStatus.COMPLETED)

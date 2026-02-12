@@ -13,3 +13,4 @@
 2026-02-12T21:04:50Z | Iteration 2 | AR-003 | Implemented hybrid retrieval rank fusion (FTS + vector similarity) with deterministic tie-breaking and regression tests; validation green.
 2026-02-12T21:10:09Z | Iteration 1 | AR-003 | Added optional retrieval reranking stage (default off) with deterministic scoring/tie-breaks and focused regression tests; validation green.
 2026-02-12T21:17:57Z | Iteration 2 | AR-003 | Exposed retrieval backend/tuning via config + CLI: context/start/refresh-context/retrieve now build Retriever from retrieval config (backend, top_k, fusion_k, rerank, rerank_candidate_k) with CLI overrides for context/retrieve; added regression tests; validation green.
+2026-02-12T21:25:25Z | Iteration 1 | AR-004 | Defined non-style indexing policy (decision/exploration enabled, narrative disabled), wired compaction chunk indexing to that policy, and added regression coverage; validation green.

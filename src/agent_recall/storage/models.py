@@ -125,6 +125,9 @@ class CompactionConfig(BaseModel):
     max_recent_tokens: int = 1500
     max_sessions_before_compact: int = 5
     promote_pattern_after_occurrences: int = 3
+    index_decision_entries: bool = True
+    index_exploration_entries: bool = True
+    index_narrative_entries: bool = False
     archive_sessions_older_than_days: int = 30
 
 
