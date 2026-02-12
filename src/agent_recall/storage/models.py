@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -131,8 +131,11 @@ class CompactionConfig(BaseModel):
 class RetrievalConfig(BaseModel):
     """Retrieval configuration."""
 
-    backend: str = "fts5"
-    top_k: int = 5
+    backend: Literal["fts5", "hybrid"] = "fts5"
+    top_k: int = Field(default=5, ge=1)
+    fusion_k: int = Field(default=60, ge=1)
+    rerank_enabled: bool = False
+    rerank_candidate_k: int = Field(default=20, ge=1)
     embedding_enabled: bool = False
     embedding_dimensions: int = Field(default=64, ge=8, le=4096)
 

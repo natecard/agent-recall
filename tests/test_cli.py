@@ -10,6 +10,7 @@ import agent_recall.cli.main as cli_main
 from agent_recall.ingest.base import RawMessage, RawSession
 from agent_recall.llm.base import LLMProvider, LLMResponse, Message
 from agent_recall.storage.files import FileStorage
+from agent_recall.storage.models import Chunk, ChunkSource, SemanticLabel
 from agent_recall.storage.sqlite import SQLiteStorage
 
 runner = CliRunner()
@@ -102,6 +103,212 @@ def test_cli_session_flow() -> None:
         status_result = runner.invoke(cli_main.app, ["status"])
         assert status_result.exit_code == 0
         assert "Log entries:" in status_result.output
+
+
+def test_cli_context_uses_retrieval_config_defaults(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeRetriever:
+        def __init__(
+            self,
+            _storage,
+            backend: str = "fts5",
+            fusion_k: int = 60,
+            rerank_enabled: bool = False,
+            rerank_candidate_k: int = 20,
+        ):
+            captured["backend"] = backend
+            captured["fusion_k"] = fusion_k
+            captured["rerank_enabled"] = rerank_enabled
+            captured["rerank_candidate_k"] = rerank_candidate_k
+
+        def search(
+            self,
+            query: str,
+            top_k: int = 5,
+            labels=None,
+            backend=None,
+            rerank=None,
+            rerank_candidate_k=None,
+        ) -> list[Chunk]:
+            _ = (labels, backend, rerank, rerank_candidate_k)
+            captured["query"] = query
+            captured["top_k"] = top_k
+            return [
+                Chunk(
+                    source=ChunkSource.MANUAL,
+                    source_ids=[],
+                    content="Hybrid retrieval context match",
+                    label=SemanticLabel.PATTERN,
+                )
+            ]
+
+    monkeypatch.setattr(cli_main, "Retriever", FakeRetriever)
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        files = FileStorage(Path(".agent"))
+        config = files.read_config()
+        config["retrieval"] = {
+            "backend": "hybrid",
+            "top_k": 3,
+            "fusion_k": 31,
+            "rerank_enabled": True,
+            "rerank_candidate_k": 9,
+        }
+        files.write_config(config)
+
+        result = runner.invoke(cli_main.app, ["context", "--task", "retry strategy"])
+        assert result.exit_code == 0
+        assert captured["backend"] == "hybrid"
+        assert captured["fusion_k"] == 31
+        assert captured["rerank_enabled"] is True
+        assert captured["rerank_candidate_k"] == 9
+        assert captured["query"] == "retry strategy"
+        assert captured["top_k"] == 3
+        assert 'Relevant to "retry strategy"' in result.output
+
+
+def test_cli_retrieve_accepts_backend_and_tuning_overrides(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeRetriever:
+        def __init__(
+            self,
+            _storage,
+            backend: str = "fts5",
+            fusion_k: int = 60,
+            rerank_enabled: bool = False,
+            rerank_candidate_k: int = 20,
+        ):
+            captured["backend"] = backend
+            captured["fusion_k"] = fusion_k
+            captured["rerank_enabled"] = rerank_enabled
+            captured["rerank_candidate_k"] = rerank_candidate_k
+
+        def search(
+            self,
+            query: str,
+            top_k: int = 5,
+            labels=None,
+            backend=None,
+            rerank=None,
+            rerank_candidate_k=None,
+        ) -> list[Chunk]:
+            _ = (labels, backend, rerank, rerank_candidate_k)
+            captured["query"] = query
+            captured["top_k"] = top_k
+            return [
+                Chunk(
+                    source=ChunkSource.MANUAL,
+                    source_ids=[],
+                    content="Result",
+                    label=SemanticLabel.PATTERN,
+                )
+            ]
+
+    monkeypatch.setattr(cli_main, "Retriever", FakeRetriever)
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        files = FileStorage(Path(".agent"))
+        config = files.read_config()
+        config["retrieval"] = {
+            "backend": "hybrid",
+            "top_k": 9,
+            "fusion_k": 41,
+            "rerank_enabled": False,
+            "rerank_candidate_k": 12,
+        }
+        files.write_config(config)
+
+        result = runner.invoke(
+            cli_main.app,
+            [
+                "retrieve",
+                "bounded retries",
+                "--backend",
+                "fts5",
+                "--top-k",
+                "2",
+                "--fusion-k",
+                "11",
+                "--rerank",
+                "--rerank-candidate-k",
+                "4",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert captured["backend"] == "fts5"
+        assert captured["fusion_k"] == 11
+        assert captured["rerank_enabled"] is True
+        assert captured["rerank_candidate_k"] == 4
+        assert captured["query"] == "bounded retries"
+        assert captured["top_k"] == 2
+
+
+def test_cli_retrieve_uses_retrieval_config_defaults(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeRetriever:
+        def __init__(
+            self,
+            _storage,
+            backend: str = "fts5",
+            fusion_k: int = 60,
+            rerank_enabled: bool = False,
+            rerank_candidate_k: int = 20,
+        ):
+            captured["backend"] = backend
+            captured["fusion_k"] = fusion_k
+            captured["rerank_enabled"] = rerank_enabled
+            captured["rerank_candidate_k"] = rerank_candidate_k
+
+        def search(
+            self,
+            query: str,
+            top_k: int = 5,
+            labels=None,
+            backend=None,
+            rerank=None,
+            rerank_candidate_k=None,
+        ) -> list[Chunk]:
+            _ = (labels, backend, rerank, rerank_candidate_k)
+            captured["query"] = query
+            captured["top_k"] = top_k
+            return [
+                Chunk(
+                    source=ChunkSource.MANUAL,
+                    source_ids=[],
+                    content="Config default result",
+                    label=SemanticLabel.PATTERN,
+                )
+            ]
+
+    monkeypatch.setattr(cli_main, "Retriever", FakeRetriever)
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        files = FileStorage(Path(".agent"))
+        config = files.read_config()
+        config["retrieval"] = {
+            "backend": "hybrid",
+            "top_k": 7,
+            "fusion_k": 25,
+            "rerank_enabled": True,
+            "rerank_candidate_k": 10,
+        }
+        files.write_config(config)
+
+        result = runner.invoke(cli_main.app, ["retrieve", "semantic query"])
+        assert result.exit_code == 0
+        assert captured["backend"] == "hybrid"
+        assert captured["fusion_k"] == 25
+        assert captured["rerank_enabled"] is True
+        assert captured["rerank_candidate_k"] == 10
+        assert captured["query"] == "semantic query"
+        assert captured["top_k"] == 7
 
 
 def test_cli_refresh_context_writes_bundle_using_active_task() -> None:

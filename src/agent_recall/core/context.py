@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+from agent_recall.core.retrieve import Retriever
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.sqlite import SQLiteStorage
 
 
 class ContextAssembler:
-    def __init__(self, storage: SQLiteStorage, files: FileStorage):
+    def __init__(
+        self,
+        storage: SQLiteStorage,
+        files: FileStorage,
+        retriever: Retriever | None = None,
+        retrieval_top_k: int = 5,
+    ):
         self.storage = storage
         self.files = files
+        self.retriever = retriever
+        self.retrieval_top_k = max(1, retrieval_top_k)
 
     def assemble(self, task: str | None = None, include_retrieval: bool = True) -> str:
         """Assemble full context for an agent."""
@@ -26,7 +35,8 @@ class ContextAssembler:
             parts.append(f"## Recent Sessions\n\n{recent.strip()}")
 
         if task and include_retrieval:
-            chunks = self.storage.search_chunks_fts(task, top_k=5)
+            retriever = self.retriever or Retriever(self.storage)
+            chunks = retriever.search(task, top_k=self.retrieval_top_k)
             if chunks:
                 relevant = "\n".join(f"- {chunk.content}" for chunk in chunks)
                 parts.append(f"## Relevant to \"{task}\"\n\n{relevant}")

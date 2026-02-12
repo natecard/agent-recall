@@ -11,5 +11,8 @@ compaction:
 retrieval:
   backend: fts5
   top_k: 5
+  fusion_k: 60
+  rerank_enabled: false
+  rerank_candidate_k: 20
   embedding_enabled: false
   embedding_dimensions: 64

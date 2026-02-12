@@ -128,7 +128,7 @@
 				"[done] Add optional embedding generation/storage for indexed chunks.",
 				"[done] Implement hybrid retrieval (FTS + vector similarity) with deterministic tie-breaking.",
 				"[done] Add optional reranking of top candidates before final output.",
-				"Expose retrieval backend/tuning options in config and CLI."
+				"[done] Expose retrieval backend/tuning options in config and CLI."
 			],
 			"acceptance": [
 				"Queries with semantic paraphrases return relevant chunks even when keywords differ.",
@@ -137,12 +137,12 @@
 				"Retrieval behavior is covered by deterministic tests."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "AR-004",
 			"category": "functional",
-			"priority": 2,
+			"priority": 1,
 			"title": "Expand indexing to decision and exploration learnings",
 			"description": "Index additional semantic labels so retrieval reflects architecture decisions and experiment outcomes, not only guardrail/style patterns.",
 			"user_story": "Allow developers to recover why prior decisions were made and what alternatives failed.",
@@ -164,7 +164,7 @@
 		{
 			"id": "AR-007",
 			"category": "functional",
-			"priority": 3,
+			"priority": 2,
 			"title": "Introduce optional shared team memory backend",
 			"description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
 			"user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",

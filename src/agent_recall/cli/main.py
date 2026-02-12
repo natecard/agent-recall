@@ -61,7 +61,7 @@ from agent_recall.llm import (
     validate_provider_config,
 )
 from agent_recall.storage.files import FileStorage, KnowledgeTier
-from agent_recall.storage.models import LLMConfig, SemanticLabel
+from agent_recall.storage.models import LLMConfig, RetrievalConfig, SemanticLabel
 from agent_recall.storage.sqlite import SQLiteStorage
 
 app = typer.Typer(help="Agent Memory System - Persistent knowledge for AI coding agents")
@@ -177,6 +177,9 @@ compaction:
 retrieval:
   backend: fts5
   top_k: 5
+  fusion_k: 60
+  rerank_enabled: false
+  rerank_candidate_k: 20
   embedding_enabled: false
   embedding_dimensions: 64
 
@@ -232,6 +235,54 @@ def get_llm():
     if dependency_message:
         console.print(f"[dim]{dependency_message}[/dim]")
     return create_llm_provider(llm_config)
+
+
+def _load_retrieval_config(files: FileStorage) -> RetrievalConfig:
+    config_dict = files.read_config()
+    retrieval_data = config_dict.get("retrieval", {})
+    if retrieval_data is None:
+        retrieval_data = {}
+    if not isinstance(retrieval_data, dict):
+        raise ValueError("Invalid retrieval configuration: 'retrieval' must be a mapping.")
+    try:
+        return RetrievalConfig.model_validate(retrieval_data)
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"Invalid retrieval configuration: {exc}") from exc
+
+
+def _normalize_retrieval_backend(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in {"fts5", "hybrid"}:
+        return normalized
+    raise ValueError("Invalid retrieval backend. Use 'fts5' or 'hybrid'.")
+
+
+def _build_retriever(
+    storage: SQLiteStorage,
+    files: FileStorage,
+    *,
+    backend: str | None = None,
+    fusion_k: int | None = None,
+    rerank: bool | None = None,
+    rerank_candidate_k: int | None = None,
+) -> tuple[Retriever, RetrievalConfig]:
+    retrieval_cfg = _load_retrieval_config(files)
+    selected_backend = (
+        _normalize_retrieval_backend(backend) if backend is not None else retrieval_cfg.backend
+    )
+    selected_fusion_k = fusion_k if fusion_k is not None else retrieval_cfg.fusion_k
+    selected_rerank = retrieval_cfg.rerank_enabled if rerank is None else rerank
+    selected_rerank_candidate_k = (
+        rerank_candidate_k if rerank_candidate_k is not None else retrieval_cfg.rerank_candidate_k
+    )
+    retriever = Retriever(
+        storage,
+        backend=selected_backend,
+        fusion_k=selected_fusion_k,
+        rerank_enabled=selected_rerank,
+        rerank_candidate_k=selected_rerank_candidate_k,
+    )
+    return retriever, retrieval_cfg
 
 
 def run_with_spinner(description: str, action: Callable[[], T]) -> T:
@@ -634,7 +685,17 @@ def start(task: str = typer.Argument(..., help="Description of what this session
     files = get_files()
 
     session_mgr = SessionManager(storage)
-    context_asm = ContextAssembler(storage, files)
+    try:
+        retriever, retrieval_cfg = _build_retriever(storage, files)
+    except ValueError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+    context_asm = ContextAssembler(
+        storage,
+        files,
+        retriever=retriever,
+        retrieval_top_k=retrieval_cfg.top_k,
+    )
 
     session = session_mgr.start(task)
     context = context_asm.assemble(task=task)
@@ -700,13 +761,58 @@ def end(summary: str = typer.Argument(..., help="Summary of what was accomplishe
 def context(
     task: str | None = typer.Option(None, "--task", "-t", help="Task for relevant retrieval"),
     output_format: str = typer.Option("md", "--format", "-f", help="Output format: md or json"),
+    top_k: int | None = typer.Option(
+        None,
+        "--top-k",
+        "-k",
+        min=1,
+        help="Override maximum number of retrieved chunks (default from config)",
+    ),
+    backend: str | None = typer.Option(
+        None,
+        "--backend",
+        help="Override retrieval backend (fts5 or hybrid)",
+    ),
+    fusion_k: int | None = typer.Option(
+        None,
+        "--fusion-k",
+        min=1,
+        help="Override hybrid fusion constant (default from config)",
+    ),
+    rerank: bool | None = typer.Option(
+        None,
+        "--rerank/--no-rerank",
+        help="Override reranking behavior (default from config)",
+    ),
+    rerank_candidate_k: int | None = typer.Option(
+        None,
+        "--rerank-candidate-k",
+        min=1,
+        help="Override rerank candidate pool size (default from config)",
+    ),
 ):
     """Output current context (guardrails, style, recent, relevant)."""
     _get_theme_manager()  # Ensure theme is loaded
     storage = get_storage()
     files = get_files()
-
-    context_asm = ContextAssembler(storage, files)
+    try:
+        retriever, retrieval_cfg = _build_retriever(
+            storage,
+            files,
+            backend=backend,
+            fusion_k=fusion_k,
+            rerank=rerank,
+            rerank_candidate_k=rerank_candidate_k,
+        )
+    except ValueError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+    context_asm = ContextAssembler(
+        storage,
+        files,
+        retriever=retriever,
+        retrieval_top_k=top_k if top_k is not None else retrieval_cfg.top_k,
+    )
     output = context_asm.assemble(task=task)
 
     if output_format == "md":
@@ -745,7 +851,17 @@ def refresh_context(
     active = session_mgr.get_active()
     resolved_task = task or (active.task if active else None)
 
-    context_asm = ContextAssembler(storage, files)
+    try:
+        retriever, retrieval_cfg = _build_retriever(storage, files)
+    except ValueError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+    context_asm = ContextAssembler(
+        storage,
+        files,
+        retriever=retriever,
+        retrieval_top_k=retrieval_cfg.top_k,
+    )
     markdown_path = output_dir / "context.md"
     json_path = output_dir / "context.json"
 
@@ -2568,15 +2684,56 @@ def test_llm():
 @app.command()
 def retrieve(
     query: str = typer.Argument(..., help="Search query"),
-    top_k: int = typer.Option(5, "--top-k", "-k", min=1, help="Maximum results"),
+    top_k: int | None = typer.Option(
+        None,
+        "--top-k",
+        "-k",
+        min=1,
+        help="Maximum results (default from config)",
+    ),
+    backend: str | None = typer.Option(
+        None,
+        "--backend",
+        help="Override retrieval backend (fts5 or hybrid)",
+    ),
+    fusion_k: int | None = typer.Option(
+        None,
+        "--fusion-k",
+        min=1,
+        help="Override hybrid fusion constant (default from config)",
+    ),
+    rerank: bool | None = typer.Option(
+        None,
+        "--rerank/--no-rerank",
+        help="Override reranking behavior (default from config)",
+    ),
+    rerank_candidate_k: int | None = typer.Option(
+        None,
+        "--rerank-candidate-k",
+        min=1,
+        help="Override rerank candidate pool size (default from config)",
+    ),
 ):
-    """Retrieve relevant memory chunks using FTS5 search."""
+    """Retrieve relevant memory chunks."""
     _get_theme_manager()  # Ensure theme is loaded
     storage = get_storage()
-    retriever = Retriever(storage)
+    files = get_files()
+    try:
+        retriever, retrieval_cfg = _build_retriever(
+            storage,
+            files,
+            backend=backend,
+            fusion_k=fusion_k,
+            rerank=rerank,
+            rerank_candidate_k=rerank_candidate_k,
+        )
+    except ValueError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
 
     _get_theme_manager()  # Ensure theme is loaded
-    chunks = retriever.search(query=query, top_k=top_k)
+    effective_top_k = top_k if top_k is not None else retrieval_cfg.top_k
+    chunks = retriever.search(query=query, top_k=effective_top_k)
     if not chunks:
         console.print("[warning]No matching chunks found.[/warning]")
         raise typer.Exit(0)
