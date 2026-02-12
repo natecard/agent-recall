@@ -1,0 +1,20 @@
+{
+  "session": {
+    "id": "legacy-missing-fields"
+  },
+  "items": [
+    {
+      "content": "Missing role"
+    },
+    {
+      "role": "user"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {"type": "text", "text": "Structured content"},
+        {"type": "thinking", "thinking": "Internal thought"}
+      ]
+    }
+  ]
+}

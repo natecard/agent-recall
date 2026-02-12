@@ -1,0 +1,5 @@
+{"timestamp": "2026-02-12T13:00:00Z", "type": "session_meta", "payload": {"id": "mixed-timestamps", "cwd": "/Users/dev/project"}}
+{"type": "response_item", "payload": {"type": "message", "role": "user", "content": "Test various timestamps"}}
+{"timestamp": 1739367600000, "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": "Unix ms timestamp"}}
+{"timestamp": 1739367600, "type": "response_item", "payload": {"type": "message", "role": "user", "content": "Unix seconds timestamp"}}
+{"timestamp": "2026-02-12T13:00:00.123456Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": "Microsecond precision"}}

@@ -1,0 +1,21 @@
+{
+  "session": {
+    "id": "legacy-session-001",
+    "timestamp": "2025-04-18T15:46:21.101Z",
+    "cwd": "/Users/dev/project"
+  },
+  "items": [
+    {
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "Please explain this traceback"}
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {"type": "text", "text": "The error is caused by missing import"}
+      ]
+    }
+  ]
+}

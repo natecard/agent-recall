@@ -1,0 +1,5 @@
+{"timestamp": "2026-02-12T12:00:00Z", "type": "session_meta", "payload": {"id": "custom-tool-session", "cwd": "/Users/dev/project", "timestamp": "2026-02-12T12:00:00Z"}}
+{"timestamp": "2026-02-12T12:00:01Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Apply this patch"}]}}
+{"timestamp": "2026-02-12T12:00:02Z", "type": "response_item", "payload": {"type": "custom_tool_call", "name": "apply_patch", "input": "*** Begin Patch\n--- a/file.txt\n+++ b/file.txt\n*** End Patch", "call_id": "custom-call-001"}}
+{"timestamp": "2026-02-12T12:00:03Z", "type": "response_item", "payload": {"type": "custom_tool_call_output", "call_id": "custom-call-001", "output": {"status": "success", "files_changed": 1}}}
+{"timestamp": "2026-02-12T12:00:04Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Patch applied successfully."}]}}

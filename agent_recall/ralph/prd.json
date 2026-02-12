@@ -59,10 +59,10 @@
 			"description": "Complete production hardening for Codex ingestion with robust parsing, fixtures, and source-specific documentation.",
 			"user_story": "Allow developers using OpenAI Codex to reliably ingest conversations without manual format fixes.",
 			"steps": [
-				"Create fixture corpus for Codex JSON/JSONL variants and malformed edge cases.",
-				"Harden parser behavior for missing fields, tool-output ordering, and partial lines.",
-				"Add source-specific sync/session tests for Codex discovery and extraction quality.",
-				"Update README/CLI reference/onboarding docs to list Codex where sources are enumerated."
+				"[done] Create fixture corpus for Codex JSON/JSONL variants and malformed edge cases.",
+				"[done] Harden parser behavior for missing fields, tool-output ordering, and partial lines.",
+				"[done] Add source-specific sync/session tests for Codex discovery and extraction quality.",
+				"[done] Update README/CLI reference/onboarding docs to list Codex where sources are enumerated."
 			],
 			"acceptance": [
 				"Codex sessions are discoverable and parseable across supported file variants.",
@@ -71,7 +71,7 @@
 				"Codex integration does not regress other source ingesters."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "AR-008",

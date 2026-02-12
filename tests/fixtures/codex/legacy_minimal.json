@@ -1,0 +1,16 @@
+{
+  "session": {
+    "id": "minimal-legacy",
+    "cwd": "/Users/dev/project"
+  },
+  "items": [
+    {
+      "role": "user",
+      "content": "Simple message"
+    },
+    {
+      "role": "assistant",
+      "content": "Simple response"
+    }
+  ]
+}

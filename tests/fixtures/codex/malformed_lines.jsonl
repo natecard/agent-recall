@@ -1,0 +1,7 @@
+{"timestamp": "2026-02-12T14:00:00Z", "type": "session_meta", "payload": {"id": "malformed-test", "cwd": "/Users/dev/project"}}
+not a valid json line
+{"timestamp": "2026-02-12T14:00:01Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": "This should still work"}}
+{"invalid": "json", "missing": "closing"
+{"timestamp": "2026-02-12T14:00:02Z", "type": "response_item", "payload": {"type": "message", "role": "assistant"}}
+{"timestamp": "2026-02-12T14:00:03Z", "type": "response_item", "payload": null}
+{"type": "response_item", "payload": {"type": "message", "role": "user", "content": "Missing timestamp"}}

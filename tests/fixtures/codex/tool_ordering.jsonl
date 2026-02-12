@@ -1,0 +1,8 @@
+{"timestamp": "2026-02-12T16:00:00Z", "type": "session_meta", "payload": {"id": "tool-ordering", "cwd": "/Users/dev/project"}}
+{"timestamp": "2026-02-12T16:00:01Z", "type": "response_item", "payload": {"type": "function_call_output", "call_id": "orphan-call", "output": "Output without prior call"}}
+{"timestamp": "2026-02-12T16:00:02Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": "Test ordering"}}
+{"timestamp": "2026-02-12T16:00:03Z", "type": "response_item", "payload": {"type": "function_call", "name": "tool1", "call_id": "call-1"}}
+{"timestamp": "2026-02-12T16:00:04Z", "type": "response_item", "payload": {"type": "function_call", "name": "tool2", "call_id": "call-2"}}
+{"timestamp": "2026-02-12T16:00:05Z", "type": "response_item", "payload": {"type": "function_call_output", "call_id": "call-2", "output": "Output for tool2"}}
+{"timestamp": "2026-02-12T16:00:06Z", "type": "response_item", "payload": {"type": "function_call_output", "call_id": "call-1", "output": "Output for tool1"}}
+{"timestamp": "2026-02-12T16:00:07Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": "Tool outputs out of order"}}
