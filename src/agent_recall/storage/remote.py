@@ -89,88 +89,175 @@ class _HTTPClient(Storage):
         return Session.model_validate(response.json())
 
     def get_active_session(self) -> Session | None:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.get("/sessions/active")
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return Session.model_validate(response.json())
 
     def list_sessions(
         self, limit: int = 50, status: SessionStatus | None = None
     ) -> list[Session]:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        params = {"limit": limit}
+        if status:
+            params["status"] = status.value
+        response = self._client.get("/sessions", params=params)
+        response.raise_for_status()
+        return [Session.model_validate(s) for s in response.json()]
 
     def update_session(self, session: Session) -> None:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.put(
+            f"/sessions/{session.id}", content=session.model_dump_json()
+        )
+        response.raise_for_status()
 
     def append_entry(self, entry: LogEntry) -> None:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.post("/entries", content=entry.model_dump_json())
+        response.raise_for_status()
 
     def get_entries(self, session_id: UUID) -> list[LogEntry]:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.get(f"/sessions/{session_id}/entries")
+        response.raise_for_status()
+        return [LogEntry.model_validate(e) for e in response.json()]
 
     def get_entries_by_label(
         self, labels: list[SemanticLabel], limit: int = 100
     ) -> list[LogEntry]:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        params = {
+            "labels": [label.value for label in labels],
+            "limit": limit,
+        }
+        # httpx handles list params by repeating keys: labels=...&labels=...
+        response = self._client.get("/entries", params=params)
+        response.raise_for_status()
+        return [LogEntry.model_validate(e) for e in response.json()]
 
     def count_log_entries(self) -> int:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.get("/entries/count")
+        response.raise_for_status()
+        return response.json()["count"]
 
     def store_chunk(self, chunk: Chunk) -> None:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.post("/chunks", content=chunk.model_dump_json())
+        response.raise_for_status()
 
     def has_chunk(self, content: str, label: SemanticLabel) -> bool:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.post(
+            "/chunks/exists",
+            json={"content": content, "label": label.value},
+        )
+        response.raise_for_status()
+        return response.json()["exists"]
 
     def count_chunks(self) -> int:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.get("/chunks/count")
+        response.raise_for_status()
+        return response.json()["count"]
 
     def search_chunks_fts(self, query: str, top_k: int = 5) -> list[Chunk]:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.get(
+            "/chunks/search", params={"q": query, "top_k": top_k}
+        )
+        response.raise_for_status()
+        return [Chunk.model_validate(c) for c in response.json()]
 
     def list_chunks_with_embeddings(self) -> list[Chunk]:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.get("/chunks/embeddings")
+        response.raise_for_status()
+        return [Chunk.model_validate(c) for c in response.json()]
 
     def is_session_processed(self, source_session_id: str) -> bool:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        # We might want base64 or similar if session IDs contain slashes
+        # But for now let's assume valid path chars or rely on query param if unsure
+        # Query param is safer for arbitrary strings
+        response = self._client.get(
+            "/processed_sessions/check", params={"source_session_id": source_session_id}
+        )
+        response.raise_for_status()
+        return response.json()["processed"]
 
     def mark_session_processed(self, source_session_id: str) -> None:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.put(
+            "/processed_sessions", json={"source_session_id": source_session_id}
+        )
+        response.raise_for_status()
 
     def clear_processed_sessions(
         self,
         source: str | None = None,
         source_session_id: str | None = None,
     ) -> int:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        params = {}
+        if source:
+            params["source"] = source
+        if source_session_id:
+            params["source_session_id"] = source_session_id
+        response = self._client.delete("/processed_sessions", params=params)
+        response.raise_for_status()
+        return response.json()["count"]
 
     def get_session_checkpoint(self, source_session_id: str) -> SessionCheckpoint | None:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.get(
+            "/checkpoints", params={"source_session_id": source_session_id}
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return SessionCheckpoint.model_validate(response.json())
 
     def save_session_checkpoint(self, checkpoint: SessionCheckpoint) -> None:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.put(
+            "/checkpoints", content=checkpoint.model_dump_json()
+        )
+        response.raise_for_status()
 
     def clear_session_checkpoints(
         self,
         source: str | None = None,
         source_session_id: str | None = None,
     ) -> int:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        params = {}
+        if source:
+            params["source"] = source
+        if source_session_id:
+            params["source_session_id"] = source_session_id
+        response = self._client.delete("/checkpoints", params=params)
+        response.raise_for_status()
+        return response.json()["count"]
 
     def get_stats(self) -> dict[str, int]:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.get("/stats")
+        response.raise_for_status()
+        return response.json()
 
     def get_last_processed_at(self) -> datetime | None:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.get("/stats/last_processed")
+        response.raise_for_status()
+        data = response.json()
+        if data["last_processed_at"] is None:
+            return None
+        return datetime.fromisoformat(data["last_processed_at"])
 
     def list_recent_source_sessions(self, limit: int = 20) -> list[dict[str, Any]]:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.get("/recent-sources", params={"limit": limit})
+        response.raise_for_status()
+        return response.json()
 
     def get_background_sync_status(self) -> BackgroundSyncStatus:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.get("/background-sync/status")
+        response.raise_for_status()
+        return BackgroundSyncStatus.model_validate(response.json())
 
     def save_background_sync_status(self, status: BackgroundSyncStatus) -> None:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.put(
+            "/background-sync/status", content=status.model_dump_json()
+        )
+        response.raise_for_status()
 
     def start_background_sync(self, pid: int) -> BackgroundSyncStatus:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        response = self._client.post("/background-sync/start", json={"pid": pid})
+        response.raise_for_status()
+        return BackgroundSyncStatus.model_validate(response.json())
 
     def complete_background_sync(
         self,
@@ -178,7 +265,14 @@ class _HTTPClient(Storage):
         learnings_extracted: int,
         error_message: str | None = None,
     ) -> BackgroundSyncStatus:
-        raise NotImplementedError("HTTP backend does not support this operation yet.")
+        payload = {
+            "sessions_processed": sessions_processed,
+            "learnings_extracted": learnings_extracted,
+            "error_message": error_message,
+        }
+        response = self._client.post("/background-sync/complete", json=payload)
+        response.raise_for_status()
+        return BackgroundSyncStatus.model_validate(response.json())
 
 
 class RemoteStorage(Storage):

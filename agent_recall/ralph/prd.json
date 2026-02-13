@@ -1,322 +1,382 @@
 {
-	"project": "Agent Recall Super Ralph",
-	"version": 2,
-	"selection_policy": {
-		"agent_decides_priority": true,
-		"priority_scale": "1 = highest priority",
-		"order_of_operations": ["critical bugfixes", "tracer-bullet feature slices", "polish and quick wins", "refactors"]
-	},
-	"items": [
-		{
-			"id": "AR-001",
-			"category": "functional",
-			"priority": 1,
-			"title": "Add support for OpenAI Codex",
-			"description": "Add support for the new OpenAI Codex App",
-			"user_story": "Allow users to select OpenAI Codex as one of the agents they can use for the Agent Recall package.",
-			"steps": [
-				"[done] Find the path for the OpenAI Codex App session files.",
-				"Verify this works across path variations by exploring filesystem path logic.",
-				"[done] Add structured outputs to extract conversations for Agent Recall.",
-				"[done] Harden parsing against different conversation styles (including custom_tool_call/custom_tool_call_output)."
-			],
-			"acceptance": [
-				"Conversation extraction works.",
-				"Conversations are compacted correctly.",
-				"Usage in other repositories works.",
-				"Changes do not break existing behavior."
-			],
-			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": true
-		},
-		{
-			"id": "AR-002",
-			"category": "functional",
-			"priority": 1,
-			"title": "Add incremental sync for evolving sessions",
-			"description": "Implement delta-based ingestion so active source sessions can be re-synced without duplicate learnings.",
-			"user_story": "Allow developers to run sync repeatedly during long-running conversations and only capture new context.",
-			"steps": [
-				"[done] Persist per-session checkpoints (timestamp/index/hash) for each source.",
-				"[done] Update ingestion flow to process only events newer than the checkpoint.",
-				"[done] Prevent duplicate log/chunk insertion when session content is unchanged.",
-				"[done] Add reset options for checkpoint-only and full reprocess behavior."
-			],
-			"acceptance": [
-				"Re-running sync on an active session ingests only new content.",
-				"No duplicate log entries or chunks are created for unchanged content.",
-				"Existing reset-sync workflows still allow full reprocessing.",
-				"Behavior is verified across Cursor, Claude Code, OpenCode, and Codex sources."
-			],
-			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": true
-		},
-		{
-			"id": "AR-005",
-			"category": "functional",
-			"priority": 2,
-			"title": "Harden Codex source support end-to-end",
-			"description": "Complete production hardening for Codex ingestion with robust parsing, fixtures, and source-specific documentation.",
-			"user_story": "Allow developers using OpenAI Codex to reliably ingest conversations without manual format fixes.",
-			"steps": [
-				"[done] Create fixture corpus for Codex JSON/JSONL variants and malformed edge cases.",
-				"[done] Harden parser behavior for missing fields, tool-output ordering, and partial lines.",
-				"[done] Add source-specific sync/session tests for Codex discovery and extraction quality.",
-				"[done] Update README/CLI reference/onboarding docs to list Codex where sources are enumerated."
-			],
-			"acceptance": [
-				"Codex sessions are discoverable and parseable across supported file variants.",
-				"Malformed or partial events do not crash sync and produce clear diagnostics.",
-				"Codex source appears consistently in docs and source-selection UX.",
-				"Codex integration does not regress other source ingesters."
-			],
-			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": true
-		},
-		{
-			"id": "AR-008",
-			"category": "functional",
-			"priority": 3,
-			"title": "Prepare package for production developer adoption",
-			"description": "Close release-readiness gaps across metadata, docs, and cross-environment validation.",
-			"user_story": "Allow developers to install and trust Agent Recall as a stable tool in real projects.",
-			"steps": [
-				"[done] Finalize package metadata (author, versioning policy, release notes).",
-				"[done] Add explicit compatibility matrix for sources/platforms/Python versions.",
-				"[done] Expand CI to run lint/type/test on supported Python versions and clean env installs.",
-				"Add smoke tests for init/onboarding/sync/context flows in fresh repositories."
-			],
-			"acceptance": [
-				"Package metadata and docs are complete and publication-ready.",
-				"CI enforces supported runtime matrix with passing checks.",
-				"Fresh install-to-first-sync workflow is validated end-to-end.",
-				"Developer-facing docs match actual implemented feature set."
-			],
-			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": true
-		},
-		{
-			"id": "AR-006",
-			"category": "functional",
-			"priority": 1,
-			"title": "Add automatic background sync and context refresh",
-			"description": "Introduce automation so memory capture and context generation happen without repeated manual CLI steps.",
-			"user_story": "Allow developers to benefit from Agent Recall during normal coding flow with minimal manual intervention.",
-			"steps": [
-				"[done] Add a background/scheduled sync mode with safe locking.",
-				"[done] Add command to refresh context bundles for active task/repo state.",
-				"[done] Persist and display last successful sync/refresh status.",
-				"[done] Provide fail-safe retries and clear failure diagnostics."
-			],
-			"acceptance": [
-				"Developers can enable unattended sync without duplicate processing races.",
-				"Context refresh can run automatically and produce current memory output.",
-				"Status command shows last run time and failure state.",
-				"Manual sync/compact commands remain fully supported."
-			],
-			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": true
-		},
-		{
-			"id": "AR-003",
-			"category": "functional",
-			"priority": 1,
-			"title": "Upgrade retrieval quality beyond basic FTS",
-			"description": "Add hybrid retrieval so context assembly returns more relevant results than keyword-only lookup.",
-			"user_story": "Allow developers to get higher-signal context when querying past learnings with varied wording.",
-			"steps": [
-				"[done] Add optional embedding generation/storage for indexed chunks.",
-				"[done] Implement hybrid retrieval (FTS + vector similarity) with deterministic tie-breaking.",
-				"[done] Add optional reranking of top candidates before final output.",
-				"[done] Expose retrieval backend/tuning options in config and CLI."
-			],
-			"acceptance": [
-				"Queries with semantic paraphrases return relevant chunks even when keywords differ.",
-				"Legacy FTS-only mode remains available and stable.",
-				"Context and retrieve commands honor configured retrieval mode/settings.",
-				"Retrieval behavior is covered by deterministic tests."
-			],
-			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": true
-		},
-		{
-			"id": "AR-004",
-			"category": "functional",
-			"priority": 1,
-			"title": "Expand indexing to decision and exploration learnings",
-			"description": "Index additional semantic labels so retrieval reflects architecture decisions and experiment outcomes, not only guardrail/style patterns.",
-			"user_story": "Allow developers to recover why prior decisions were made and what alternatives failed.",
-			"steps": [
-				"[done] Define indexing policy for decision, exploration, and narrative labels.",
-				"[done] Add configurable thresholds to avoid noisy chunk promotion.",
-				"[done] Update compaction/indexing flow to include selected non-style labels.",
-				"[done] Add tests covering indexing and retrieval of decision-oriented entries."
-			],
-			"acceptance": [
-				"Decision and exploration entries can be retrieved through context/retrieve commands.",
-				"Chunk growth stays bounded by configured thresholds.",
-				"Existing guardrails/style indexing behavior is preserved.",
-				"Indexing output is deterministic under repeated compaction runs."
-			],
-			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": true
-		},
-		{
-			"id": "AR-007",
-			"category": "functional",
-			"priority": 4,
-			"title": "Introduce optional shared team memory backend",
-			"description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
-			"user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
-			"steps": [
-				"Define storage abstraction boundary between local and shared backends.",
-				"Implement first shared backend with auth and namespace isolation.",
-				"Add sync/merge strategy for shared chunks and tier updates.",
-				"Document migration path and opt-in configuration for teams."
-			],
-			"acceptance": [
-				"Team mode supports read/write memory across multiple machines.",
-				"Namespace boundaries prevent cross-project memory leakage.",
-				"Local-only mode remains default and behavior-compatible.",
-				"Shared backend failures degrade gracefully without data corruption."
-			],
-			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
-		},
-		{
-			"id": "AR-009",
-			"category": "functional",
-			"priority": 1,
-			"title": "Ship shared backend tracer-bullet (single-tenant)",
-			"description": "Deliver a minimal shared-memory backend path so multiple machines can read/write the same memory state.",
-			"user_story": "Allow a developer to enable shared memory in one config switch and use it from different workstations.",
-			"steps": [
-				"[done] Define a storage interface contract that supports local and shared backends with the same core operations.",
-				"[done] Implement a single-tenant shared backend client path for sessions/chunks/checkpoints via shared filesystem URLs (`file://` and `sqlite://`).",
-				"[done] Add shared tier-file synchronization for filesystem shared backends (`file://` and `sqlite://`).",
-				"Extend shared backend to HTTP service/client transport.",
-				"[done] Add retry, timeout, and fallback behavior so local mode can continue if shared backend is unavailable.",
-				"[done] Add end-to-end tests that run the same sync/retrieve/compact flow against both local and shared modes."
-			],
-
-			"acceptance": [
-				"Shared backend mode can ingest, compact, and retrieve memory from a second machine.",
-				"The same CLI commands work in local and shared modes without behavior regressions.",
-				"Transient backend failures produce clear errors and do not corrupt memory state.",
-				"Configuration clearly declares backend mode and connection details."
-			],
-			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
-		},
-		{
-			"id": "AR-010",
-			"category": "functional",
-			"priority": 2,
-			"title": "Add tenant isolation and namespace safety",
-			"description": "Enforce strict workspace/project boundaries in shared memory to prevent cross-project leakage.",
-			"user_story": "Allow teams to use shared memory confidently without accidental context bleed between projects.",
-			"steps": [
-				"Introduce tenant and project namespace keys across all shared-memory write/read paths.",
-				"Require namespace scope in retrieval/context assembly APIs and CLI command execution.",
-				"Add guardrails that reject writes missing namespace metadata.",
-				"Add cross-tenant and cross-project leakage tests with negative assertions."
-			],
-			"acceptance": [
-				"Memory from one project cannot be retrieved by another project unless explicitly allowed.",
-				"All persisted shared records include tenant and project scope metadata.",
-				"Namespace validation failures are explicit and actionable.",
-				"Leakage regression tests fail if any scope boundary is broken."
-			],
-			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
-		},
-		{
-			"id": "AR-011",
-			"category": "functional",
-			"priority": 3,
-			"title": "Add auth, RBAC, and audit trail for shared backend",
-			"description": "Secure shared memory operations with role-based permissions and full mutation audit logs.",
-			"user_story": "Allow team leads to control who can write or promote memory and review who changed what.",
-			"steps": [
-				"Implement token-based authentication for shared backend client operations.",
-				"Add role checks for read, write, promote, and delete operations.",
-				"Record immutable audit events for every shared-memory mutation.",
-				"Add permission and audit-log tests for allow/deny scenarios."
-			],
-			"acceptance": [
-				"Unauthorized operations are denied consistently with clear error messages.",
-				"Role policy can restrict write/promote actions while allowing read-only use.",
-				"Every shared-memory mutation produces an auditable event record.",
-				"Security tests cover successful and rejected flows."
-			],
-			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
-		},
-		{
-			"id": "AR-012",
-			"category": "functional",
-			"priority": 5,
-			"title": "Add memory curation queue with approval workflow",
-			"description": "Create a review path so extracted learnings can be approved, edited, or rejected before promotion.",
-			"user_story": "Allow maintainers to keep team memory high quality and prevent noisy or incorrect rules from persisting.",
-			"steps": [
-				"Add a pending-memory queue state for newly extracted learnings.",
-				"Implement approve/edit/reject operations and status transitions in storage and CLI.",
-				"Update compaction/retrieval to respect curation status filters.",
-				"Add tests covering queue lifecycle and promotion behavior."
-			],
-			"acceptance": [
-				"New learnings can be reviewed before they become durable guardrails/style context.",
-				"Rejected items never appear in retrieval or tier files.",
-				"Approved edits are preserved and traceable to reviewer action.",
-				"Curation workflow does not block existing local-only usage."
-			],
-			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
-		},
-		{
-			"id": "AR-013",
-			"category": "functional",
-			"priority": 6,
-			"title": "Add automatic context injection adapters for supported agents",
-			"description": "Integrate generated memory context into Codex, Cursor, Claude Code, and OpenCode startup workflows automatically.",
-			"user_story": "Allow developers to benefit from memory without manually running context commands each session.",
-			"steps": [
-				"Define adapter hooks for each supported agent runtime with consistent context payload structure.",
-				"Implement context bundle generation with configurable token budgets per provider/model.",
-				"Add opt-in/opt-out controls and clear status output for adapter behavior.",
-				"Add integration tests validating that adapters inject current context without duplication."
-			],
-			"acceptance": [
-				"Supported agents receive up-to-date context automatically when enabled.",
-				"Token budget controls prevent oversized prompt/context payloads.",
-				"Adapter failures are non-destructive and fallback to normal agent startup.",
-				"Developers can verify injection status from CLI output."
-			],
-			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
-		},
-		{
-			"id": "AR-014",
-			"category": "functional",
-			"priority": 7,
-			"title": "Add backup, restore, and migration tooling for shared memory",
-			"description": "Provide operational tooling for safe upgrades and disaster recovery of shared memory data.",
-			"user_story": "Allow teams to upgrade backend schema and recover memory state without losing history.",
-			"steps": [
-				"Implement export/import commands for full shared memory snapshots.",
-				"Add schema migration versioning with forward/backward safety checks.",
-				"Add restore verification command to validate data integrity after recovery.",
-				"Document operational runbooks for backup cadence and rollback procedures."
-			],
-			"acceptance": [
-				"Teams can create and restore full memory snapshots reliably.",
-				"Schema migrations are versioned, repeatable, and validated in CI.",
-				"Restore checks detect missing/corrupted data before normal operation resumes.",
-				"Operational docs are sufficient for on-call recovery execution."
-			],
-			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
-		}
-	]
+  "project": "Agent Recall Super Ralph",
+  "version": 2,
+  "selection_policy": {
+    "agent_decides_priority": true,
+    "priority_scale": "1 = highest priority",
+    "order_of_operations": [
+      "critical bugfixes",
+      "tracer-bullet feature slices",
+      "polish and quick wins",
+      "refactors"
+    ]
+  },
+  "items": [
+    {
+      "id": "AR-001",
+      "category": "functional",
+      "priority": 1,
+      "title": "Add support for OpenAI Codex",
+      "description": "Add support for the new OpenAI Codex App",
+      "user_story": "Allow users to select OpenAI Codex as one of the agents they can use for the Agent Recall package.",
+      "steps": [
+        "[done] Find the path for the OpenAI Codex App session files.",
+        "Verify this works across path variations by exploring filesystem path logic.",
+        "[done] Add structured outputs to extract conversations for Agent Recall.",
+        "[done] Harden parsing against different conversation styles (including custom_tool_call/custom_tool_call_output)."
+      ],
+      "acceptance": [
+        "Conversation extraction works.",
+        "Conversations are compacted correctly.",
+        "Usage in other repositories works.",
+        "Changes do not break existing behavior."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": true
+    },
+    {
+      "id": "AR-002",
+      "category": "functional",
+      "priority": 1,
+      "title": "Add incremental sync for evolving sessions",
+      "description": "Implement delta-based ingestion so active source sessions can be re-synced without duplicate learnings.",
+      "user_story": "Allow developers to run sync repeatedly during long-running conversations and only capture new context.",
+      "steps": [
+        "[done] Persist per-session checkpoints (timestamp/index/hash) for each source.",
+        "[done] Update ingestion flow to process only events newer than the checkpoint.",
+        "[done] Prevent duplicate log/chunk insertion when session content is unchanged.",
+        "[done] Add reset options for checkpoint-only and full reprocess behavior."
+      ],
+      "acceptance": [
+        "Re-running sync on an active session ingests only new content.",
+        "No duplicate log entries or chunks are created for unchanged content.",
+        "Existing reset-sync workflows still allow full reprocessing.",
+        "Behavior is verified across Cursor, Claude Code, OpenCode, and Codex sources."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": true
+    },
+    {
+      "id": "AR-005",
+      "category": "functional",
+      "priority": 2,
+      "title": "Harden Codex source support end-to-end",
+      "description": "Complete production hardening for Codex ingestion with robust parsing, fixtures, and source-specific documentation.",
+      "user_story": "Allow developers using OpenAI Codex to reliably ingest conversations without manual format fixes.",
+      "steps": [
+        "[done] Create fixture corpus for Codex JSON/JSONL variants and malformed edge cases.",
+        "[done] Harden parser behavior for missing fields, tool-output ordering, and partial lines.",
+        "[done] Add source-specific sync/session tests for Codex discovery and extraction quality.",
+        "[done] Update README/CLI reference/onboarding docs to list Codex where sources are enumerated."
+      ],
+      "acceptance": [
+        "Codex sessions are discoverable and parseable across supported file variants.",
+        "Malformed or partial events do not crash sync and produce clear diagnostics.",
+        "Codex source appears consistently in docs and source-selection UX.",
+        "Codex integration does not regress other source ingesters."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": true
+    },
+    {
+      "id": "AR-008",
+      "category": "functional",
+      "priority": 3,
+      "title": "Prepare package for production developer adoption",
+      "description": "Close release-readiness gaps across metadata, docs, and cross-environment validation.",
+      "user_story": "Allow developers to install and trust Agent Recall as a stable tool in real projects.",
+      "steps": [
+        "[done] Finalize package metadata (author, versioning policy, release notes).",
+        "[done] Add explicit compatibility matrix for sources/platforms/Python versions.",
+        "[done] Expand CI to run lint/type/test on supported Python versions and clean env installs.",
+        "Add smoke tests for init/onboarding/sync/context flows in fresh repositories."
+      ],
+      "acceptance": [
+        "Package metadata and docs are complete and publication-ready.",
+        "CI enforces supported runtime matrix with passing checks.",
+        "Fresh install-to-first-sync workflow is validated end-to-end.",
+        "Developer-facing docs match actual implemented feature set."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": true
+    },
+    {
+      "id": "AR-006",
+      "category": "functional",
+      "priority": 1,
+      "title": "Add automatic background sync and context refresh",
+      "description": "Introduce automation so memory capture and context generation happen without repeated manual CLI steps.",
+      "user_story": "Allow developers to benefit from Agent Recall during normal coding flow with minimal manual intervention.",
+      "steps": [
+        "[done] Add a background/scheduled sync mode with safe locking.",
+        "[done] Add command to refresh context bundles for active task/repo state.",
+        "[done] Persist and display last successful sync/refresh status.",
+        "[done] Provide fail-safe retries and clear failure diagnostics."
+      ],
+      "acceptance": [
+        "Developers can enable unattended sync without duplicate processing races.",
+        "Context refresh can run automatically and produce current memory output.",
+        "Status command shows last run time and failure state.",
+        "Manual sync/compact commands remain fully supported."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": true
+    },
+    {
+      "id": "AR-003",
+      "category": "functional",
+      "priority": 1,
+      "title": "Upgrade retrieval quality beyond basic FTS",
+      "description": "Add hybrid retrieval so context assembly returns more relevant results than keyword-only lookup.",
+      "user_story": "Allow developers to get higher-signal context when querying past learnings with varied wording.",
+      "steps": [
+        "[done] Add optional embedding generation/storage for indexed chunks.",
+        "[done] Implement hybrid retrieval (FTS + vector similarity) with deterministic tie-breaking.",
+        "[done] Add optional reranking of top candidates before final output.",
+        "[done] Expose retrieval backend/tuning options in config and CLI."
+      ],
+      "acceptance": [
+        "Queries with semantic paraphrases return relevant chunks even when keywords differ.",
+        "Legacy FTS-only mode remains available and stable.",
+        "Context and retrieve commands honor configured retrieval mode/settings.",
+        "Retrieval behavior is covered by deterministic tests."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": true
+    },
+    {
+      "id": "AR-004",
+      "category": "functional",
+      "priority": 1,
+      "title": "Expand indexing to decision and exploration learnings",
+      "description": "Index additional semantic labels so retrieval reflects architecture decisions and experiment outcomes, not only guardrail/style patterns.",
+      "user_story": "Allow developers to recover why prior decisions were made and what alternatives failed.",
+      "steps": [
+        "[done] Define indexing policy for decision, exploration, and narrative labels.",
+        "[done] Add configurable thresholds to avoid noisy chunk promotion.",
+        "[done] Update compaction/indexing flow to include selected non-style labels.",
+        "[done] Add tests covering indexing and retrieval of decision-oriented entries."
+      ],
+      "acceptance": [
+        "Decision and exploration entries can be retrieved through context/retrieve commands.",
+        "Chunk growth stays bounded by configured thresholds.",
+        "Existing guardrails/style indexing behavior is preserved.",
+        "Indexing output is deterministic under repeated compaction runs."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": true
+    },
+    {
+      "id": "AR-007",
+      "category": "functional",
+      "priority": 3,
+      "title": "Introduce optional shared team memory backend",
+      "description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
+      "user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
+      "steps": [
+        "Define storage abstraction boundary between local and shared backends.",
+        "Implement first shared backend with auth and namespace isolation.",
+        "Add sync/merge strategy for shared chunks and tier updates.",
+        "Document migration path and opt-in configuration for teams."
+      ],
+      "acceptance": [
+        "Team mode supports read/write memory across multiple machines.",
+        "Namespace boundaries prevent cross-project memory leakage.",
+        "Local-only mode remains default and behavior-compatible.",
+        "Shared backend failures degrade gracefully without data corruption."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-009",
+      "category": "functional",
+      "priority": 1,
+      "title": "Ship shared backend tracer-bullet (single-tenant)",
+      "description": "Deliver a minimal shared-memory backend path so multiple machines can read/write the same memory state.",
+      "user_story": "Allow a developer to enable shared memory in one config switch and use it from different workstations.",
+      "steps": [
+        "[done] Define a storage interface contract that supports local and shared backends with the same core operations.",
+        "[done] Implement a single-tenant shared backend client path for sessions/chunks/checkpoints via shared filesystem URLs (`file://` and `sqlite://`).",
+        "[done] Add shared tier-file synchronization for filesystem shared backends (`file://` and `sqlite://`).",
+        "[done] Extend shared backend to HTTP service/client transport.",
+        "[done] Add retry, timeout, and fallback behavior so local mode can continue if shared backend is unavailable.",
+        "[done] Add end-to-end tests that run the same sync/retrieve/compact flow against both local and shared modes."
+      ],
+      "acceptance": [
+        "Shared backend mode can ingest, compact, and retrieve memory from a second machine.",
+        "The same CLI commands work in local and shared modes without behavior regressions.",
+        "Transient backend failures produce clear errors and do not corrupt memory state.",
+        "Configuration clearly declares backend mode and connection details."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": true
+    },
+    {
+      "id": "AR-010",
+      "category": "functional",
+      "priority": 1,
+      "title": "Add tenant isolation and namespace safety",
+      "description": "Enforce strict workspace/project boundaries in shared memory to prevent cross-project leakage.",
+      "user_story": "Allow teams to use shared memory confidently without accidental context bleed between projects.",
+      "steps": [
+        "Introduce tenant and project namespace keys across all shared-memory write/read paths.",
+        "Require namespace scope in retrieval/context assembly APIs and CLI command execution.",
+        "Add guardrails that reject writes missing namespace metadata.",
+        "Add cross-tenant and cross-project leakage tests with negative assertions."
+      ],
+      "acceptance": [
+        "Memory from one project cannot be retrieved by another project unless explicitly allowed.",
+        "All persisted shared records include tenant and project scope metadata.",
+        "Namespace validation failures are explicit and actionable.",
+        "Leakage regression tests fail if any scope boundary is broken."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-011",
+      "category": "functional",
+      "priority": 2,
+      "title": "Add auth, RBAC, and audit trail for shared backend",
+      "description": "Secure shared memory operations with role-based permissions and full mutation audit logs.",
+      "user_story": "Allow team leads to control who can write or promote memory and review who changed what.",
+      "steps": [
+        "Implement token-based authentication for shared backend client operations.",
+        "Add role checks for read, write, promote, and delete operations.",
+        "Record immutable audit events for every shared-memory mutation.",
+        "Add permission and audit-log tests for allow/deny scenarios."
+      ],
+      "acceptance": [
+        "Unauthorized operations are denied consistently with clear error messages.",
+        "Role policy can restrict write/promote actions while allowing read-only use.",
+        "Every shared-memory mutation produces an auditable event record.",
+        "Security tests cover successful and rejected flows."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-012",
+      "category": "functional",
+      "priority": 4,
+      "title": "Add memory curation queue with approval workflow",
+      "description": "Create a review path so extracted learnings can be approved, edited, or rejected before promotion.",
+      "user_story": "Allow maintainers to keep team memory high quality and prevent noisy or incorrect rules from persisting.",
+      "steps": [
+        "Add a pending-memory queue state for newly extracted learnings.",
+        "Implement approve/edit/reject operations and status transitions in storage and CLI.",
+        "Update compaction/retrieval to respect curation status filters.",
+        "Add tests covering queue lifecycle and promotion behavior."
+      ],
+      "acceptance": [
+        "New learnings can be reviewed before they become durable guardrails/style context.",
+        "Rejected items never appear in retrieval or tier files.",
+        "Approved edits are preserved and traceable to reviewer action.",
+        "Curation workflow does not block existing local-only usage."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-013",
+      "category": "functional",
+      "priority": 5,
+      "title": "Add automatic context injection adapters for supported agents",
+      "description": "Integrate generated memory context into Codex, Cursor, Claude Code, and OpenCode startup workflows automatically.",
+      "user_story": "Allow developers to benefit from memory without manually running context commands each session.",
+      "steps": [
+        "Define adapter hooks for each supported agent runtime with consistent context payload structure.",
+        "Implement context bundle generation with configurable token budgets per provider/model.",
+        "Add opt-in/opt-out controls and clear status output for adapter behavior.",
+        "Add integration tests validating that adapters inject current context without duplication."
+      ],
+      "acceptance": [
+        "Supported agents receive up-to-date context automatically when enabled.",
+        "Token budget controls prevent oversized prompt/context payloads.",
+        "Adapter failures are non-destructive and fallback to normal agent startup.",
+        "Developers can verify injection status from CLI output."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-014",
+      "category": "functional",
+      "priority": 6,
+      "title": "Add backup, restore, and migration tooling for shared memory",
+      "description": "Provide operational tooling for safe upgrades and disaster recovery of shared memory data.",
+      "user_story": "Allow teams to upgrade backend schema and recover memory state without losing history.",
+      "steps": [
+        "Implement export/import commands for full shared memory snapshots.",
+        "Add schema migration versioning with forward/backward safety checks.",
+        "Add restore verification command to validate data integrity after recovery.",
+        "Document operational runbooks for backup cadence and rollback procedures."
+      ],
+      "acceptance": [
+        "Teams can create and restore full memory snapshots reliably.",
+        "Schema migrations are versioned, repeatable, and validated in CI.",
+        "Restore checks detect missing/corrupted data before normal operation resumes.",
+        "Operational docs are sufficient for on-call recovery execution."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": false
+    }
+  ]
 }
