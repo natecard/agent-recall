@@ -452,6 +452,44 @@ def test_cli_refresh_context_applies_adapter_token_budget() -> None:
         assert len(cursor_payload["context"]) <= 4
 
 
+def test_cli_refresh_context_respects_adapter_opt_out() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        files = FileStorage(Path(".agent"))
+        config = files.read_config()
+        config["adapters"] = {
+            "enabled": True,
+            "output_dir": ".agent/context",
+        }
+        files.write_config(config)
+
+        result = runner.invoke(cli_main.app, ["refresh-context", "--no-adapter-payloads"])
+        assert result.exit_code == 0
+
+        bundle_dir = Path(".agent") / "context"
+        adapter_payload = bundle_dir / "codex" / "context.json"
+        assert not adapter_payload.exists()
+
+
+def test_cli_refresh_context_adapter_payload_not_duplicated() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        assert runner.invoke(cli_main.app, ["start", "adapter idempotency"]).exit_code == 0
+        (Path(".agent") / "GUARDRAILS.md").write_text("# Guardrails\n\nKeep it tight.\n")
+
+        first = runner.invoke(cli_main.app, ["refresh-context", "--adapter-payloads"])
+        assert first.exit_code == 0
+        second = runner.invoke(cli_main.app, ["refresh-context", "--adapter-payloads"])
+        assert second.exit_code == 0
+
+        adapter_dir = Path(".agent") / "context" / "codex"
+        payload_files = list(adapter_dir.glob("*.json"))
+        assert len(payload_files) == 1
+
+        payload = json.loads((adapter_dir / "context.json").read_text())
+        assert payload["context"].count("## Guardrails") == 1
+
+
 def test_cli_refresh_context_retries_transient_failure(monkeypatch) -> None:
     attempts = {"count": 0}
 

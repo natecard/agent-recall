@@ -298,3 +298,6 @@
 
 ## 2026-02-13T18:15:00Z Iteration 3 (AR-013)
 - When adding adapter payloads, gate writes behind config defaults or explicit CLI flags to avoid breaking existing flows.
+
+## 2026-02-13T20:55:00Z Iteration 6 (AR-013)
+- Add CLI adapter-payload tests that assert opt-out does not create files and repeated runs do not create duplicate payload artifacts.

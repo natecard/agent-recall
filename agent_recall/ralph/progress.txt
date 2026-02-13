@@ -38,3 +38,4 @@
 2026-02-13T18:15:00Z | Iteration 3 | AR-013 | Added adapter payload scaffold for refresh-context: adapter payload schema, CLI flag, config defaults, and tests for Codex payload output.
 2026-02-13T19:10:00Z | Iteration 4 | AR-013 | Added adapter token budgets (global + per-adapter) to refresh-context payloads with tests.
 2026-02-13T20:40:00Z | Iteration 5 | AR-013 | Added config adapters CLI/status output, updated init config and CLI docs, and added tests; validation green.
+2026-02-13T20:55:00Z | Iteration 6 | AR-013 | Added adapter opt-out and idempotency CLI tests for refresh-context adapter payloads; validation pending.

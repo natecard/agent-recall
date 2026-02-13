@@ -232,3 +232,6 @@
 
 ## 2026-02-13T18:15:00Z Iteration 3 (AR-013)
 - Add adapter payload outputs under the existing context bundle directory to keep CLI/TUI expectations aligned.
+
+## 2026-02-13T20:55:00Z Iteration 6 (AR-013)
+- When testing adapter payload behavior, assert on the payload file count and avoid relying on file mtimes for idempotency checks.

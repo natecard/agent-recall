@@ -197,7 +197,7 @@
     {
       "id": "AR-007",
       "category": "functional",
-      "priority": 2,
+      "priority": 1,
       "title": "Introduce optional shared team memory backend",
       "description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
       "user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
@@ -350,12 +350,12 @@
         "uv run ruff check .",
         "uv run ty check"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-014",
       "category": "functional",
-      "priority": 3,
+      "priority": 2,
       "title": "Add backup, restore, and migration tooling for shared memory",
       "description": "Provide operational tooling for safe upgrades and disaster recovery of shared memory data.",
       "user_story": "Allow teams to upgrade backend schema and recover memory state without losing history.",
