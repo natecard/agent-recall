@@ -222,3 +222,6 @@
 
 ## 2026-02-13T12:00:00Z Iteration 1 (AR-012)
 - Resolve curation status from config via a small helper that normalizes and defaults on invalid values.
+
+## 2026-02-13T12:30:00Z Iteration 2 (AR-012)
+- Add curation lifecycle assertions in storage-backed tests to cover pending -> rejected -> approved transitions.

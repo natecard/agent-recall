@@ -288,3 +288,6 @@
 
 ## 2026-02-13T12:00:00Z Iteration 1 (AR-012)
 - Keep compaction curation filtering explicit and default to approved; allow pending-only via config to avoid promoting unreviewed items.
+
+## 2026-02-13T12:30:00Z Iteration 2 (AR-012)
+- When validating curation workflows, assert rejected entries never reach chunk indexing while approved ones do.

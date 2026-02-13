@@ -10,6 +10,15 @@
 - Notes: Compaction now filters by curation status (default approved, configurable), with tests for pending vs approved indexing; adjusted remote HTTP background sync test payload to match model.
 - Next: Add queue lifecycle tests for approve/reject/edit and verify promotion behavior end-to-end.
 
+## 2026-02-13T12:30:00Z Iteration 2
+- Item: AR-012 - Add memory curation queue with approval workflow
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Added curation lifecycle tests and promotion gating check; approved entries now confirmed to index only after approval.
+- Next: Run full validation and confirm AR-012 acceptance.
+
 ## 2026-02-13T10:58:12Z Iteration 6
 - Item: AR-012 - Add memory curation queue with approval workflow
 - Mode: feature

@@ -212,3 +212,45 @@ async def test_compaction_can_target_pending_entries(storage, files) -> None:
 
     assert int(results["chunks_indexed"]) == 1
     assert storage.has_chunk("Pending entry", SemanticLabel.GOTCHA)
+
+
+def test_curation_status_transitions_update_list(storage) -> None:
+    log_writer = LogWriter(storage)
+    entry = log_writer.log(
+        content="Lifecycle entry",
+        label=SemanticLabel.GOTCHA,
+    )
+
+    storage.update_entry_curation_status(entry.id, CurationStatus.PENDING)
+    pending = storage.list_entries_by_curation_status(CurationStatus.PENDING)
+    assert [item.id for item in pending] == [entry.id]
+
+    storage.update_entry_curation_status(entry.id, CurationStatus.REJECTED)
+    assert storage.list_entries_by_curation_status(CurationStatus.PENDING) == []
+    rejected = storage.list_entries_by_curation_status(CurationStatus.REJECTED)
+    assert [item.id for item in rejected] == [entry.id]
+
+    storage.update_entry_curation_status(entry.id, CurationStatus.APPROVED)
+    assert storage.list_entries_by_curation_status(CurationStatus.REJECTED) == []
+    approved = storage.list_entries_by_curation_status(CurationStatus.APPROVED)
+    assert [item.id for item in approved] == [entry.id]
+
+
+@pytest.mark.asyncio
+async def test_compaction_promotes_only_approved_entries(storage, files) -> None:
+    log_writer = LogWriter(storage)
+    entry = log_writer.log(content="Curation gating", label=SemanticLabel.GOTCHA)
+    storage.update_entry_curation_status(entry.id, CurationStatus.PENDING)
+    storage.update_entry_curation_status(entry.id, CurationStatus.REJECTED)
+
+    engine = CompactionEngine(storage=storage, files=files, llm=FakeLLMProvider())
+    results = await engine.compact(force=True)
+
+    assert int(results["chunks_indexed"]) == 0
+    assert not storage.has_chunk("Curation gating", SemanticLabel.GOTCHA)
+
+    storage.update_entry_curation_status(entry.id, CurationStatus.APPROVED)
+    results = await engine.compact(force=True)
+
+    assert int(results["chunks_indexed"]) == 1
+    assert storage.has_chunk("Curation gating", SemanticLabel.GOTCHA)

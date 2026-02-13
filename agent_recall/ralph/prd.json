@@ -324,7 +324,7 @@
         "uv run ruff check .",
         "uv run ty check"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-013",
