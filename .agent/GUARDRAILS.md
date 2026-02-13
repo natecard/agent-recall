@@ -310,3 +310,4 @@
 
 ## 2026-02-13T22:45:00Z Iteration 3 (AR-203)
 - When building Ralph refresh tasks, default missing task to "Continue work" so adapter payloads always include a task string when item_id/iteration are set.
+- For Ralph refresh-context CLI, call ContextRefreshHook and surface failures as exit code 1 with a clear error message.

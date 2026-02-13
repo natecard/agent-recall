@@ -81,6 +81,7 @@ from agent_recall.llm import (
     get_available_providers,
     validate_provider_config,
 )
+from agent_recall.ralph.context_refresh import ContextRefreshHook
 from agent_recall.storage import create_storage_backend
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
@@ -3137,7 +3138,7 @@ def providers():
 
 @app.command("ralph")
 def ralph(
-    action: str = typer.Argument(..., help="Action: status, enable, disable"),
+    action: str = typer.Argument(..., help="Action: status, enable, disable, refresh-context"),
     max_iterations: int | None = typer.Option(
         None,
         "--max-iterations",
@@ -3155,6 +3156,24 @@ def ralph(
         "--compact-mode",
         help="Compact mode: always, on-failure, off",
     ),
+    task: str | None = typer.Option(
+        None,
+        "--task",
+        "-t",
+        help="Task description for refresh-context",
+    ),
+    item_id: str | None = typer.Option(
+        None,
+        "--item",
+        "-i",
+        help="PRD item id for refresh-context",
+    ),
+    iteration: int | None = typer.Option(
+        None,
+        "--iteration",
+        "-n",
+        help="Iteration number for refresh-context",
+    ),
 ):
     """Manage Ralph loop configuration."""
     _get_theme_manager()
@@ -3162,8 +3181,10 @@ def ralph(
     files = get_files()
 
     normalized = action.strip().lower()
-    if normalized not in {"status", "enable", "disable"}:
-        console.print("[error]Action must be one of: status, enable, disable[/error]")
+    if normalized not in {"status", "enable", "disable", "refresh-context"}:
+        console.print(
+            "[error]Action must be one of: status, enable, disable, refresh-context[/error]"
+        )
         raise typer.Exit(1)
 
     if compact_mode is not None:
@@ -3176,6 +3197,28 @@ def ralph(
         config_dict = files.read_config()
         lines = _render_ralph_status(config_dict)
         console.print(Panel.fit("\n".join(lines), title="Ralph Loop"))
+        return
+
+    if normalized == "refresh-context":
+        storage = get_storage()
+        hook = ContextRefreshHook(AGENT_DIR, storage, files)
+        try:
+            summary = hook.refresh(task=task, item_id=item_id, iteration=iteration)
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[error]Context refresh failed: {exc}[/error]")
+            raise typer.Exit(1) from None
+        adapters_written = summary.get("adapters_written")
+        adapter_list = adapters_written if isinstance(adapters_written, list) else []
+        adapter_names = ", ".join(str(name) for name in adapter_list)
+        lines = [
+            "[success]✓ Context refreshed[/success]",
+            f"  Context length: {summary.get('context_length', 0)}",
+            f"  Adapters: {adapter_names or 'none'}",
+        ]
+        task_value = summary.get("task")
+        if isinstance(task_value, str) and task_value.strip():
+            lines.append(f"  Task: {task_value}")
+        console.print("\n".join(lines))
         return
 
     updates: dict[str, object] = {"enabled": normalized == "enable"}

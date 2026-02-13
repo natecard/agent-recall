@@ -253,6 +253,9 @@
 - Outcome: progressed
 - Notes: Added ContextRefreshHook that builds Ralph task strings, assembles context with retrieval, writes adapter payloads, and returns a summary dict.
 - Next: Run validation; if green, proceed to AR-205 refresh-context CLI command.
+- Outcome: progressed
+- Notes: Wired Ralph refresh-context CLI action to ContextRefreshHook with task/item/iteration options and clear success output.
+- Next: Run validation and then continue with AR-204 archive/search CLI commands.
 
 ## 2026-02-13T02:30:00Z Iteration 6
 - Item: AR-009 - Ship shared backend tracer-bullet (single-tenant)
