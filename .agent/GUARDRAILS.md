@@ -125,6 +125,9 @@
 ## 2026-02-13T08:00:00Z Iteration 2 (AR-018)
 - When reporting command parity, surface both extra CLI and extra TUI commands so drift is visible from either side.
 
+## 2026-02-13T09:12:00Z Iteration 3 (AR-018)
+- Keep deprecated CLI aliases (like `config-llm`) out of the command contract so parity only tracks supported surfaces.
+
 ## 2026-02-13T02:30:00Z Iteration 6 (AR-009)
 - Use `respx` to verify HTTP clients against mocked endpoints without requiring a running server in unit tests.
 - Always use `response.raise_for_status()` in HTTP client methods to ensure errors propagate correctly.

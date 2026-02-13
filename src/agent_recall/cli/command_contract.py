@@ -47,6 +47,42 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("tui",),
         ),
         CommandContract(
+            command="init",
+            aliases=(),
+            description="Initialize agent memory in the current repository",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="splash",
+            aliases=(),
+            description="Display the Agent Recall splash banner",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="start",
+            aliases=(),
+            description="Start a new session and output context",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="log",
+            aliases=(),
+            description="Log an observation or learning",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="end",
+            aliases=(),
+            description="End the current session",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="context",
+            aliases=(),
+            description="Output current context bundle",
+            surfaces=("cli",),
+        ),
+        CommandContract(
             command="status",
             aliases=(),
             description="Show repository status and source availability",
@@ -66,10 +102,16 @@ def get_command_contract() -> list[CommandContract]:
         ),
         CommandContract(
             command="sync",
-            aliases=("run",),
+            aliases=(),
             description="Ingest conversations (optionally skip compaction)",
             surfaces=("cli", "tui"),
             notes="TUI palette has dedicated run alias for sync + compact.",
+        ),
+        CommandContract(
+            command="run",
+            aliases=(),
+            description="Alias for sync (includes synthesis by default)",
+            surfaces=("tui",),
         ),
         CommandContract(
             command="view",
@@ -88,6 +130,18 @@ def get_command_contract() -> list[CommandContract]:
             aliases=(),
             description="Synthesize knowledge from recent logs",
             surfaces=("cli", "tui"),
+        ),
+        CommandContract(
+            command="retrieve",
+            aliases=(),
+            description="Retrieve relevant memory chunks",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="ingest",
+            aliases=(),
+            description="Ingest a JSONL transcript into log entries",
+            surfaces=("cli",),
         ),
         CommandContract(
             command="compact-tiers",
@@ -109,6 +163,24 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("cli",),
         ),
         CommandContract(
+            command="providers",
+            aliases=(),
+            description="List available LLM providers",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="test-llm",
+            aliases=(),
+            description="Test the configured LLM provider",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="config",
+            aliases=(),
+            description="Manage onboarding and model configuration",
+            surfaces=("cli",),
+        ),
+        CommandContract(
             command="config setup",
             aliases=(),
             description="Run repository setup",
@@ -116,7 +188,7 @@ def get_command_contract() -> list[CommandContract]:
         ),
         CommandContract(
             command="config model",
-            aliases=("config-llm",),
+            aliases=(),
             description="Configure provider and model defaults",
             surfaces=("cli", "tui"),
         ),
@@ -126,6 +198,12 @@ def get_command_contract() -> list[CommandContract]:
             description="Configure workspace settings",
             surfaces=("tui",),
             notes="Config settings command is not yet available in CLI.",
+        ),
+        CommandContract(
+            command="theme",
+            aliases=(),
+            description="Manage CLI themes",
+            surfaces=("cli",),
         ),
         CommandContract(
             command="theme list",
@@ -146,22 +224,28 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("cli", "tui"),
         ),
         CommandContract(
+            command="ralph",
+            aliases=(),
+            description="Manage Ralph loop configuration",
+            surfaces=("cli",),
+        ),
+        CommandContract(
             command="ralph status",
             aliases=(),
             description="Show Ralph loop status",
-            surfaces=("cli", "tui"),
+            surfaces=("tui",),
         ),
         CommandContract(
             command="ralph enable",
             aliases=(),
             description="Enable Ralph loop",
-            surfaces=("cli", "tui"),
+            surfaces=("tui",),
         ),
         CommandContract(
             command="ralph disable",
             aliases=(),
             description="Disable Ralph loop",
-            surfaces=("cli", "tui"),
+            surfaces=("tui",),
         ),
         CommandContract(
             command="refresh-context",
