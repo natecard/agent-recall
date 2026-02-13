@@ -631,7 +631,7 @@
 				"CLI commands use these helpers consistently for default path resolution."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "AR-208",
@@ -669,7 +669,7 @@
 				"All tests pass with uv run pytest."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "AR-301",
@@ -992,6 +992,33 @@
 				"All integration tests pass with uv run pytest.",
 				"ruff check reports no issues in compact.py.",
 				"ty check reports no type errors in compact.py."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-604",
+			"category": "functional",
+			"priority": 1,
+			"title": "Allow users to select PRD items for Ralph loop from TUI and CLI",
+			"description": "Add TUI picker and CLI flags so users can choose which PRD items are included in the Ralph loop. Selected PRDs must not exceed max_iterations.",
+			"user_story": "As a developer running the Ralph loop, I want to select which PRD items to work on from the TUI or CLI so I can focus on a subset of items or run shorter loops.",
+			"steps": [
+				"Add selected_prd_ids (list of strings or null) to Ralph config schema and RalphLoopConfig model; null means all items.",
+				"Create TUI modal for PRD selection with OptionList displaying items in conversation-style format: marker (✓/○) + title + [dim](id · priority N · status)[/dim].",
+				"Add filter input and Space-to-toggle, Enter-to-apply UX matching SessionRunModal.",
+				"Enforce validation: number of selected PRDs cannot exceed max_iterations; show error in TUI and CLI when violated.",
+				"Add --prds AR-001 AR-002 ... flag to ralph enable and ralph run CLI commands.",
+				"Validate CLI --prds IDs exist in prd.json; reject invalid IDs with clear error.",
+				"Persist selected_prd_ids to config when user applies selection in TUI or sets via CLI.",
+				"Update bash loop script to accept --prd-ids or filter PRD before invocation so loop processes only selected items."
+			],
+			"acceptance": [
+				"TUI displays PRD list with same OptionList format as conversations (checkmark/○ marker, filter, Space toggles, Enter applies).",
+				"CLI accepts --prds AR-001 AR-002 using id strings from prd.json.",
+				"Selected PRD count cannot exceed max_iterations; validation errors are clear.",
+				"Config persists selected_prd_ids; null/empty means all items.",
+				"Ralph loop processes only selected items when configured."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
 			"passes": false

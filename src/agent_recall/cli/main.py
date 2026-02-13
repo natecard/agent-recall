@@ -222,6 +222,17 @@ def get_default_prd_path() -> Path:
     return candidates[0]
 
 
+def get_default_script_path() -> Path:
+    candidates = [
+        Path("agent_recall/scripts/ralph-agent-recall-loop.sh"),
+        Path("scripts/ralph-agent-recall-loop.sh"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
 INITIAL_GUARDRAILS = """# Guardrails
 
 Rules and warnings for this codebase. Entries added automatically from agent sessions.

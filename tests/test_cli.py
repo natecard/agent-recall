@@ -72,6 +72,62 @@ def test_cli_help_import_sanity() -> None:
     assert "Agent Memory System" in result.output
 
 
+def test_get_default_prd_path_returns_agent_ralph_when_exists() -> None:
+    with runner.isolated_filesystem():
+        (Path(".agent") / "ralph").mkdir(parents=True)
+        (Path(".agent") / "ralph" / "prd.json").write_text("{}")
+        result = cli_main.get_default_prd_path()
+        assert result == Path(".agent/ralph/prd.json")
+        assert result.exists()
+
+
+def test_get_default_prd_path_falls_back_to_agent_recall_when_primary_missing() -> None:
+    with runner.isolated_filesystem():
+        (Path("agent_recall") / "ralph").mkdir(parents=True)
+        (Path("agent_recall") / "ralph" / "prd.json").write_text("{}")
+        result = cli_main.get_default_prd_path()
+        assert result == Path("agent_recall/ralph/prd.json")
+        assert result.exists()
+
+
+def test_get_default_prd_path_falls_back_to_prd_json_when_others_missing() -> None:
+    with runner.isolated_filesystem():
+        Path("prd.json").write_text("{}")
+        result = cli_main.get_default_prd_path()
+        assert result == Path("prd.json")
+        assert result.exists()
+
+
+def test_get_default_prd_path_returns_first_candidate_when_none_exist() -> None:
+    with runner.isolated_filesystem():
+        result = cli_main.get_default_prd_path()
+        assert result == Path(".agent/ralph/prd.json")
+
+
+def test_get_default_script_path_returns_agent_recall_scripts_when_exists() -> None:
+    with runner.isolated_filesystem():
+        (Path("agent_recall") / "scripts").mkdir(parents=True)
+        (Path("agent_recall") / "scripts" / "ralph-agent-recall-loop.sh").write_text("#!/bin/bash")
+        result = cli_main.get_default_script_path()
+        assert result == Path("agent_recall/scripts/ralph-agent-recall-loop.sh")
+        assert result.exists()
+
+
+def test_get_default_script_path_falls_back_to_scripts_when_primary_missing() -> None:
+    with runner.isolated_filesystem():
+        Path("scripts").mkdir()
+        (Path("scripts") / "ralph-agent-recall-loop.sh").write_text("#!/bin/bash")
+        result = cli_main.get_default_script_path()
+        assert result == Path("scripts/ralph-agent-recall-loop.sh")
+        assert result.exists()
+
+
+def test_get_default_script_path_returns_first_candidate_when_none_exist() -> None:
+    with runner.isolated_filesystem():
+        result = cli_main.get_default_script_path()
+        assert result == Path("agent_recall/scripts/ralph-agent-recall-loop.sh")
+
+
 def test_cli_init_creates_agent_dir() -> None:
     with runner.isolated_filesystem():
         result = runner.invoke(cli_main.app, ["init"])
@@ -1668,6 +1724,122 @@ def test_cli_ralph_compact_mode_updates_config() -> None:
         config = FileStorage(Path(".agent")).read_config()
         ralph_config = config.get("ralph", {})
         assert ralph_config.get("compact_mode") == "on-failure"
+
+
+def test_cli_ralph_archive_completed_uses_default_prd_path() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        (Path(".agent") / "ralph").mkdir(parents=True)
+        (Path(".agent") / "ralph" / "prd.json").write_text(
+            json.dumps(
+                {
+                    "project": "Test",
+                    "items": [
+                        {
+                            "id": "AR-001",
+                            "title": "Done item",
+                            "passes": True,
+                        },
+                    ],
+                }
+            )
+        )
+        result = runner.invoke(cli_main.app, ["ralph", "archive-completed"])
+        assert result.exit_code == 0
+        assert "Archived 1 item(s)" in result.output
+        assert "AR-001" in result.output
+
+
+def test_cli_ralph_archive_completed_missing_prd_exits_with_error() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["ralph", "archive-completed"])
+        assert result.exit_code == 1
+        assert "PRD file not found" in result.output
+
+
+def test_cli_ralph_archive_completed_no_passing_items() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        (Path(".agent") / "ralph").mkdir(parents=True)
+        (Path(".agent") / "ralph" / "prd.json").write_text(
+            json.dumps(
+                {
+                    "project": "Test",
+                    "items": [
+                        {"id": "AR-001", "title": "Pending", "passes": False},
+                    ],
+                }
+            )
+        )
+        result = runner.invoke(cli_main.app, ["ralph", "archive-completed"])
+        assert result.exit_code == 0
+        assert "No new items to archive" in result.output
+
+
+def test_cli_ralph_search_archive_with_populated_archive() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        (Path(".agent") / "ralph").mkdir(parents=True)
+        (Path(".agent") / "ralph" / "prd.json").write_text(
+            json.dumps(
+                {
+                    "project": "Test",
+                    "items": [
+                        {"id": "AR-001", "title": "Auth", "passes": True},
+                    ],
+                }
+            )
+        )
+        assert runner.invoke(cli_main.app, ["ralph", "archive-completed"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["ralph", "search-archive", "auth"])
+        assert result.exit_code == 0
+        assert "AR-001" in result.output
+        assert "Auth" in result.output
+
+
+def test_cli_ralph_search_archive_empty_archive() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["ralph", "search-archive", "anything"])
+        assert result.exit_code == 0
+        assert "No matching archived items found" in result.output
+
+
+def test_cli_ralph_refresh_context_with_agent_dir() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["ralph", "refresh-context"])
+        assert result.exit_code == 0
+        assert "Context refreshed" in result.output
+        assert "Context length:" in result.output
+
+
+def test_cli_ralph_refresh_context_with_parameters() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(
+            cli_main.app,
+            [
+                "ralph",
+                "refresh-context",
+                "--task",
+                "Implement JWT",
+                "--item",
+                "AR-001",
+                "--iteration",
+                "2",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Context refreshed" in result.output
+
+
+def test_cli_ralph_refresh_context_without_agent_dir_exits_with_error() -> None:
+    with runner.isolated_filesystem():
+        result = runner.invoke(cli_main.app, ["ralph", "refresh-context"])
+        assert result.exit_code == 1
+        assert "Not initialized" in result.output or "error" in result.output.lower()
 
 
 def test_cli_config_adapters_updates_config() -> None:
