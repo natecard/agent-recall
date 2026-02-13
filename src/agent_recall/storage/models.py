@@ -168,6 +168,14 @@ class SharedStorageConfig(BaseModel):
         default=False,
         description="Fail if api_key_env is unset/empty when using HTTP shared backend",
     )
+    role: Literal["admin", "writer", "reader"] = Field(
+        default="writer",
+        description="Shared backend role for RBAC enforcement",
+    )
+    allow_promote: bool = Field(
+        default=True,
+        description="Allow promote/dedup actions when role permits",
+    )
     timeout_seconds: float = Field(default=10.0, gt=0.0, description="HTTP timeout in seconds")
     retry_attempts: int = Field(
         default=2,

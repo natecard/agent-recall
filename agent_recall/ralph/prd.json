@@ -282,8 +282,8 @@
       "description": "Secure shared memory operations with role-based permissions and full mutation audit logs.",
       "user_story": "Allow team leads to control who can write or promote memory and review who changed what.",
       "steps": [
-        "Implement token-based authentication for shared backend client operations.",
-        "Add role checks for read, write, promote, and delete operations.",
+        "[done] Implement token-based authentication for shared backend client operations.",
+        "[done] Add role checks for read, write, promote, and delete operations.",
         "Record immutable audit events for every shared-memory mutation.",
         "Add permission and audit-log tests for allow/deny scenarios."
       ],

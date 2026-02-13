@@ -12,6 +12,7 @@ from uuid import UUID
 import httpx
 
 from agent_recall.storage.base import (
+    PermissionDeniedError,
     SharedBackendUnavailableError,
     Storage,
     validate_shared_namespace,
@@ -85,8 +86,21 @@ class _HTTPClient(Storage):
         self._client = httpx.Client(
             base_url=config.base_url, headers=headers, timeout=config.timeout_seconds
         )
+        self._role = config.role
+        self._allow_promote = config.allow_promote
+
+    def _require_role(self, *allowed: str) -> None:
+        if self._role not in allowed:
+            raise PermissionDeniedError(
+                f"Shared backend role '{self._role}' is not allowed to perform this action."
+            )
+
+    def _require_promote(self) -> None:
+        if not self._allow_promote:
+            raise PermissionDeniedError("Shared backend promotion actions are disabled.")
 
     def create_session(self, session: Session) -> None:
+        self._require_role("admin", "writer")
         response = self._client.post("/sessions", content=session.model_dump_json())
         response.raise_for_status()
 
@@ -105,7 +119,7 @@ class _HTTPClient(Storage):
         return Session.model_validate(response.json())
 
     def list_sessions(self, limit: int = 50, status: SessionStatus | None = None) -> list[Session]:
-        params = {"limit": limit}
+        params: dict[str, str | int] = {"limit": limit}
         if status:
             params["status"] = status.value
         response = self._client.get("/sessions", params=params)
@@ -113,10 +127,12 @@ class _HTTPClient(Storage):
         return [Session.model_validate(s) for s in response.json()]
 
     def update_session(self, session: Session) -> None:
+        self._require_role("admin", "writer")
         response = self._client.put(f"/sessions/{session.id}", content=session.model_dump_json())
         response.raise_for_status()
 
     def append_entry(self, entry: LogEntry) -> None:
+        self._require_role("admin", "writer")
         response = self._client.post("/entries", content=entry.model_dump_json())
         response.raise_for_status()
 
@@ -141,6 +157,8 @@ class _HTTPClient(Storage):
         return response.json()["count"]
 
     def store_chunk(self, chunk: Chunk) -> None:
+        self._require_role("admin", "writer")
+        self._require_promote()
         response = self._client.post("/chunks", content=chunk.model_dump_json())
         response.raise_for_status()
 
@@ -178,6 +196,7 @@ class _HTTPClient(Storage):
         return response.json()["processed"]
 
     def mark_session_processed(self, source_session_id: str) -> None:
+        self._require_role("admin", "writer")
         response = self._client.put(
             "/processed_sessions", json={"source_session_id": source_session_id}
         )
@@ -188,6 +207,7 @@ class _HTTPClient(Storage):
         source: str | None = None,
         source_session_id: str | None = None,
     ) -> int:
+        self._require_role("admin", "writer")
         params = {}
         if source:
             params["source"] = source
@@ -205,6 +225,7 @@ class _HTTPClient(Storage):
         return SessionCheckpoint.model_validate(response.json())
 
     def save_session_checkpoint(self, checkpoint: SessionCheckpoint) -> None:
+        self._require_role("admin", "writer")
         response = self._client.put("/checkpoints", content=checkpoint.model_dump_json())
         response.raise_for_status()
 
@@ -213,6 +234,7 @@ class _HTTPClient(Storage):
         source: str | None = None,
         source_session_id: str | None = None,
     ) -> int:
+        self._require_role("admin", "writer")
         params = {}
         if source:
             params["source"] = source
@@ -246,10 +268,12 @@ class _HTTPClient(Storage):
         return BackgroundSyncStatus.model_validate(response.json())
 
     def save_background_sync_status(self, status: BackgroundSyncStatus) -> None:
+        self._require_role("admin", "writer")
         response = self._client.put("/background-sync/status", content=status.model_dump_json())
         response.raise_for_status()
 
     def start_background_sync(self, pid: int) -> BackgroundSyncStatus:
+        self._require_role("admin", "writer")
         response = self._client.post("/background-sync/start", json={"pid": pid})
         response.raise_for_status()
         return BackgroundSyncStatus.model_validate(response.json())
@@ -260,6 +284,7 @@ class _HTTPClient(Storage):
         learnings_extracted: int,
         error_message: str | None = None,
     ) -> BackgroundSyncStatus:
+        self._require_role("admin", "writer")
         payload = {
             "sessions_processed": sessions_processed,
             "learnings_extracted": learnings_extracted,

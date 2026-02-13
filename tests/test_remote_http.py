@@ -5,7 +5,10 @@ import httpx
 import pytest
 import respx
 
+from agent_recall.storage.base import PermissionDeniedError
 from agent_recall.storage.models import (
+    Chunk,
+    ChunkSource,
     SemanticLabel,
     Session,
     SessionStatus,
@@ -177,3 +180,48 @@ def test_http_sets_authorization_header_when_api_key_set(http_config, monkeypatc
 
     assert route.called
     assert route.calls.last.request.headers["Authorization"] == "Bearer test-token"
+
+
+def test_reader_role_blocks_write_operations(http_config):
+    http_config.role = "reader"
+    storage = RemoteStorage(http_config)
+    session = Session(task="test task", status=SessionStatus.ACTIVE)
+
+    with pytest.raises(PermissionDeniedError):
+        storage.create_session(session)
+
+
+def test_writer_role_allows_write_operations(http_config):
+    http_config.role = "writer"
+    storage = RemoteStorage(http_config)
+    session = Session(task="test task", status=SessionStatus.ACTIVE)
+
+    with respx.mock:
+        respx.post("http://test-server/sessions").mock(return_value=httpx.Response(201))
+        storage.create_session(session)
+
+
+def test_promote_gate_blocks_chunk_store(http_config):
+    http_config.allow_promote = False
+    storage = RemoteStorage(http_config)
+    chunk = Chunk(
+        content="content",
+        label=SemanticLabel.PATTERN,
+        source=ChunkSource.MANUAL,
+    )
+
+    with pytest.raises(PermissionDeniedError):
+        storage.store_chunk(chunk)
+
+
+def test_promote_gate_allows_chunk_store(http_config):
+    storage = RemoteStorage(http_config)
+    chunk = Chunk(
+        content="content",
+        label=SemanticLabel.PATTERN,
+        source=ChunkSource.MANUAL,
+    )
+
+    with respx.mock:
+        respx.post("http://test-server/chunks").mock(return_value=httpx.Response(201))
+        storage.store_chunk(chunk)

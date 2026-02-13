@@ -22,6 +22,12 @@ class SharedBackendUnavailableError(Exception):
     pass
 
 
+class PermissionDeniedError(Exception):
+    """Raised when the shared storage role is not permitted to perform an action."""
+
+    pass
+
+
 class NamespaceValidationError(Exception):
     """Raised when namespace metadata is missing or invalid for shared storage."""
 
