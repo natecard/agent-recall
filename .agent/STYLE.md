@@ -195,3 +195,6 @@
 - Keep validation command green before committing: uv run pytest && uv run ruff check . && uv run ty check
 - Start debugging from the first actionable validation line: testpaths: tests
 - Runtime logs: agent_recall/ralph/.runtime/agent-1.log, agent_recall/ralph/.runtime/validate-1.log
+
+## 2026-02-13T06:00:00Z Iteration 4 (AR-007)
+- Document shared storage with a compact config snippet plus a migration checklist for first-time enablement.

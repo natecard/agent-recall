@@ -102,6 +102,26 @@ llm:
   base_url: null       # for ollama: http://localhost:11434/v1
 ```
 
+## Shared storage (team mode)
+
+Opt-in to shared memory by switching storage backend to shared and configuring the shared connection.
+
+```yaml
+storage:
+  backend: shared
+  shared:
+    base_url: "file:///path/to/shared/agent-recall.db"  # file://, sqlite://, https://
+    tenant_id: "org-123"
+    project_id: "repo-abc"
+    api_key_env: AGENT_RECALL_SHARED_API_KEY
+```
+
+Migration path for existing local memory:
+
+1. Pick a shared backend URL (`file://`, `sqlite://`, or `https://`).
+2. Run `agent-recall compact` and `agent-recall sync` once with `storage.backend: shared` to seed shared storage.
+3. Point additional machines at the same `base_url` and namespace (tenant/project).
+
 You can also configure providers via CLI:
 
 ```bash

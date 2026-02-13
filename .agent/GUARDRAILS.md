@@ -248,3 +248,6 @@
 
 ## 2026-02-13T05:12:08Z Iteration 3 (AR-011)
 - When emitting audit events, keep it best-effort and default-on with a config toggle so shared write flows remain consistent in tests.
+
+## 2026-02-13T06:00:00Z Iteration 4 (AR-007)
+- Keep shared-storage docs explicit about opting in via `storage.backend: shared` and shared namespace keys (tenant/project).
