@@ -293,6 +293,15 @@
 - Notes: Added refresh-context and archive-completed hook helpers to the bash loop; hooks are guarded by uv availability, log outputs to .runtime, warn on failure, and run at iteration end/clean completion.
 - Next: Run validation, then proceed with AR-207 path helper defaults.
 
+## 2026-02-13T10:05:00Z Iteration 2
+- Item: AR-601 - Update compact.py imports to canonical tier_format API
+- Mode: feature
+- Agent exit code: 0
+- Validation: passed
+- Outcome: progressed
+- Notes: Verified compact.py already uses canonical tier_format imports; updated PRD priority ordering and marked AR-601 complete.
+- Next: Implement AR-301 Ralph CLI scaffolding in a dedicated ralph.py subapp.
+
 ## 2026-02-13T02:30:00Z Iteration 6
 - Item: AR-009 - Ship shared backend tracer-bullet (single-tenant)
 - Mode: feature

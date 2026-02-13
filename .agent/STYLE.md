@@ -159,6 +159,9 @@
 ## 2026-02-13T02:05:00Z Iteration 1 (AR-602)
 - Keep Ralph-block skipping logic isolated in the tier line splitter so merge/write paths stay unchanged.
 
+## 2026-02-13T10:05:00Z Iteration 2 (AR-601)
+- Prefer verifying existing code with direct grep/reads before editing; mark PRD passes when acceptance criteria are already satisfied.
+
 ## 2026-02-13T02:02:56Z Iteration 4 (AR-010)
 - Prefer one logical change per commit.
 - Keep validation command green before committing: uv run pytest && uv run ruff check . && uv run ty check

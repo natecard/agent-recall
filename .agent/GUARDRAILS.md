@@ -144,6 +144,9 @@
 ## 2026-02-13T02:05:00Z Iteration 1 (AR-602)
 - Skip Ralph blocks during compaction extraction by tracking in-block state and ignoring lines until termination (double-empty or non-Ralph header).
 
+## 2026-02-13T10:05:00Z Iteration 2 (AR-601)
+- When a PRD item requires only verification (no code edits), still run full validation and record the outcome in progress tracking.
+
 ## 2026-02-13T02:30:00Z Iteration 6 (AR-009)
 - Use `respx` to verify HTTP clients against mocked endpoints without requiring a running server in unit tests.
 - Always use `response.raise_for_status()` in HTTP client methods to ensure errors propagate correctly.
