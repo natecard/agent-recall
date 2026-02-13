@@ -298,6 +298,49 @@ def test_archive_completed_from_prd_prunes_previously_archived_items_from_prd(
     assert updated_ids == ["AR-002"]
 
 
+def test_prune_archived_from_prd_removes_archived_passing_items(tmp_path: Path) -> None:
+    """prune_archived_from_prd removes passing items that are already in the archive."""
+    (tmp_path / "ralph").mkdir(parents=True)
+    prd_path = tmp_path / "prd.json"
+    prd_path.write_text(
+        json.dumps(
+            {
+                "project": "Test",
+                "items": [
+                    {"id": "AR-001", "title": "Done", "passes": True},
+                    {"id": "AR-002", "title": "Pending", "passes": False},
+                ],
+            }
+        )
+    )
+    archive = PRDArchive(tmp_path)
+    archive.archive_item({"id": "AR-001", "title": "Done"})
+
+    # Simulate PRD that was never pruned (AR-001 still present with passes=true)
+    pruned = archive.prune_archived_from_prd(prd_path)
+    assert pruned == 1
+    updated = json.loads(prd_path.read_text())
+    assert [item["id"] for item in updated["items"]] == ["AR-002"]
+
+
+def test_prune_archived_from_prd_returns_zero_when_nothing_to_prune(tmp_path: Path) -> None:
+    (tmp_path / "ralph").mkdir(parents=True)
+    prd_path = tmp_path / "prd.json"
+    prd_path.write_text(
+        json.dumps(
+            {
+                "project": "Test",
+                "items": [
+                    {"id": "AR-001", "title": "Pending", "passes": False},
+                ],
+            }
+        )
+    )
+    archive = PRDArchive(tmp_path)
+    assert archive.prune_archived_from_prd(prd_path) == 0
+    assert json.loads(prd_path.read_text())["items"][0]["id"] == "AR-001"
+
+
 def test_archive_completed_from_prd_does_not_prune_on_partial_archive_failure(
     tmp_path: Path,
 ) -> None:

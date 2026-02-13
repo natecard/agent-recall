@@ -1712,6 +1712,47 @@ def test_cli_ralph_enable_updates_config() -> None:
         assert ralph_config.get("sleep_seconds") == 3
 
 
+def test_cli_ralph_select_prints_instructions() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["ralph", "select"])
+        assert result.exit_code == 0
+        assert "TUI" in result.output
+        assert "Choose PRD items" in result.output
+        assert "set-prds" in result.output
+
+
+def test_cli_ralph_get_selected_prds_outputs_ids() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        (Path("agent_recall") / "ralph").mkdir(parents=True)
+        (Path("agent_recall") / "ralph" / "prd.json").write_text(
+            json.dumps(
+                {
+                    "project": "Test",
+                    "items": [
+                        {"id": "AR-001", "title": "Item 1", "passes": False},
+                        {"id": "AR-002", "title": "Item 2", "passes": False},
+                    ],
+                }
+            )
+        )
+        result = runner.invoke(cli_main.app, ["ralph", "get-selected-prds"])
+        assert result.exit_code == 0
+        assert result.output.strip() == ""
+
+        result = runner.invoke(
+            cli_main.app,
+            ["ralph", "set-prds", "--prds", "AR-001,AR-002"],
+        )
+        assert result.exit_code == 0
+
+        result = runner.invoke(cli_main.app, ["ralph", "get-selected-prds"])
+        assert result.exit_code == 0
+        assert "AR-001" in result.output
+        assert "AR-002" in result.output
+
+
 def test_cli_ralph_compact_mode_updates_config() -> None:
     with runner.isolated_filesystem():
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
@@ -1780,6 +1821,44 @@ def test_cli_ralph_archive_completed_no_passing_items() -> None:
         remaining = json.loads((Path(".agent") / "ralph" / "prd.json").read_text())
         assert len(remaining["items"]) == 1
         assert remaining["items"][0]["id"] == "AR-001"
+
+
+def test_cli_ralph_archive_completed_prune_only() -> None:
+    """--prune-only removes archived items from PRD without archiving new ones."""
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        (Path(".agent") / "ralph").mkdir(parents=True)
+        prd_path = Path(".agent") / "ralph" / "prd.json"
+        prd_path.write_text(
+            json.dumps(
+                {
+                    "project": "Test",
+                    "items": [
+                        {"id": "AR-001", "title": "Done", "passes": True},
+                        {"id": "AR-002", "title": "Pending", "passes": False},
+                    ],
+                }
+            )
+        )
+        # Archive AR-001 first
+        assert runner.invoke(cli_main.app, ["ralph", "archive-completed"]).exit_code == 0
+        # Restore AR-001 to PRD (simulate never-pruned state)
+        prd_path.write_text(
+            json.dumps(
+                {
+                    "project": "Test",
+                    "items": [
+                        {"id": "AR-001", "title": "Done", "passes": True},
+                        {"id": "AR-002", "title": "Pending", "passes": False},
+                    ],
+                }
+            )
+        )
+        result = runner.invoke(cli_main.app, ["ralph", "archive-completed", "--prune-only"])
+        assert result.exit_code == 0
+        assert "Pruned 1 archived item(s)" in result.output
+        remaining = json.loads(prd_path.read_text())
+        assert [item["id"] for item in remaining["items"]] == ["AR-002"]
 
 
 def test_cli_ralph_search_archive_with_populated_archive() -> None:

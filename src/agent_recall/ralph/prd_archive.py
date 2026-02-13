@@ -187,14 +187,47 @@ class PRDArchive:
             self._prune_prd_items(prd_path=prd_path, archived_ids=completed_item_ids)
         return archived_items
 
-    def _prune_prd_items(self, prd_path: Path, archived_ids: set[str]) -> None:
+    def prune_archived_from_prd(self, prd_path: Path) -> int:
+        """Remove from the PRD any passing items that are already in the archive.
+
+        Use this to prune older PRDs that were not pruned previously (e.g. before
+        pruning was added, or when archiving happened outside the loop).
+        Returns the number of items pruned from the PRD.
+        """
+        archived_ids = {item.id for item in self._load_archive()}
         if not archived_ids:
-            return
+            return 0
 
         payload = json.loads(prd_path.read_text())
         items = payload.get("items") if isinstance(payload, dict) else None
         if not isinstance(items, list):
-            return
+            return 0
+
+        to_prune: set[str] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if not item.get("passes"):
+                continue
+            item_id = str(item.get("id", ""))
+            if item_id and item_id in archived_ids:
+                to_prune.add(item_id)
+
+        if to_prune:
+            return self._prune_prd_items(prd_path=prd_path, archived_ids=to_prune)
+        return 0
+
+    def _prune_prd_items(self, prd_path: Path, archived_ids: set[str]) -> int:
+        """Remove passing items whose IDs are in archived_ids from the PRD.
+        Returns the number of items removed.
+        """
+        if not archived_ids:
+            return 0
+
+        payload = json.loads(prd_path.read_text())
+        items = payload.get("items") if isinstance(payload, dict) else None
+        if not isinstance(items, list):
+            return 0
 
         filtered_items: list[Any] = []
         for item in items:
@@ -207,9 +240,11 @@ class PRDArchive:
                 continue
             filtered_items.append(item)
 
-        if len(filtered_items) != len(items):
+        removed = len(items) - len(filtered_items)
+        if removed > 0:
             payload["items"] = filtered_items
             prd_path.write_text(json.dumps(payload, indent=2))
+        return removed
 
     def get_by_id(self, item_id: str) -> ArchivedPRDItem | None:
         for item in self._load_archive():

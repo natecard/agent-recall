@@ -555,6 +555,17 @@ def _collect_cli_commands_for_palette() -> list[str]:
             _walk(subcommand, full)
 
     _walk(root)
+
+    # Include CLI-only contract commands not discovered by Typer walk
+    # (e.g. "ralph set-prds" where action is an argument, not a subcommand)
+    for contract in get_command_contract():
+        if "cli" not in contract.surfaces:
+            continue
+        for cmd in [contract.command, *contract.aliases]:
+            if cmd and cmd not in seen:
+                seen.add(cmd)
+                commands.append(cmd)
+
     return commands
 
 
@@ -826,6 +837,9 @@ def _execute_tui_slash_command(
             "enable",
             "disable",
             "status",
+            "select",
+            "set-prds",
+            "get-selected-prds",
         }
     ):
         command = ["ralph", *parts[1:]]
@@ -3297,6 +3311,11 @@ def ralph(
         "--prds",
         help="Optional. Comma-separated PRD IDs. Omit for all items (model decides).",
     ),
+    prune_only: bool = typer.Option(
+        False,
+        "--prune-only",
+        help="For archive-completed: only prune archived items from PRD, do not archive new ones.",
+    ),
 ):
     """Manage Ralph loop configuration."""
     _get_theme_manager()
@@ -3309,15 +3328,32 @@ def ralph(
         "enable",
         "disable",
         "set-prds",
+        "select",
+        "get-selected-prds",
         "refresh-context",
         "archive-completed",
         "search-archive",
     }:
         console.print(
-            "[error]Action must be one of: status, enable, disable, set-prds, "
-            "refresh-context, archive-completed, search-archive[/error]"
+            "[error]Action must be one of: status, enable, disable, set-prds, select, "
+            "get-selected-prds, refresh-context, archive-completed, search-archive[/error]"
         )
         raise typer.Exit(1)
+
+    if normalized == "select":
+        console.print(
+            "[dim]PRD selection is interactive in the TUI. Use one of:[/dim]\n"
+            "  • [bold]agent-recall open[/bold] then palette (Ctrl+P) → 'Choose PRD items'\n"
+            "  • [bold]agent-recall ralph set-prds --prds AR-001,AR-002[/bold] to set via CLI"
+        )
+        return
+
+    if normalized == "get-selected-prds":
+        ralph_cfg = _read_ralph_config(files)
+        selected_value = ralph_cfg.get("selected_prd_ids")
+        if isinstance(selected_value, list) and selected_value:
+            console.print(",".join(str(x) for x in selected_value if x))
+        return
 
     if compact_mode is not None:
         compact_mode = compact_mode.strip().lower()
@@ -3336,15 +3372,23 @@ def ralph(
         if not prd_path.exists():
             console.print(f"[error]PRD file not found: {prd_path}[/error]")
             raise typer.Exit(1)
-        storage = get_storage()
-        archive = PRDArchive(AGENT_DIR, storage)
-        archived_items = archive.archive_completed_from_prd(prd_path, iteration=int(iteration or 0))
-        if not archived_items:
-            console.print("No new items to archive")
-            return
-        console.print(f"[success]✓ Archived {len(archived_items)} item(s)[/success]")
-        for item in archived_items:
-            console.print(f"• {item.id}: {item.title}")
+        archive = PRDArchive(AGENT_DIR, get_storage() if not prune_only else None)
+        if prune_only:
+            pruned = archive.prune_archived_from_prd(prd_path)
+            if pruned:
+                console.print(f"[success]✓ Pruned {pruned} archived item(s) from PRD[/success]")
+            else:
+                console.print("No archived items to prune from PRD")
+        else:
+            archived_items = archive.archive_completed_from_prd(
+                prd_path, iteration=int(iteration or 0)
+            )
+            if not archived_items:
+                console.print("No new items to archive")
+                return
+            console.print(f"[success]✓ Archived {len(archived_items)} item(s)[/success]")
+            for item in archived_items:
+                console.print(f"• {item.id}: {item.title}")
         return
 
     if normalized == "search-archive":

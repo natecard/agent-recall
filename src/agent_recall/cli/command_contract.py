@@ -278,6 +278,18 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("tui",),
         ),
         CommandContract(
+            command="ralph select",
+            aliases=(),
+            description="Choose which PRD items to include in the Ralph loop",
+            surfaces=("tui",),
+        ),
+        CommandContract(
+            command="ralph set-prds",
+            aliases=(),
+            description="Set selected PRD IDs via CLI (e.g. --prds AR-001,AR-002)",
+            surfaces=("cli",),
+        ),
+        CommandContract(
             command="refresh-context",
             aliases=(),
             description="Refresh context bundle outputs",

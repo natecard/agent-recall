@@ -15,6 +15,7 @@ Core options:
   --agent-output-mode MODE     Agent output format: plain|stream-json (default: plain)
   --agent-timeout-seconds N    Timeout per agent iteration in seconds (default: 0, disabled)
   --prd-file PATH              PRD JSON path (default: agent_recall/ralph/prd.json)
+  --prd-ids ID1,ID2,...        Comma-separated PRD item IDs to process (omit for all)
   --progress-file PATH         Progress log path (default: agent_recall/ralph/progress.txt)
   --prompt-template PATH       Base prompt template (default: agent_recall/ralph/agent-prompt.md)
   --max-iterations N           Max loop iterations (default: 10)
@@ -46,16 +47,19 @@ Automation options:
   --notify-cmd CMD             Optional command on exit; supports {iterations} and {status}
 
 Misc:
+  --archive-only               Run archive-completed (archive + prune) and exit; no agent loop
   -h, --help                   Show help
 
 Environment fallbacks:
   RALPH_AGENT_CMD
   RALPH_VALIDATE_CMD
+  RALPH_PRD_IDS              Comma-separated PRD IDs (or use agent-recall ralph get-selected-prds)
 USAGE
 }
 
 AGENT_CMD="${RALPH_AGENT_CMD:-}"
 VALIDATE_CMD="${RALPH_VALIDATE_CMD:-}"
+PRD_IDS="${RALPH_PRD_IDS:-}"
 AGENT_OUTPUT_MODE="plain"
 AGENT_TIMEOUT_SECONDS=0
 AGENT_TIMEOUT_BACKEND="none"
@@ -82,6 +86,7 @@ COMPACT_CMD="uv run agent-recall compact"
 COMPACT_MODE="always"
 LOCK_FILE="$RUNTIME_DIR/loop.lock"
 LOCK_ACQUIRED=0
+ARCHIVE_ONLY=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -103,6 +108,10 @@ while [[ $# -gt 0 ]]; do
     ;;
   --prd-file)
     PRD_FILE="$2"
+    shift 2
+    ;;
+  --prd-ids)
+    PRD_IDS="$2"
     shift 2
     ;;
   --progress-file)
@@ -184,6 +193,10 @@ while [[ $# -gt 0 ]]; do
     NOTIFY_CMD="$2"
     shift 2
     ;;
+  --archive-only)
+    ARCHIVE_ONLY=1
+    shift
+    ;;
   -h | --help)
     usage
     exit 0
@@ -195,6 +208,23 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
+
+if [[ ${ARCHIVE_ONLY:-0} -eq 1 ]]; then
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "Error: uv is required for --archive-only." >&2
+    exit 1
+  fi
+  if [[ ! -f $PRD_FILE ]]; then
+    echo "Error: PRD file not found: $PRD_FILE" >&2
+    exit 1
+  fi
+  if ! jq -e '.items | type == "array"' "$PRD_FILE" >/dev/null 2>&1; then
+    echo "Error: PRD JSON must contain an .items array." >&2
+    exit 1
+  fi
+  uv run agent-recall ralph archive-completed --prd-file "$PRD_FILE" --iteration 0
+  exit 0
+fi
 
 is_positive_int() {
   [[ $1 =~ ^[1-9][0-9]*$ ]]
@@ -388,6 +418,22 @@ touch "$PROGRESS_FILE"
 ensure_memory_files
 detect_timeout_backend
 acquire_lock
+
+# When --prd-ids (or RALPH_PRD_IDS) is set, filter PRD to only selected items.
+if [[ -n $PRD_IDS ]]; then
+  FILTERED_PRD="$RUNTIME_DIR/prd-filtered.json"
+  ids_json="$(echo "$PRD_IDS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' | jq -R . | jq -s .)"
+  if ! jq --argjson ids "$ids_json" '.items = [.items[]? | select(.id as $id | $ids | index($id))]' "$PRD_FILE" > "$FILTERED_PRD"; then
+    echo "Error: Failed to filter PRD by --prd-ids." >&2
+    exit 1
+  fi
+  filtered_count="$(jq -r '.items | length' "$FILTERED_PRD")"
+  if [[ $filtered_count -eq 0 ]]; then
+    echo "Error: No PRD items match --prd-ids ($PRD_IDS). Check IDs exist in $PRD_FILE." >&2
+    exit 1
+  fi
+  PRD_FILE="$FILTERED_PRD"
+fi
 
 all_done() {
   jq -e '.items | all(.passes == true)' "$PRD_FILE" >/dev/null

@@ -190,6 +190,61 @@ def parse_tier_content(content: str) -> TierContent:
     return tier_content
 
 
+def merge_tier_content(content: TierContent, preserve_order: bool = True) -> str:
+    """Reassemble tier file content from parsed TierContent.
+
+    Output order: preamble → bullet entries → Ralph entries.
+    Sections are separated by double-newline ('\\n\\n').
+    Output always ends with a trailing newline.
+
+    Args:
+        content: Parsed tier content to merge.
+        preserve_order: If True (default), preserve entry order. Currently unused
+            but accepted for backward compatibility.
+
+    Returns:
+        Merged string representation of the tier file.
+    """
+    _ = preserve_order  # Accepted for API compatibility
+    parts: list[str] = []
+
+    preamble_text = "\n".join(content.preamble).strip()
+    if preamble_text:
+        parts.append(preamble_text)
+
+    bullet_text = "\n".join(e.raw_content for e in content.bullet_entries)
+    if bullet_text.strip():
+        parts.append(bullet_text)
+
+    ralph_text = "\n".join(e.raw_content for e in content.ralph_entries)
+    if ralph_text.strip():
+        parts.append(ralph_text)
+
+    if not parts:
+        return "\n"
+
+    return "\n\n".join(parts) + "\n"
+
+
+def split_tier_by_format(content: str) -> tuple[list[str], list[str], list[str]]:
+    """Split tier file content into preamble, bullet, and Ralph sections.
+
+    Backward-compatible wrapper around parse_tier_content() that returns
+    the legacy 3-tuple format for existing callers.
+
+    Returns:
+        (preamble_lines, bullet_strings, ralph_strings) where:
+        - preamble_lines: list of preamble line strings
+        - bullet_strings: raw_content from each bullet ParsedEntry
+        - ralph_strings: raw_content from each Ralph ParsedEntry
+    """
+    tier_content = parse_tier_content(content)
+    preamble_lines = list(tier_content.preamble)
+    bullet_strings = [e.raw_content for e in tier_content.bullet_entries]
+    ralph_strings = [e.raw_content for e in tier_content.ralph_entries]
+    return (preamble_lines, bullet_strings, ralph_strings)
+
+
 detect_entry_format = detect_line_format
 is_ralph_entry_line = is_ralph_entry_start
 is_bullet_entry_line = is_bullet_entry

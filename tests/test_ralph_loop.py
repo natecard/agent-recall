@@ -95,6 +95,48 @@ def test_ralph_loop_injects_iteration_memory_and_agent_context(tmp_path: Path) -
     assert "Outcome: progressed" in recent
 
 
+def test_ralph_loop_prd_ids_filters_items(tmp_path: Path) -> None:
+    """When --prd-ids is set, loop processes only those PRD items."""
+    ralph_dir = tmp_path / "agent_recall" / "ralph"
+    agent_dir = tmp_path / ".agent"
+    ralph_dir.mkdir(parents=True, exist_ok=True)
+    agent_dir.mkdir(parents=True, exist_ok=True)
+
+    (ralph_dir / "prd.json").write_text(
+        """{
+  "project": "Ralph Test",
+  "items": [
+    {"id": "RLPH-001", "priority": 1, "title": "First", "passes": false},
+    {"id": "RLPH-002", "priority": 2, "title": "Second", "passes": false},
+    {"id": "RLPH-003", "priority": 3, "title": "Third", "passes": false}
+  ]
+}
+"""
+    )
+    (ralph_dir / "progress.txt").write_text("# Progress\n")
+    (ralph_dir / "agent-prompt.md").write_text("# Task\n")
+    (agent_dir / "GUARDRAILS.md").write_text("# Guardrails\n")
+    (agent_dir / "STYLE.md").write_text("# Style\n")
+    (agent_dir / "RECENT.md").write_text("# Recent\n")
+
+    result = _run_loop(
+        tmp_path,
+        "--prd-file",
+        str(ralph_dir / "prd.json"),
+        "--prd-ids",
+        "RLPH-002",
+    )
+
+    assert result.returncode == 2
+    prompt_path = tmp_path / "agent_recall" / "ralph" / ".runtime" / "prompt-1.md"
+    assert prompt_path.exists()
+    prompt = prompt_path.read_text()
+    assert "RLPH-002" in prompt
+    assert "RLPH-001" not in prompt or "RLPH-002" in prompt
+    recent = (agent_dir / "RECENT.md").read_text()
+    assert "RLPH-002" in recent
+
+
 def test_ralph_loop_supports_external_repo_layout_with_custom_paths(tmp_path: Path) -> None:
     spec_dir = tmp_path / "spec"
     logs_dir = tmp_path / "logs"
