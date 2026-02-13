@@ -57,3 +57,5 @@ adapters:
   output_dir: .agent/context
   token_budget:
   per_adapter_token_budget: {}
+  per_provider_token_budget: {}
+  per_model_token_budget: {}

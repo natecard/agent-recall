@@ -21,7 +21,7 @@
       "user_story": "Allow users to select OpenAI Codex as one of the agents they can use for the Agent Recall package.",
       "steps": [
         "[done] Find the path for the OpenAI Codex App session files.",
-        "Verify this works across path variations by exploring filesystem path logic.",
+        "[done] Verify this works across path variations by exploring filesystem path logic.",
         "[done] Add structured outputs to extract conversations for Agent Recall.",
         "[done] Harden parsing against different conversation styles (including custom_tool_call/custom_tool_call_output)."
       ],
@@ -101,7 +101,7 @@
         "[done] Finalize package metadata (author, versioning policy, release notes).",
         "[done] Add explicit compatibility matrix for sources/platforms/Python versions.",
         "[done] Expand CI to run lint/type/test on supported Python versions and clean env installs.",
-        "Add smoke tests for init/onboarding/sync/context flows in fresh repositories."
+        "[done] Add smoke tests for init/onboarding/sync/context flows in fresh repositories."
       ],
       "acceptance": [
         "Package metadata and docs are complete and publication-ready.",
@@ -202,9 +202,9 @@
       "description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
       "user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
       "steps": [
-        "Define storage abstraction boundary between local and shared backends.",
-        "Implement first shared backend with auth and namespace isolation.",
-        "Add sync/merge strategy for shared chunks and tier updates.",
+        "[done] Define storage abstraction boundary between local and shared backends.",
+        "[done] Implement first shared backend with auth and namespace isolation.",
+        "[done] Add sync/merge strategy for shared chunks and tier updates.",
         "[done] Document migration path and opt-in configuration for teams."
       ],
       "acceptance": [
@@ -311,7 +311,7 @@
         "[done] Add a pending-memory queue state for newly extracted learnings.",
         "[done] Implement approve/edit/reject operations and status transitions in storage and CLI.",
         "[done] Update compaction/retrieval to respect curation status filters.",
-        "Add tests covering queue lifecycle and promotion behavior."
+        "[done] Add tests covering queue lifecycle and promotion behavior."
       ],
       "acceptance": [
         "New learnings can be reviewed before they become durable guardrails/style context.",
@@ -335,9 +335,9 @@
       "user_story": "Allow developers to benefit from memory without manually running context commands each session.",
       "steps": [
         "[done] Define adapter hooks for each supported agent runtime with consistent context payload structure.",
-        "Implement context bundle generation with configurable token budgets per provider/model.",
-        "Add opt-in/opt-out controls and clear status output for adapter behavior.",
-        "Add integration tests validating that adapters inject current context without duplication."
+        "[done] Implement context bundle generation with configurable token budgets per provider/model.",
+        "[done] Add opt-in/opt-out controls and clear status output for adapter behavior.",
+        "[done] Add integration tests validating that adapters inject current context without duplication."
       ],
       "acceptance": [
         "Supported agents receive up-to-date context automatically when enabled.",
@@ -386,10 +386,10 @@
       "description": "Expose first-class controls for the Ralph loop script lifecycle so users can configure, start, stop, and inspect loop runs without manual shell scripting.",
       "user_story": "Allow developers to run the Ralph loop from the Agent Recall CLI/TUI with clear status, safe defaults, and predictable behavior.",
       "steps": [
-        "Add CLI commands to enable/disable Ralph loop execution and configure loop mode/settings.",
-        "Add TUI controls for starting/stopping the loop and viewing current loop status/last run outcome.",
-        "Persist loop configuration in project config and ensure behavior is explicit across restarts.",
-        "Add tests covering CLI/TUI wiring, state persistence, and failure diagnostics."
+        "[done] Add CLI commands to enable/disable Ralph loop execution and configure loop mode/settings.",
+        "[done] Add TUI controls for starting/stopping the loop and viewing current loop status/last run outcome.",
+        "[done] Persist loop configuration in project config and ensure behavior is explicit across restarts.",
+        "[done] Add tests covering CLI/TUI wiring, state persistence, and failure diagnostics."
       ],
       "acceptance": [
         "Users can enable or disable Ralph loop behavior directly from CLI and TUI.",
@@ -466,10 +466,10 @@
       "description": "Define and enforce a single command contract so the TUI and CLI mirror each other with no hidden drift.",
       "user_story": "Allow developers to use either CLI or TUI interchangeably and get the same capabilities with consistent naming and behavior.",
       "steps": [
-        "Build a generated inventory of CLI commands, TUI slash commands, and palette actions.",
-        "Define a canonical command contract (name, aliases, arguments, expected behavior) shared by both interfaces.",
-        "Refactor help text and palette suggestions to read from the shared command contract.",
-        "Add parity tests that fail if command exposure or behavior diverges between CLI and TUI."
+        "[done] Build a generated inventory of CLI commands, TUI slash commands, and palette actions.",
+        "[done] Define a canonical command contract (name, aliases, arguments, expected behavior) shared by both interfaces.",
+        "[done] Refactor help text and palette suggestions to read from the shared command contract.",
+        "[done] Add parity tests that fail if command exposure or behavior diverges between CLI and TUI."
       ],
       "acceptance": [
         "A command parity report can be generated and shows no untracked CLI/TUI drift.",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
@@ -75,6 +76,45 @@ def test_cli_init_creates_agent_dir() -> None:
     with runner.isolated_filesystem():
         result = runner.invoke(cli_main.app, ["init"])
         assert result.exit_code == 0
+
+
+def test_cli_smoke_fresh_repo_init_onboarding_sync_context(monkeypatch) -> None:
+    class FakeAutoSync:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def sync(self, since=None, sources=None, session_ids=None, max_sessions=None):
+            _ = (since, sources, session_ids, max_sessions)
+            return {
+                "sessions_discovered": 0,
+                "sessions_processed": 0,
+                "sessions_skipped": 0,
+                "learnings_extracted": 0,
+                "by_source": {},
+                "errors": [],
+            }
+
+    monkeypatch.setattr(cli_main, "AutoSync", FakeAutoSync)
+    monkeypatch.setattr(
+        cli_main,
+        "ensure_provider_dependency",
+        lambda *_args, **_kwargs: (True, None),
+    )
+    monkeypatch.setattr(cli_main, "get_default_ingesters", lambda **_kwargs: [])
+
+    with runner.isolated_filesystem():
+        Path(".git").mkdir()
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+
+        setup = runner.invoke(cli_main.app, ["config", "setup", "--quick", "--force"])
+        assert setup.exit_code == 0
+
+        sync = runner.invoke(cli_main.app, ["sync", "--no-compact"])
+        assert sync.exit_code == 0
+
+        context = runner.invoke(cli_main.app, ["context"])
+        assert context.exit_code == 0
+        assert "## Guardrails" in context.output
 
 
 def test_cli_session_flow() -> None:
@@ -450,6 +490,48 @@ def test_cli_refresh_context_applies_adapter_token_budget() -> None:
 
         assert len(codex_payload["context"]) <= 8
         assert len(cursor_payload["context"]) <= 4
+
+
+def test_cli_refresh_context_applies_provider_and_model_token_budget() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        assert (
+            runner.invoke(cli_main.app, ["start", "provider model adapter budget"]).exit_code == 0
+        )
+
+        files = FileStorage(Path(".agent"))
+        config = files.read_config()
+        config["llm"] = {
+            **config.get("llm", {}),
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-20250514",
+        }
+        config["adapters"] = {
+            "enabled": True,
+            "output_dir": ".agent/context",
+            "per_provider_token_budget": {"anthropic": 1},
+            "per_model_token_budget": {},
+        }
+        files.write_config(config)
+
+        provider_only = runner.invoke(cli_main.app, ["refresh-context"])
+        assert provider_only.exit_code == 0
+        bundle_dir = Path(".agent") / "context"
+        provider_payload = json.loads((bundle_dir / "codex" / "context.json").read_text())
+        provider_budget_len = len(provider_payload["context"])
+
+        config = files.read_config()
+        config["adapters"]["per_model_token_budget"] = {"claude-sonnet-4-20250514": 2}
+        files.write_config(config)
+
+        model_override = runner.invoke(cli_main.app, ["refresh-context"])
+        assert model_override.exit_code == 0
+        model_payload = json.loads((bundle_dir / "codex" / "context.json").read_text())
+        model_budget_len = len(model_payload["context"])
+
+        assert provider_budget_len <= 4
+        assert model_budget_len <= 8
+        assert model_budget_len >= provider_budget_len
 
 
 def test_cli_refresh_context_respects_adapter_opt_out() -> None:
@@ -1378,6 +1460,25 @@ def test_tui_slash_run_alias_dispatch(monkeypatch) -> None:
     assert any("/run --max-sessions 2" in line for line in lines)
 
 
+def test_tui_slash_ralph_commands_dispatch(monkeypatch) -> None:
+    captured: list[list[str]] = []
+
+    def fake_invoke(_app, args, **_kwargs):
+        captured.append(args)
+        return SimpleNamespace(exit_code=0, output="Ralph updated\n")
+
+    monkeypatch.setattr(cli_main._slash_runner, "invoke", fake_invoke)
+
+    should_exit, _lines = cli_main._execute_tui_slash_command("/ralph enable")
+    assert should_exit is False
+    should_exit, _lines = cli_main._execute_tui_slash_command("/ralph disable")
+    assert should_exit is False
+    should_exit, _lines = cli_main._execute_tui_slash_command("/ralph status")
+    assert should_exit is False
+
+    assert captured == [["ralph", "enable"], ["ralph", "disable"], ["ralph", "status"]]
+
+
 def test_tui_slash_preserves_table_output(monkeypatch) -> None:
     class FakeResult:
         exit_code = 0
@@ -1522,6 +1623,21 @@ def test_cli_ralph_status_uses_defaults() -> None:
         assert "Status: disabled" in result.output
 
 
+def test_cli_ralph_status_reports_last_outcome() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        (Path(".agent") / "RECENT.md").write_text(
+            "# Recent\n\n## 2026-02-13T10:00:00Z Iteration 1\n- Outcome: progressed\n"
+        )
+
+        result = runner.invoke(cli_main.app, ["ralph", "status"])
+        assert result.exit_code == 0
+        assert "Last run:" in result.output
+        assert "2026-02-13T10:00:00Z Iteration 1" in result.output
+        assert "Last outcome:" in result.output
+        assert "progressed" in result.output
+
+
 def test_cli_ralph_enable_updates_config() -> None:
     with runner.isolated_filesystem():
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
@@ -1578,3 +1694,25 @@ def test_cli_config_adapters_updates_config() -> None:
         assert adapters.get("output_dir") == "agent-context"
         assert adapters.get("token_budget") == 120
         assert adapters.get("per_adapter_token_budget") == {"codex": 40, "cursor": 80}
+
+
+def test_cli_config_adapters_supports_provider_and_model_budgets() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(
+            cli_main.app,
+            [
+                "config",
+                "adapters",
+                "--enabled",
+                "--per-provider-token-budget",
+                "anthropic=60",
+                "--per-model-token-budget",
+                "claude-sonnet-4-20250514=90",
+            ],
+        )
+        assert result.exit_code == 0
+        config = FileStorage(Path(".agent")).read_config()
+        adapters = config.get("adapters", {})
+        assert adapters.get("per_provider_token_budget") == {"anthropic": 60}
+        assert adapters.get("per_model_token_budget") == {"claude-sonnet-4-20250514": 90}

@@ -654,6 +654,48 @@ def _format_adapter_token_budget(adapter_config: dict[str, object]) -> str:
     return str(value) if value is not None else "none"
 
 
+def _format_named_token_budgets(values: object) -> str:
+    if not isinstance(values, dict):
+        return "none"
+    normalized: list[str] = []
+    for name, budget in values.items():
+        if not isinstance(name, str):
+            continue
+        if not isinstance(budget, int):
+            continue
+        normalized.append(f"{name}={budget}")
+    return ", ".join(normalized) if normalized else "none"
+
+
+def _parse_named_token_budgets(raw_value: str, *, label: str) -> dict[str, int]:
+    parsed: dict[str, int] = {}
+    if not raw_value.strip():
+        return parsed
+    for raw in raw_value.split(","):
+        item = raw.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            console.print(f"[error]Invalid {label} budget '{item}'. Use name=tokens.[/error]")
+            raise typer.Exit(1)
+        name, value = item.split("=", 1)
+        name = name.strip()
+        value = value.strip()
+        if not name:
+            console.print(f"[error]{label.title()} name cannot be empty.[/error]")
+            raise typer.Exit(1)
+        try:
+            tokens = int(value)
+        except ValueError:
+            console.print(f"[error]Invalid token budget '{value}'. Use an integer.[/error]")
+            raise typer.Exit(1)
+        if tokens <= 0:
+            console.print(f"[error]Token budget must be > 0 (got {tokens}).[/error]")
+            raise typer.Exit(1)
+        parsed[name] = tokens
+    return parsed
+
+
 def _normalize_tui_output_line(line: str) -> str:
     without_ansi = _ansi_escape_pattern.sub("", line)
     without_box_chars = without_ansi.translate(_box_drawing_translation)
@@ -1121,7 +1163,9 @@ def refresh_context(
         retriever=retriever,
         retrieval_top_k=retrieval_cfg.top_k,
     )
-    adapter_cfg = load_config(AGENT_DIR).adapters
+    config = load_config(AGENT_DIR)
+    adapter_cfg = config.adapters
+    llm_cfg = config.llm
     if adapter_payloads is None:
         adapter_payloads = bool(adapter_cfg.enabled)
     markdown_path = output_dir / "context.md"
@@ -1159,6 +1203,10 @@ def refresh_context(
                     adapters=get_default_adapters(),
                     token_budget=adapter_cfg.token_budget,
                     per_adapter_budgets=adapter_cfg.per_adapter_token_budget,
+                    per_provider_budgets=adapter_cfg.per_provider_token_budget,
+                    per_model_budgets=adapter_cfg.per_model_token_budget,
+                    provider=llm_cfg.provider,
+                    model=llm_cfg.model,
                 )
             break
         except Exception as exc:  # noqa: BLE001
@@ -2034,12 +2082,31 @@ def _render_ralph_status(_config_dict: dict[str, object]) -> list[str]:
     )
 
     state = "enabled" if enabled else "disabled"
+    recent_file = AGENT_DIR / "RECENT.md"
+    last_run_timestamp: str | None = None
+    last_outcome: str | None = None
+    if recent_file.exists():
+        try:
+            current_heading: str | None = None
+            for raw_line in recent_file.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if line.startswith("## "):
+                    current_heading = line.removeprefix("## ").strip()
+                elif line.startswith("- Outcome:"):
+                    value = line.split(":", 1)[1].strip()
+                    if value:
+                        last_outcome = value
+                        last_run_timestamp = current_heading
+        except OSError:
+            pass
     return [
         "[bold]Ralph Loop:[/bold]",
         f"  Status: {state}",
         f"  Max iterations: {max_iterations}",
         f"  Sleep seconds:  {sleep_seconds}",
         f"  Compact mode:   {compact_mode}",
+        f"  Last run:       {last_run_timestamp or 'none'}",
+        f"  Last outcome:   {last_outcome or 'none'}",
         "",
     ]
 
@@ -2956,6 +3023,16 @@ def config_adapters(
         "--per-adapter-token-budget",
         help="Per-adapter token budgets as name=tokens pairs",
     ),
+    per_provider_token_budget: str | None = typer.Option(
+        None,
+        "--per-provider-token-budget",
+        help="Per-provider token budgets as provider=tokens pairs",
+    ),
+    per_model_token_budget: str | None = typer.Option(
+        None,
+        "--per-model-token-budget",
+        help="Per-model token budgets as model=tokens pairs",
+    ),
 ):
     """Configure automatic context adapter payloads."""
     _get_theme_manager()
@@ -2970,33 +3047,20 @@ def config_adapters(
     if token_budget is not None:
         updates["token_budget"] = token_budget
     if per_adapter_token_budget is not None:
-        parsed: dict[str, int] = {}
-        if per_adapter_token_budget.strip():
-            for raw in per_adapter_token_budget.split(","):
-                item = raw.strip()
-                if not item:
-                    continue
-                if "=" not in item:
-                    console.print(
-                        f"[error]Invalid per-adapter budget '{item}'. Use name=tokens.[/error]"
-                    )
-                    raise typer.Exit(1)
-                name, value = item.split("=", 1)
-                name = name.strip()
-                value = value.strip()
-                if not name:
-                    console.print("[error]Adapter name cannot be empty.[/error]")
-                    raise typer.Exit(1)
-                try:
-                    tokens = int(value)
-                except ValueError:
-                    console.print(f"[error]Invalid token budget '{value}'. Use an integer.[/error]")
-                    raise typer.Exit(1)
-                if tokens <= 0:
-                    console.print(f"[error]Token budget must be > 0 (got {tokens}).[/error]")
-                    raise typer.Exit(1)
-                parsed[name] = tokens
-        updates["per_adapter_token_budget"] = parsed
+        updates["per_adapter_token_budget"] = _parse_named_token_budgets(
+            per_adapter_token_budget,
+            label="per-adapter",
+        )
+    if per_provider_token_budget is not None:
+        updates["per_provider_token_budget"] = _parse_named_token_budgets(
+            per_provider_token_budget,
+            label="per-provider",
+        )
+    if per_model_token_budget is not None:
+        updates["per_model_token_budget"] = _parse_named_token_budgets(
+            per_model_token_budget,
+            label="per-model",
+        )
 
     if not updates:
         adapter_config = _read_adapter_config(files)
@@ -3006,6 +3070,10 @@ def config_adapters(
             f"  Output dir: {adapter_config.get('output_dir') or '.agent/context'}",
             f"  Token budget: {_format_adapter_token_budget(adapter_config)}",
             f"  Per-adapter budgets: {_format_adapter_budgets(adapter_config)}",
+            "  Per-provider budgets: "
+            f"{_format_named_token_budgets(adapter_config.get('per_provider_token_budget'))}",
+            "  Per-model budgets: "
+            f"{_format_named_token_budgets(adapter_config.get('per_model_token_budget'))}",
         ]
         console.print(Panel.fit("\n".join(lines), title="Context Adapters"))
         return
@@ -3018,6 +3086,10 @@ def config_adapters(
         f"  Output dir: {adapter_config.get('output_dir') or '.agent/context'}",
         f"  Token budget: {_format_adapter_token_budget(adapter_config)}",
         f"  Per-adapter budgets: {_format_adapter_budgets(adapter_config)}",
+        "  Per-provider budgets: "
+        f"{_format_named_token_budgets(adapter_config.get('per_provider_token_budget'))}",
+        "  Per-model budgets: "
+        f"{_format_named_token_budgets(adapter_config.get('per_model_token_budget'))}",
     ]
     console.print(Panel.fit("\n".join(lines), title="Context Adapters"))
 

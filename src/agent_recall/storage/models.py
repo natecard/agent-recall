@@ -271,6 +271,14 @@ class AdapterConfig(BaseModel):
         default_factory=dict,
         description="Optional per-adapter token budgets (tokens)",
     )
+    per_provider_token_budget: dict[str, int] = Field(
+        default_factory=dict,
+        description="Optional per-provider token budgets (tokens)",
+    )
+    per_model_token_budget: dict[str, int] = Field(
+        default_factory=dict,
+        description="Optional per-model token budgets (tokens)",
+    )
 
 
 class SessionCheckpoint(BaseModel):

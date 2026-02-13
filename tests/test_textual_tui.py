@@ -5,6 +5,7 @@ from agent_recall.cli.textual_tui import (
     _clean_optional_text,
     _is_knowledge_run_command,
     _is_palette_cli_command_redundant,
+    get_palette_actions,
 )
 
 
@@ -17,7 +18,16 @@ def test_build_command_suggestions_excludes_slash_variants() -> None:
     assert "settings" in suggestions
     assert "config settings" in suggestions
     assert "config model" in suggestions
+    assert "ralph enable" in suggestions
+    assert "ralph disable" in suggestions
     assert "ralph status" in suggestions
+
+
+def test_palette_contains_ralph_loop_controls() -> None:
+    action_ids = {action.action_id for action in get_palette_actions()}
+    assert "ralph-enable" in action_ids
+    assert "ralph-disable" in action_ids
+    assert "ralph-status" in action_ids
 
 
 def test_clean_optional_text_handles_none_variants() -> None:

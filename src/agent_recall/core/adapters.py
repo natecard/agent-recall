@@ -73,13 +73,27 @@ def write_adapter_payloads(
     adapters: Iterable[ContextAdapter] | None = None,
     token_budget: int | None = None,
     per_adapter_budgets: dict[str, int] | None = None,
+    per_provider_budgets: dict[str, int] | None = None,
+    per_model_budgets: dict[str, int] | None = None,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> dict[str, Path]:
     written: dict[str, Path] = {}
     adapter_list = list(adapters) if adapters is not None else get_default_adapters()
     per_adapter = per_adapter_budgets or {}
+    per_provider = per_provider_budgets or {}
+    per_model = per_model_budgets or {}
+    normalized_provider = provider.strip().lower() if isinstance(provider, str) else None
+    normalized_model = model.strip() if isinstance(model, str) else None
 
     for adapter in adapter_list:
-        budget = per_adapter.get(adapter.name, token_budget)
+        budget = per_adapter.get(adapter.name)
+        if budget is None and normalized_model:
+            budget = per_model.get(normalized_model)
+        if budget is None and normalized_provider:
+            budget = per_provider.get(normalized_provider)
+        if budget is None:
+            budget = token_budget
         trimmed_context = _trim_context(context, budget)
         payload = build_adapter_payload(
             adapter=adapter,
