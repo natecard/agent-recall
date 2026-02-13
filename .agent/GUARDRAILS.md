@@ -119,6 +119,9 @@
 - Implement fallback logic silently if the goal is continuity, but ensure errors are raised if fallback also fails or isn't configured.
 - Pass local DB paths to shared storage backends during initialization so they can self-configure fallback behavior.
 
+## 2026-02-13T23:30:00Z Iteration 4 (AR-603)
+- When compaction rewrites tier files, preserve Ralph blocks verbatim by extracting raw_content and appending after compacted bullets.
+
 ## 2026-02-13T07:10:00Z Iteration 1 (AR-018)
 - Keep command parity checks scoped to explicit surfaces in the command contract; do not require TUI-only commands to exist in CLI.
 

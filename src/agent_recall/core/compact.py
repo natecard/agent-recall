@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from agent_recall.core.embeddings import generate_embedding
-from agent_recall.core.tier_format import is_ralph_entry_start
+from agent_recall.core.tier_format import is_ralph_entry_start, parse_tier_content
 from agent_recall.llm.base import LLMProvider, Message
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
@@ -564,6 +564,7 @@ class CompactionEngine:
         matcher: re.Pattern[str],
     ) -> bool:
         preamble, existing_lines = self._split_preamble_and_lines(current, matcher)
+        ralph_blocks = self._extract_ralph_blocks(current)
         seen = {self._normalize_line(line) for line in existing_lines}
         additions: list[str] = []
         for line in new_lines:
@@ -572,10 +573,17 @@ class CompactionEngine:
                 additions.append(line.strip())
                 seen.add(normalized)
         if not additions:
-            return False
+            if not ralph_blocks:
+                return False
+            updated = self._compose_tier_text(preamble, existing_lines, ralph_blocks)
+            if updated.strip() == current.strip():
+                return False
+            self._archive_tier_snapshot(tier, current)
+            self.files.write_tier(tier, updated)
+            return True
 
         updated_lines = [*existing_lines, *additions]
-        updated = self._compose_tier_text(preamble, updated_lines)
+        updated = self._compose_tier_text(preamble, updated_lines, ralph_blocks)
         if updated.strip() == current.strip():
             return False
         self._archive_tier_snapshot(tier, current)
@@ -584,7 +592,8 @@ class CompactionEngine:
 
     def _write_recent_lines(self, current: str, lines: list[str]) -> bool:
         preamble, _existing_recent = self._split_preamble_and_lines(current, _RECENT_RE)
-        updated = self._compose_tier_text(preamble, lines)
+        ralph_blocks = self._extract_ralph_blocks(current)
+        updated = self._compose_tier_text(preamble, lines, ralph_blocks)
         if updated.strip() == current.strip():
             return False
         self._archive_tier_snapshot(KnowledgeTier.RECENT, current)
@@ -631,16 +640,33 @@ class CompactionEngine:
         return preamble, extracted
 
     @staticmethod
-    def _compose_tier_text(preamble_lines: list[str], body_lines: list[str]) -> str:
+    def _compose_tier_text(
+        preamble_lines: list[str],
+        body_lines: list[str],
+        ralph_blocks: list[str] | None = None,
+    ) -> str:
         preamble = "\n".join(preamble_lines).rstrip()
         body = "\n".join(body_lines).strip()
-        if preamble and body:
-            return f"{preamble}\n\n{body}\n"
+        ralph_text = ""
+        if ralph_blocks:
+            blocks = [block for block in ralph_blocks if block.strip()]
+            ralph_text = "\n\n".join(blocks)
+
+        parts: list[str] = []
         if preamble:
-            return f"{preamble}\n"
+            parts.append(preamble)
         if body:
-            return f"{body}\n"
-        return ""
+            parts.append(body)
+        if ralph_text:
+            parts.append(ralph_text)
+        if not parts:
+            return ""
+        return "\n\n".join(parts) + "\n"
+
+    @staticmethod
+    def _extract_ralph_blocks(content: str) -> list[str]:
+        parsed = parse_tier_content(content)
+        return [entry.raw_content for entry in parsed.ralph_entries]
 
     def _archive_tier_snapshot(self, tier: KnowledgeTier, previous_content: str) -> None:
         if not previous_content.strip():

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from agent_recall.core.compact import CompactionEngine
 from agent_recall.core.log import LogWriter
 from agent_recall.core.session import SessionManager
+from agent_recall.core.tier_format import parse_tier_content
 from agent_recall.llm.base import LLMProvider, LLMResponse, Message
 from agent_recall.storage.files import KnowledgeTier
 from agent_recall.storage.models import CurationStatus, SemanticLabel
@@ -44,6 +47,11 @@ class FakeLLMProvider(LLMProvider):
 
     def validate(self) -> tuple[bool, str]:
         return True, "ok"
+
+
+def _ralph_block(timestamp: str, iteration: int, item_id: str, lines: list[str]) -> str:
+    header = f"## {timestamp} Iteration {iteration} ({item_id})"
+    return "\n".join([header, *lines])
 
 
 @pytest.mark.asyncio
@@ -234,6 +242,162 @@ def test_curation_status_transitions_update_list(storage) -> None:
     assert storage.list_entries_by_curation_status(CurationStatus.REJECTED) == []
     approved = storage.list_entries_by_curation_status(CurationStatus.APPROVED)
     assert [item.id for item in approved] == [entry.id]
+
+
+@pytest.mark.asyncio
+async def test_compaction_preserves_ralph_blocks_in_guardrails_and_style(storage, files) -> None:
+    guardrails_block = _ralph_block(
+        "2026-02-12T10:00:00Z",
+        1,
+        "AR-301",
+        ["- Guardrail detail", "- Extra note"],
+    )
+    style_block = _ralph_block(
+        "2026-02-12T11:00:00Z",
+        2,
+        "AR-302",
+        ["- Style detail"],
+    )
+
+    files.write_tier(
+        KnowledgeTier.GUARDRAILS,
+        "\n".join(
+            [
+                "# Guardrails",
+                "",
+                "Rules and warnings learned during development.",
+                "",
+                "- [GOTCHA] Existing guardrail",
+                "",
+                guardrails_block,
+                "",
+            ]
+        ),
+    )
+    files.write_tier(
+        KnowledgeTier.STYLE,
+        "\n".join(
+            [
+                "# Style",
+                "",
+                "Patterns and preferences learned during development.",
+                "",
+                "- [PATTERN] Existing style",
+                "",
+                style_block,
+                "",
+            ]
+        ),
+    )
+
+    log_writer = LogWriter(storage)
+    log_writer.log(content="Guardrail update", label=SemanticLabel.GOTCHA)
+    log_writer.log(content="Style update", label=SemanticLabel.PATTERN)
+
+    engine = CompactionEngine(storage=storage, files=files, llm=FakeLLMProvider())
+    await engine.compact(force=True)
+
+    guardrails_after = files.read_tier(KnowledgeTier.GUARDRAILS)
+    style_after = files.read_tier(KnowledgeTier.STYLE)
+
+    guardrails_parsed = parse_tier_content(guardrails_after)
+    style_parsed = parse_tier_content(style_after)
+
+    assert [entry.raw_content.rstrip("\n") for entry in guardrails_parsed.ralph_entries] == [
+        guardrails_block
+    ]
+    assert [entry.raw_content.rstrip("\n") for entry in style_parsed.ralph_entries] == [style_block]
+
+
+@pytest.mark.asyncio
+async def test_compaction_preserves_ralph_blocks_in_recent(storage, files) -> None:
+    recent_block = _ralph_block(
+        "2026-02-12T12:00:00Z",
+        3,
+        "AR-303",
+        ["- Recent detail"],
+    )
+    files.write_tier(
+        KnowledgeTier.RECENT,
+        "\n".join(
+            [
+                "# Recent",
+                "",
+                "Recent development activity summaries.",
+                "",
+                recent_block,
+                "",
+            ]
+        ),
+    )
+
+    session_mgr = SessionManager(storage)
+    session = session_mgr.start("Test recent compaction")
+    session_mgr.end(session.id, "Completed")
+
+    engine = CompactionEngine(storage=storage, files=files, llm=FakeLLMProvider())
+    await engine.compact(force=True)
+
+    recent_after = files.read_tier(KnowledgeTier.RECENT)
+    recent_parsed = parse_tier_content(recent_after)
+
+    assert [entry.raw_content.rstrip("\n") for entry in recent_parsed.ralph_entries] == [
+        recent_block
+    ]
+
+
+@pytest.mark.asyncio
+async def test_compaction_round_trip_preserves_ralph_count(storage, files) -> None:
+    block_one = _ralph_block(
+        "2026-02-12T13:00:00Z",
+        4,
+        "AR-603",
+        ["- First block"],
+    )
+    block_two = _ralph_block(
+        "2026-02-12T14:00:00Z",
+        5,
+        "AR-603",
+        ["- Second block"],
+    )
+    files.write_tier(
+        KnowledgeTier.GUARDRAILS,
+        "\n".join(
+            [
+                "# Guardrails",
+                "",
+                "Rules and warnings learned during development.",
+                "",
+                "- [GOTCHA] Existing guardrail",
+                "",
+                block_one,
+                "",
+                "- [GOTCHA] Another guardrail",
+                "",
+                block_two,
+                "",
+            ]
+        ),
+    )
+
+    log_writer = LogWriter(storage)
+    log_writer.log(content="Round-trip guardrail", label=SemanticLabel.GOTCHA)
+
+    before = parse_tier_content(files.read_tier(KnowledgeTier.GUARDRAILS))
+
+    engine = CompactionEngine(storage=storage, files=files, llm=FakeLLMProvider())
+    await engine.compact(force=True)
+
+    after = parse_tier_content(files.read_tier(KnowledgeTier.GUARDRAILS))
+    assert len(after.ralph_entries) == len(before.ralph_entries)
+
+
+def test_compact_does_not_reference_deprecated_tier_format_helpers() -> None:
+    content = (
+        Path(__file__).parents[1] / "src" / "agent_recall" / "core" / "compact.py"
+    ).read_text(encoding="utf-8")
+    assert "is_ralph_entry_line" not in content
+    assert "is_bullet_entry_line" not in content
 
 
 @pytest.mark.asyncio

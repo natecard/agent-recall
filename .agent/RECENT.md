@@ -306,6 +306,15 @@
 - Notes: Verified compaction tier splitter already skips Ralph blocks per AR-602; marked AR-602 complete and reprioritized remaining PRD items.
 - Next: Implement AR-603 to preserve Ralph blocks on compaction rewrite.
 
+## 2026-02-13T23:30:00Z Iteration 4
+- Item: AR-603 - Preserve Ralph blocks on compaction rewrite
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Compaction now preserves Ralph blocks verbatim when rewriting tiers; added integration tests for GUARDRAILS/STYLE/RECENT and round-trip count plus deprecated alias check.
+- Next: Run validation; if green, mark AR-603 complete and reprioritize remaining PRDs.
+
 ## 2026-02-13T02:30:00Z Iteration 6
 - Item: AR-009 - Ship shared backend tracer-bullet (single-tenant)
 - Mode: feature

@@ -119,6 +119,9 @@
 - Use `unittest.mock.patch` context managers for mocking dependencies in tests to ensure clean teardown.
 - Avoid broad `except Exception` blocks in production code unless specifically implementing a "last resort" fallback.
 
+## 2026-02-13T23:30:00Z Iteration 4 (AR-603)
+- Use parse helpers (parse_tier_content) to preserve multi-line Ralph blocks in compaction rewrite paths.
+
 ## 2026-02-13T07:10:00Z Iteration 1 (AR-018)
 - Define command contract data in a dedicated module and reuse it for help text, suggestions, and parity reporting.
 
