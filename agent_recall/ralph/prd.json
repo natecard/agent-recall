@@ -193,7 +193,8 @@
 			"steps": [
 				"[done] Define a storage interface contract that supports local and shared backends with the same core operations.",
 				"[done] Implement a single-tenant shared backend client path for sessions/chunks/checkpoints via shared filesystem URLs (`file://` and `sqlite://`).",
-				"Extend shared backend to HTTP service/client transport and shared tier-file synchronization.",
+				"[done] Add shared tier-file synchronization for filesystem shared backends (`file://` and `sqlite://`).",
+				"Extend shared backend to HTTP service/client transport.",
 				"Add retry, timeout, and fallback behavior so local mode can continue if shared backend is unavailable.",
 				"Add end-to-end tests that run the same sync/retrieve/compact flow against both local and shared modes."
 			],

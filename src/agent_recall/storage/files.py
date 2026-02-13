@@ -21,18 +21,34 @@ TIER_FILES = {
 
 
 class FileStorage:
-    def __init__(self, agent_dir: Path):
+    def __init__(self, agent_dir: Path, shared_tiers_dir: Path | None = None):
         self.agent_dir = agent_dir
+        self.shared_tiers_dir = shared_tiers_dir
+
+    def _local_tier_path(self, tier: KnowledgeTier) -> Path:
+        return self.agent_dir / TIER_FILES[tier]
+
+    def _shared_tier_path(self, tier: KnowledgeTier) -> Path | None:
+        if self.shared_tiers_dir is None:
+            return None
+        return self.shared_tiers_dir / TIER_FILES[tier]
 
     def read_tier(self, tier: KnowledgeTier) -> str:
-        path = self.agent_dir / TIER_FILES[tier]
-        if path.exists():
-            return path.read_text()
+        shared_path = self._shared_tier_path(tier)
+        if shared_path is not None and shared_path.exists():
+            return shared_path.read_text()
+        local_path = self._local_tier_path(tier)
+        if local_path.exists():
+            return local_path.read_text()
         return ""
 
     def write_tier(self, tier: KnowledgeTier, content: str) -> None:
-        path = self.agent_dir / TIER_FILES[tier]
-        path.write_text(content)
+        local_path = self._local_tier_path(tier)
+        local_path.write_text(content)
+        shared_path = self._shared_tier_path(tier)
+        if shared_path is not None and shared_path != local_path:
+            shared_path.parent.mkdir(parents=True, exist_ok=True)
+            shared_path.write_text(content)
 
     def read_config(self) -> dict[str, Any]:
         path = self.agent_dir / "config.yaml"

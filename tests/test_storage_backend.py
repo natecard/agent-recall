@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from agent_recall.storage import create_storage_backend
+from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.models import (
     AgentRecallConfig,
     Chunk,
@@ -82,3 +83,32 @@ def test_remote_storage_shares_state_across_instances(tmp_path) -> None:
     assert shared_session is not None
     assert shared_session.task == "shared session"
     assert storage_b.count_chunks() == 1
+
+
+def test_file_storage_syncs_tiers_to_shared_directory(tmp_path) -> None:
+    repo_agent_dir = tmp_path / "repo-a" / ".agent"
+    shared_dir = tmp_path / "team-shared"
+    repo_agent_dir.mkdir(parents=True)
+
+    files = FileStorage(repo_agent_dir, shared_tiers_dir=shared_dir)
+    files.write_tier(KnowledgeTier.GUARDRAILS, "# Shared guardrails\n- Rule one\n")
+
+    local_guardrails = repo_agent_dir / "GUARDRAILS.md"
+    shared_guardrails = shared_dir / "GUARDRAILS.md"
+
+    assert local_guardrails.read_text() == "# Shared guardrails\n- Rule one\n"
+    assert shared_guardrails.read_text() == "# Shared guardrails\n- Rule one\n"
+
+
+def test_file_storage_reads_shared_tier_before_local(tmp_path) -> None:
+    repo_agent_dir = tmp_path / "repo-b" / ".agent"
+    shared_dir = tmp_path / "team-shared"
+    repo_agent_dir.mkdir(parents=True)
+    shared_dir.mkdir(parents=True)
+
+    (repo_agent_dir / "STYLE.md").write_text("# Local style\n- Local only\n")
+    (shared_dir / "STYLE.md").write_text("# Shared style\n- Team rule\n")
+
+    files = FileStorage(repo_agent_dir, shared_tiers_dir=shared_dir)
+
+    assert files.read_tier(KnowledgeTier.STYLE) == "# Shared style\n- Team rule\n"

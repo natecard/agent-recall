@@ -169,6 +169,39 @@ def test_cli_context_uses_retrieval_config_defaults(monkeypatch) -> None:
         assert 'Relevant to "retry strategy"' in result.output
 
 
+def test_cli_context_reads_shared_tier_files_when_shared_backend_enabled() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        files = FileStorage(Path(".agent"))
+        config = files.read_config()
+
+        shared_dir = Path("shared-memory").resolve()
+        shared_dir.mkdir(parents=True)
+        config["storage"] = {
+            "backend": "shared",
+            "shared": {
+                "base_url": f"file://{shared_dir}",
+                "api_key_env": "AGENT_RECALL_SHARED_API_KEY",
+                "timeout_seconds": 10.0,
+                "retry_attempts": 2,
+            },
+        }
+        files.write_config(config)
+
+        (Path(".agent") / "GUARDRAILS.md").write_text(
+            "# Guardrails\n\nLOCAL_ONLY_GUARDRAIL\n"
+        )
+        (shared_dir / "GUARDRAILS.md").write_text(
+            "# Guardrails\n\nSHARED_TEAM_GUARDRAIL\n"
+        )
+
+        result = runner.invoke(cli_main.app, ["context"])
+
+        assert result.exit_code == 0
+        assert "SHARED_TEAM_GUARDRAIL" in result.output
+        assert "LOCAL_ONLY_GUARDRAIL" not in result.output
+
+
 def test_cli_retrieve_accepts_backend_and_tuning_overrides(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

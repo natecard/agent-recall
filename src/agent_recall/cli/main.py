@@ -66,6 +66,7 @@ from agent_recall.storage import create_storage_backend
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.models import LLMConfig, RetrievalConfig, SemanticLabel
+from agent_recall.storage.remote import resolve_shared_db_path
 
 app = typer.Typer(help="Agent Memory System - Persistent knowledge for AI coding agents")
 _slash_runner = CliRunner()
@@ -238,7 +239,14 @@ def get_storage() -> Storage:
 
 def get_files() -> FileStorage:
     ensure_initialized()
-    return FileStorage(AGENT_DIR)
+    config = load_config(AGENT_DIR)
+    shared_tiers_dir: Path | None = None
+    if config.storage.backend == "shared":
+        try:
+            shared_tiers_dir = resolve_shared_db_path(config.storage.shared.base_url).parent
+        except (NotImplementedError, ValueError):
+            shared_tiers_dir = None
+    return FileStorage(AGENT_DIR, shared_tiers_dir=shared_tiers_dir)
 
 
 def get_llm():
