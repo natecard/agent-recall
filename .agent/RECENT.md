@@ -1,6 +1,15 @@
 - Notes: Completed AR-003 step 4 by wiring retrieval config (`backend`, `top_k`, `fusion_k`, `rerank_enabled`, `rerank_candidate_k`) into `start`, `context`, `refresh-context`, and `retrieve`; added CLI overrides for context/retrieve and retrieval wiring tests.
 - Next: Move to AR-004 and start with tracer-bullet indexing policy for decision/exploration labels.
 
+## 2026-02-13T23:59:00Z Iteration 1
+- Item: AR-501 - Implement tier format core detection layer
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Added `core/tier_format.py` with EntryFormat enum, bullet/Ralph/recent regexes, detection helpers, and backward-compatible aliases.
+- Next: Run validation, then move to AR-502 structured parsing layer.
+
 ## 2026-02-13T22:15:00Z Iteration 2
 - Item: AR-202 - Implement PRD archive semantic search and knowledge indexing
 - Mode: feature

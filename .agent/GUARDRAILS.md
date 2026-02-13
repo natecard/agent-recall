@@ -135,6 +135,9 @@
 - Bash loop hooks should never terminate the loop; capture stdout/stderr to runtime logs and warn on failures.
 - Guard optional CLI hooks (refresh-context, archive-completed) behind `command -v uv` to support environments without uv.
 
+## 2026-02-13T23:59:00Z Iteration 1 (AR-501)
+- Keep tier-format detection order explicit: Ralph headers first, then bullet entries, then recent bullets to avoid misclassification.
+
 ## 2026-02-13T02:30:00Z Iteration 6 (AR-009)
 - Use `respx` to verify HTTP clients against mocked endpoints without requiring a running server in unit tests.
 - Always use `response.raise_for_status()` in HTTP client methods to ensure errors propagate correctly.

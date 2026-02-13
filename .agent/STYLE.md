@@ -150,6 +150,9 @@
 ## 2026-02-13T21:45:00Z Iteration 6 (AR-206)
 - Keep bash loop hook helpers small and side-effect isolated; capture output to .runtime and only print warnings on failure.
 
+## 2026-02-13T23:59:00Z Iteration 1 (AR-501)
+- Use StrEnum for user-facing enum values to keep CLI/JSON output stable and readable.
+
 ## 2026-02-13T02:02:56Z Iteration 4 (AR-010)
 - Prefer one logical change per commit.
 - Keep validation command green before committing: uv run pytest && uv run ruff check . && uv run ty check
