@@ -439,11 +439,11 @@
       "description": "Implement a post-loop compaction hook that normalizes GUARDRAILS/STYLE/RECENT and can also be run manually from TUI and CLI on demand.",
       "user_story": "Allow developers to keep tier files concise and high-signal automatically after each iteration, while retaining manual control when they need immediate cleanup.",
       "steps": [
-        "Implement a post-loop hook that compacts tier files (normalize, deduplicate, summarize, and apply size budgets).",
-        "Add configuration toggles for auto-run behavior, budgets, and compaction strictness.",
-        "Add a CLI command to run tier compaction manually and show a concise before/after summary.",
-        "Add a TUI action to run the same hook manually from the interface with visible status/outcome.",
-        "Add regression tests proving parity between auto-hook output and manual TUI/CLI runs."
+        "[done] Implement a post-loop hook that compacts tier files (normalize, deduplicate, summarize, and apply size budgets).",
+        "[done] Add configuration toggles for auto-run behavior, budgets, and compaction strictness.",
+        "[done] Add a CLI command to run tier compaction manually and show a concise before/after summary.",
+        "[done] Add a TUI action to run the same hook manually from the interface with visible status/outcome.",
+        "[done] Add regression tests proving parity between auto-hook output and manual TUI/CLI runs."
       ],
       "acceptance": [
         "Post-loop compaction runs automatically when enabled and keeps tier-file growth bounded.",
@@ -456,7 +456,7 @@
         "uv run ruff check .",
         "uv run ty check"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }

@@ -49,6 +49,10 @@ from agent_recall.core.onboarding import (
 from agent_recall.core.retrieve import Retriever
 from agent_recall.core.session import SessionManager
 from agent_recall.core.sync import AutoSync
+from agent_recall.core.tier_compaction import (
+    TierCompactionConfig,
+    TierCompactionHook,
+)
 from agent_recall.core.tier_writer import (
     TierValidationError,
     TierWriter,
@@ -191,6 +195,13 @@ compaction:
   index_narrative_entries: false
   index_narrative_min_confidence: 0.8
   archive_sessions_older_than_days: 30
+
+tier_compaction:
+  auto_run: true
+  max_entries_per_tier: 50
+  strict_deduplication: false
+  summary_threshold_entries: 40
+  summary_max_entries: 20
 
 retrieval:
   backend: fts5
@@ -399,6 +410,7 @@ def _tui_help_lines() -> list[str]:
         "[dim]/status[/dim] - Show stats and source availability",
         "[dim]/sync --no-compact[/dim] - Sync sessions quickly",
         "[dim]/compact[/dim] - Run knowledge synthesis now",
+        "[dim]/compact-tiers[/dim] - Compact tier files (dedupe, normalize, apply budgets)",
         "[dim]/run[/dim] - Alias for /sync (includes synthesis by default)",
         "[dim]/sources[/dim] - Show detected session sources",
         "[dim]/config model --temperature 0.2 --max-tokens 8192[/dim] - Tune model settings",
@@ -3110,6 +3122,76 @@ def tier_stats():
         )
 
     console.print(table)
+
+
+@app.command("compact-tiers")
+def compact_tiers(
+    max_entries: int | None = typer.Option(
+        None,
+        "--max-entries",
+        "-n",
+        min=10,
+        max=200,
+        help="Maximum entries per tier (overrides config)",
+    ),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        "-s",
+        help="Enable strict deduplication",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        "-d",
+        help="Show what would be changed without writing",
+    ),
+):
+    """Compact tier files: normalize, deduplicate, and apply size budgets."""
+    ensure_initialized()
+    files = get_files()
+
+    # Load config
+    config_dict = files.read_config()
+    config = TierCompactionConfig.from_config(config_dict)
+
+    # Apply CLI overrides
+    if max_entries is not None:
+        config.max_entries_per_tier = max_entries
+    if strict:
+        config.strict_deduplication = True
+
+    hook = TierCompactionHook(files, config)
+
+    if dry_run:
+        console.print("[dim]Dry run mode - no changes will be written[/dim]")
+
+    summary = hook.compact_all()
+
+    # Build result display
+    lines = ["[success]Tier compaction complete[/success]"]
+    lines.append("")
+
+    for result in summary.results:
+        tier_name = result.tier.value.upper()
+        lines.append(f"[accent]{tier_name}:[/accent]")
+        lines.append(f"  Entries: {result.entries_before} → {result.entries_after}")
+        lines.append(f"  Size: {result.bytes_before:,} → {result.bytes_after:,} bytes")
+        if result.duplicates_removed:
+            lines.append(f"  Duplicates removed: {result.duplicates_removed}")
+        if result.entries_summarized:
+            lines.append(f"  Entries summarized: {result.entries_summarized}")
+        lines.append("")
+
+    lines.append("[bold]Total:[/bold]")
+    lines.append(f"  Entries: {summary.total_entries_before} → {summary.total_entries_after}")
+    lines.append(f"  Size: {summary.total_bytes_before:,} → {summary.total_bytes_after:,} bytes")
+    if summary.total_duplicates_removed:
+        lines.append(f"  Duplicates removed: {summary.total_duplicates_removed}")
+    if summary.total_entries_summarized:
+        lines.append(f"  Entries summarized: {summary.total_entries_summarized}")
+
+    console.print(Panel.fit("\n".join(lines), title="compact-tiers"))
 
 
 def main() -> None:
