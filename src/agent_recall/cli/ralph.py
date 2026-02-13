@@ -1,0 +1,507 @@
+from __future__ import annotations
+
+import json
+import re
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+import typer
+from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
+from agent_recall.cli.theme import DEFAULT_THEME, ThemeManager
+from agent_recall.core.config import load_config
+from agent_recall.ralph.context_refresh import ContextRefreshHook
+from agent_recall.ralph.loop import RalphLoop
+from agent_recall.ralph.prd_archive import PRDArchive
+from agent_recall.storage import create_storage_backend
+from agent_recall.storage.base import Storage
+from agent_recall.storage.files import FileStorage
+from agent_recall.storage.remote import resolve_shared_db_path
+from agent_recall.storage.sqlite import SQLiteStorage
+
+ralph_app = typer.Typer(help="Manage Ralph loop configuration")
+
+AGENT_DIR = Path(".agent")
+DB_PATH = AGENT_DIR / "state.db"
+
+_theme_manager = ThemeManager(DEFAULT_THEME)
+console = Console(theme=_theme_manager.get_theme())
+
+
+def _get_theme_manager() -> ThemeManager:
+    global console
+    if AGENT_DIR.exists():
+        files = FileStorage(AGENT_DIR)
+        config_dict = files.read_config()
+        theme_name = config_dict.get("theme", {}).get("name", DEFAULT_THEME)
+        if theme_name != _theme_manager.get_theme_name():
+            _theme_manager.set_theme(theme_name)
+            console = Console(theme=_theme_manager.get_theme())
+    return _theme_manager
+
+
+def ensure_initialized() -> None:
+    if AGENT_DIR.exists():
+        return
+    _get_theme_manager()
+    console.print("[error]Not initialized. Run 'agent-recall init' first.[/error]")
+    raise typer.Exit(1)
+
+
+def get_agent_dir() -> Path:
+    return Path.cwd() / ".agent"
+
+
+def get_ralph_components() -> tuple[Path, SQLiteStorage, FileStorage]:
+    agent_dir = get_agent_dir()
+    if not agent_dir.exists():
+        _get_theme_manager()
+        console.print("[error]Not initialized. Run 'agent-recall init' first.[/error]")
+        raise typer.Exit(1)
+    storage = SQLiteStorage(agent_dir / "state.db")
+    files = FileStorage(agent_dir)
+    return agent_dir, storage, files
+
+
+def get_default_prd_path() -> Path:
+    candidates = [
+        Path(".agent/ralph/prd.json"),
+        Path("agent_recall/ralph/prd.json"),
+        Path("prd.json"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def get_default_script_path() -> Path:
+    candidates = [
+        Path("agent_recall/scripts/ralph-agent-recall-loop.sh"),
+        Path("scripts/ralph-agent-recall-loop.sh"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def load_prd_items(prd_path: Path) -> list[dict[str, Any]]:
+    """Load PRD items from JSON file. Returns empty list on error."""
+    try:
+        data = json.loads(prd_path.read_text(encoding="utf-8"))
+        items = data.get("items")
+        return list(items) if isinstance(items, list) else []
+    except (OSError, json.JSONDecodeError, TypeError):
+        return []
+
+
+def validate_prd_ids(
+    prd_path: Path,
+    ids: list[str],
+    max_iterations: int,
+) -> tuple[list[str], list[str]]:
+    """
+    Validate PRD IDs. Returns (valid_ids, invalid_ids).
+    Raises no error; caller checks invalid_ids and count vs max_iterations.
+    """
+    items = load_prd_items(prd_path)
+    valid_ids_set = {str(it.get("id", "")) for it in items if it.get("id")}
+    valid: list[str] = []
+    invalid: list[str] = []
+    for i in ids:
+        s = str(i).strip()
+        if not s:
+            continue
+        if s in valid_ids_set:
+            valid.append(s)
+        else:
+            invalid.append(s)
+    return (valid, invalid)
+
+
+def read_ralph_config(files: FileStorage) -> dict[str, Any]:
+    config_dict = files.read_config()
+    ralph_config = config_dict.get("ralph", {}) if isinstance(config_dict, dict) else {}
+    return ralph_config if isinstance(ralph_config, dict) else {}
+
+
+def write_ralph_config(files: FileStorage, updates: dict[str, object]) -> dict[str, object]:
+    config_dict = files.read_config()
+    if "ralph" not in config_dict or not isinstance(config_dict.get("ralph"), dict):
+        config_dict["ralph"] = {}
+    ralph_config = config_dict["ralph"]
+    if isinstance(ralph_config, dict):
+        ralph_config.update(updates)
+    config_dict["ralph"] = ralph_config
+    files.write_config(config_dict)
+    return config_dict
+
+
+@lru_cache(maxsize=1)
+def get_storage() -> Storage:
+    ensure_initialized()
+    config = load_config(AGENT_DIR)
+    return create_storage_backend(config, DB_PATH)
+
+
+def get_files() -> FileStorage:
+    ensure_initialized()
+    config = load_config(AGENT_DIR)
+    shared_tiers_dir: Path | None = None
+    if config.storage.backend == "shared":
+        try:
+            resolved = resolve_shared_db_path(config.storage.shared.base_url)
+            if isinstance(resolved, Path):
+                shared_tiers_dir = resolved.parent
+        except (NotImplementedError, ValueError):
+            shared_tiers_dir = None
+    return FileStorage(AGENT_DIR, shared_tiers_dir=shared_tiers_dir)
+
+
+def render_ralph_status(_config_dict: dict[str, object]) -> list[str]:
+    ralph_config = read_ralph_config(FileStorage(AGENT_DIR))
+
+    enabled_value = ralph_config.get("enabled")
+    enabled = bool(enabled_value) if isinstance(enabled_value, bool) else False
+
+    max_iterations_value = ralph_config.get("max_iterations")
+    max_iterations = (
+        int(max_iterations_value) if isinstance(max_iterations_value, int | float) else 10
+    )
+
+    sleep_seconds_value = ralph_config.get("sleep_seconds")
+    sleep_seconds = int(sleep_seconds_value) if isinstance(sleep_seconds_value, int | float) else 2
+
+    compact_mode_value = ralph_config.get("compact_mode")
+    compact_mode = (
+        compact_mode_value
+        if isinstance(compact_mode_value, str) and compact_mode_value
+        else "always"
+    )
+
+    state = "enabled" if enabled else "disabled"
+    recent_file = AGENT_DIR / "RECENT.md"
+    last_run_timestamp: str | None = None
+    last_outcome: str | None = None
+    if recent_file.exists():
+        try:
+            current_heading: str | None = None
+            for raw_line in recent_file.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if line.startswith("## "):
+                    current_heading = line.removeprefix("## ").strip()
+                elif line.startswith("- Outcome:"):
+                    value = line.split(":", 1)[1].strip()
+                    if value:
+                        last_outcome = value
+                        last_run_timestamp = current_heading
+        except OSError:
+            pass
+    selected_prd_value = ralph_config.get("selected_prd_ids")
+    selected_prd_ids: list[str] | None = None
+    if isinstance(selected_prd_value, list):
+        selected_prd_ids = [str(x) for x in selected_prd_value if x]
+    selected_prd_display = (
+        ", ".join(selected_prd_ids) if selected_prd_ids else "all (model decides)"
+    )
+
+    lines = [
+        "[bold]Ralph Loop:[/bold]",
+        f"  Status: {state}",
+        f"  Max iterations: {max_iterations}",
+        f"  Sleep seconds:  {sleep_seconds}",
+        f"  Compact mode:   {compact_mode}",
+        f"  Selected PRDs:  {selected_prd_display}",
+        f"  Last run:       {last_run_timestamp or 'none'}",
+        f"  Last outcome:   {last_outcome or 'none'}",
+        "",
+    ]
+    return lines
+
+
+@ralph_app.command("status")
+def ralph_status() -> None:
+    """Show Ralph loop status."""
+    _get_theme_manager()
+    ensure_initialized()
+    files = get_files()
+    config_dict = files.read_config()
+    lines = render_ralph_status(config_dict)
+    console.print(Panel.fit("\n".join(lines), title="Ralph Loop"))
+
+
+@ralph_app.command("enable")
+def ralph_enable(
+    max_iterations: int | None = typer.Option(
+        None,
+        "--max-iterations",
+        min=1,
+        help="Max iterations for Ralph loop config",
+    ),
+    prd_file: Path | None = typer.Option(
+        None,
+        "--prd-file",
+        "--prd",
+        "-p",
+        help="Path to PRD JSON file (default: auto-detected)",
+    ),
+    sleep_seconds: int | None = typer.Option(
+        None,
+        "--sleep-seconds",
+        min=0,
+        help="Sleep seconds between iterations",
+    ),
+    compact_mode: str | None = typer.Option(
+        None,
+        "--compact-mode",
+        help="Compact mode: always, on-failure, off",
+    ),
+) -> None:
+    """Enable the Ralph loop."""
+    _get_theme_manager()
+    ensure_initialized()
+    files = get_files()
+
+    if compact_mode is not None:
+        compact_mode = compact_mode.strip().lower()
+        if compact_mode not in {"always", "on-failure", "off"}:
+            console.print("[error]Invalid compact mode. Use always, on-failure, or off.[/error]")
+            raise typer.Exit(1)
+
+    agent_dir, storage, loop_files = get_ralph_components()
+    loop = RalphLoop(agent_dir, storage, loop_files)
+    updates: dict[str, object] = {"enabled": True}
+    if max_iterations is not None:
+        updates["max_iterations"] = max_iterations
+    if sleep_seconds is not None:
+        updates["sleep_seconds"] = sleep_seconds
+    if compact_mode is not None:
+        updates["compact_mode"] = compact_mode
+    config_dict = write_ralph_config(files, updates)
+
+    if prd_file is None:
+        loop.enable()
+        lines = render_ralph_status(config_dict)
+        console.print(Panel.fit("\n".join(lines), title="Ralph Loop Updated"))
+        return
+
+    if not prd_file.exists():
+        console.print(f"[error]PRD file not found: {prd_file}[/error]")
+        raise typer.Exit(1)
+    item_count = loop.initialize_from_prd(prd_file)
+    console.print(f"[success]✓ Ralph enabled ({item_count} PRD items)[/success]")
+
+
+@ralph_app.command("disable")
+def ralph_disable() -> None:
+    """Disable the Ralph loop."""
+    _get_theme_manager()
+    ensure_initialized()
+    files = get_files()
+
+    agent_dir, storage, loop_files = get_ralph_components()
+    loop = RalphLoop(agent_dir, storage, loop_files)
+    state = loop.disable()
+    config_dict = write_ralph_config(files, {"enabled": False})
+    console.print(f"[warning]Ralph disabled (total iterations: {state.total_iterations})[/warning]")
+    lines = render_ralph_status(config_dict)
+    console.print(Panel.fit("\n".join(lines), title="Ralph Loop Updated"))
+
+
+@ralph_app.command("select")
+def ralph_select() -> None:
+    """Show instructions for selecting PRD items."""
+    _get_theme_manager()
+    ensure_initialized()
+    console.print(
+        "[dim]PRD selection is interactive in the TUI. Use one of:[/dim]\n"
+        "  • [bold]agent-recall open[/bold] then palette (Ctrl+P) → 'Choose PRD items'\n"
+        "  • [bold]agent-recall ralph set-prds --prds AR-001,AR-002[/bold] to set via CLI"
+    )
+
+
+@ralph_app.command("get-selected-prds")
+def ralph_get_selected_prds() -> None:
+    """Output selected PRD IDs if configured."""
+    _get_theme_manager()
+    ensure_initialized()
+    files = get_files()
+    ralph_cfg = read_ralph_config(files)
+    selected_value = ralph_cfg.get("selected_prd_ids")
+    if isinstance(selected_value, list) and selected_value:
+        console.print(",".join(str(x) for x in selected_value if x))
+
+
+@ralph_app.command("set-prds")
+def ralph_set_prds(
+    prds: str = typer.Option(
+        ...,
+        "--prds",
+        help="Comma-separated PRD IDs. Omit for all items (model decides).",
+    ),
+    prd_file: Path | None = typer.Option(
+        None,
+        "--prd-file",
+        "--prd",
+        "-p",
+        help="Path to PRD JSON file (default: auto-detected)",
+    ),
+) -> None:
+    """Set selected PRD IDs via CLI."""
+    _get_theme_manager()
+    ensure_initialized()
+    files = get_files()
+
+    raw_ids = [x.strip() for x in re.split(r"[,\s]+", prds) if x.strip()]
+    prd_path = prd_file or get_default_prd_path()
+    ralph_cfg = read_ralph_config(files)
+    max_iter = int(ralph_cfg.get("max_iterations") or 10)
+    updates: dict[str, object]
+    if raw_ids:
+        valid_ids, invalid_ids = validate_prd_ids(prd_path, raw_ids, max_iter)
+        if invalid_ids:
+            console.print(
+                f"[error]Invalid PRD IDs (not found in {prd_path}): "
+                f"{', '.join(invalid_ids)}[/error]"
+            )
+            raise typer.Exit(1)
+        if len(valid_ids) > max_iter:
+            console.print(
+                f"[error]Selected {len(valid_ids)} PRDs exceeds max_iterations ({max_iter}). "
+                f"Select at most {max_iter} items.[/error]"
+            )
+            raise typer.Exit(1)
+        updates = {"selected_prd_ids": valid_ids}
+    else:
+        updates = {"selected_prd_ids": None}
+    config_dict = write_ralph_config(files, updates)
+    lines = render_ralph_status(config_dict)
+    console.print(Panel.fit("\n".join(lines), title="Ralph PRD Selection Updated"))
+
+
+@ralph_app.command("archive-completed")
+def ralph_archive_completed(
+    prd_file: Path | None = typer.Option(
+        None,
+        "--prd-file",
+        "--prd",
+        "-p",
+        help="Path to PRD JSON file (default: auto-detected)",
+    ),
+    prune_only: bool = typer.Option(
+        False,
+        "--prune-only",
+        help="Only prune archived items from PRD, do not archive new ones.",
+    ),
+    iteration: int | None = typer.Option(
+        None,
+        "--iteration",
+        "-n",
+        help="Iteration number for archive metadata",
+    ),
+) -> None:
+    """Archive completed PRD items and optionally prune them."""
+    _get_theme_manager()
+    ensure_initialized()
+    prd_path = prd_file or get_default_prd_path()
+    if not prd_path.exists():
+        console.print(f"[error]PRD file not found: {prd_path}[/error]")
+        raise typer.Exit(1)
+    archive = PRDArchive(AGENT_DIR, get_storage() if not prune_only else None)
+    if prune_only:
+        pruned = archive.prune_archived_from_prd(prd_path)
+        if pruned:
+            console.print(f"[success]✓ Pruned {pruned} archived item(s) from PRD[/success]")
+        else:
+            console.print("No archived items to prune from PRD")
+        return
+
+    archived_items = archive.archive_completed_from_prd(prd_path, iteration=int(iteration or 0))
+    if not archived_items:
+        console.print("No new items to archive")
+        return
+    console.print(f"[success]✓ Archived {len(archived_items)} item(s)[/success]")
+    for item in archived_items:
+        console.print(f"• {item.id}: {item.title}")
+
+
+@ralph_app.command("search-archive")
+def ralph_search_archive(
+    query: str = typer.Argument(..., help="Search query for archive"),
+    top_k: int = typer.Option(
+        5,
+        "--top",
+        "-k",
+        min=1,
+        help="Max search results for search-archive",
+    ),
+) -> None:
+    """Search archived PRD items."""
+    _get_theme_manager()
+    ensure_initialized()
+    if not query.strip():
+        console.print("[error]Search query is required.[/error]")
+        raise typer.Exit(1)
+    archive = PRDArchive(AGENT_DIR)
+    results = archive.search(query.strip(), top_k=top_k)
+    if not results:
+        console.print("No matching archived items found")
+        return
+    table = Table(title="Archived PRD Search", box=box.SIMPLE)
+    table.add_column("ID", style="cyan")
+    table.add_column("Title")
+    table.add_column("Score", justify="right")
+    for item, score in results:
+        table.add_row(item.id, item.title, f"{score:.3f}")
+    console.print(table)
+
+
+@ralph_app.command("refresh-context")
+def ralph_refresh_context(
+    task: str | None = typer.Option(
+        None,
+        "--task",
+        "-t",
+        help="Task description for refresh-context",
+    ),
+    item_id: str | None = typer.Option(
+        None,
+        "--item",
+        "-i",
+        help="PRD item id for refresh-context",
+    ),
+    iteration: int | None = typer.Option(
+        None,
+        "--iteration",
+        "-n",
+        help="Iteration number for refresh-context",
+    ),
+) -> None:
+    """Refresh the Ralph context bundle."""
+    _get_theme_manager()
+    ensure_initialized()
+    storage = get_storage()
+    files = get_files()
+    hook = ContextRefreshHook(AGENT_DIR, storage, files)
+    try:
+        summary = hook.refresh(task=task, item_id=item_id, iteration=iteration)
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[error]Context refresh failed: {exc}[/error]")
+        raise typer.Exit(1) from None
+    adapters_written = summary.get("adapters_written")
+    adapter_list = adapters_written if isinstance(adapters_written, list) else []
+    adapter_names = ", ".join(str(name) for name in adapter_list)
+    lines = [
+        "[success]✓ Context refreshed[/success]",
+        f"  Context length: {summary.get('context_length', 0)}",
+        f"  Adapters: {adapter_names or 'none'}",
+    ]
+    task_value = summary.get("task")
+    if isinstance(task_value, str) and task_value.strip():
+        lines.append(f"  Task: {task_value}")
+    console.print("\n".join(lines))

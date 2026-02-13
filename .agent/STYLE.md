@@ -271,3 +271,6 @@
 
 ## 2026-02-13T18:31:00Z Iteration 5 (AR-301)
 - Implement Ralph enable/disable using a small state JSON writer/reader to avoid adding unused heavy loop machinery.
+
+## 2026-02-13T00:00:00Z Iteration 6 (AR-301)
+- Prefer Typer subapps for command groups while keeping main CLI helper wrappers for test stability.

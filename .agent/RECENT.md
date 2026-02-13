@@ -319,6 +319,15 @@
 - Notes: Added Ralph CLI enable/disable with ralph_state.json tracking and PRD init support; added tests for state creation/disable and PRD count output.
 - Next: Run validation and, if green, proceed to AR-303 (run command Mode B delegation).
 
+## 2026-02-13T12:45:00Z Iteration 6
+- Item: AR-301 - Create Ralph CLI scaffolding with enable and disable commands
+- Mode: feature
+- Agent exit code: 0
+- Validation: passed
+- Outcome: progressed
+- Notes: Split Ralph CLI into a dedicated Typer subapp in `src/agent_recall/cli/ralph.py`, wired subcommands through main CLI, and kept helper wrappers for existing tests; reprioritized remaining PRDs.
+- Next: Implement AR-303 (run command) before AR-302 (status dual-mode).
+
 ## 2026-02-13T02:30:00Z Iteration 6
 - Item: AR-009 - Ship shared backend tracer-bullet (single-tenant)
 - Mode: feature

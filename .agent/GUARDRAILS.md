@@ -338,3 +338,6 @@
 - For Ralph refresh-context CLI, call ContextRefreshHook and surface failures as exit code 1 with a clear error message.
 ## 2026-02-13T23:55:00Z Iteration 5 (AR-204)
 - When adding new Ralph sub-actions, add CLI help text plus command contract entries to avoid CLI/TUI parity drift.
+
+## 2026-02-13T00:00:00Z Iteration 6 (AR-301)
+- When moving CLI command groups into subapps, keep backward-compatible helper functions in main.py to satisfy existing tests.

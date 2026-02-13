@@ -31,8 +31,15 @@ from typer.main import get_command as get_typer_command
 from typer.testing import CliRunner
 
 from agent_recall import __version__
+from agent_recall.cli import ralph as ralph_cli
 from agent_recall.cli.banner import print_banner
 from agent_recall.cli.command_contract import command_parity_report, get_command_contract
+from agent_recall.cli.ralph import (
+    load_prd_items,
+    ralph_app,
+    read_ralph_config,
+    render_ralph_status,
+)
 from agent_recall.cli.textual_tui import get_palette_actions
 from agent_recall.cli.theme import DEFAULT_THEME, ThemeManager
 from agent_recall.core.adapters import get_default_adapters, write_adapter_payloads
@@ -81,15 +88,11 @@ from agent_recall.llm import (
     get_available_providers,
     validate_provider_config,
 )
-from agent_recall.ralph.context_refresh import ContextRefreshHook
-from agent_recall.ralph.loop import RalphLoop
-from agent_recall.ralph.prd_archive import PRDArchive
 from agent_recall.storage import create_storage_backend
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.models import CurationStatus, LLMConfig, RetrievalConfig, SemanticLabel
 from agent_recall.storage.remote import resolve_shared_db_path
-from agent_recall.storage.sqlite import SQLiteStorage
 
 app = typer.Typer(help="Agent Memory System - Persistent knowledge for AI coding agents")
 _slash_runner = CliRunner()
@@ -212,63 +215,6 @@ T = TypeVar("T")
 SOURCE_CHOICES_TEXT = ", ".join(VALID_SOURCE_NAMES)
 
 
-def get_default_prd_path() -> Path:
-    candidates = [
-        Path(".agent/ralph/prd.json"),
-        Path("agent_recall/ralph/prd.json"),
-        Path("prd.json"),
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
-
-
-def get_default_script_path() -> Path:
-    candidates = [
-        Path("agent_recall/scripts/ralph-agent-recall-loop.sh"),
-        Path("scripts/ralph-agent-recall-loop.sh"),
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
-
-
-def _load_prd_items(prd_path: Path) -> list[dict[str, Any]]:
-    """Load PRD items from JSON file. Returns empty list on error."""
-    try:
-        data = json.loads(prd_path.read_text(encoding="utf-8"))
-        items = data.get("items")
-        return list(items) if isinstance(items, list) else []
-    except (OSError, json.JSONDecodeError, TypeError):
-        return []
-
-
-def _validate_prd_ids(
-    prd_path: Path,
-    ids: list[str],
-    max_iterations: int,
-) -> tuple[list[str], list[str]]:
-    """
-    Validate PRD IDs. Returns (valid_ids, invalid_ids).
-    Raises no error; caller checks invalid_ids and count vs max_iterations.
-    """
-    items = _load_prd_items(prd_path)
-    valid_ids_set = {str(it.get("id", "")) for it in items if it.get("id")}
-    valid: list[str] = []
-    invalid: list[str] = []
-    for i in ids:
-        s = str(i).strip()
-        if not s:
-            continue
-        if s in valid_ids_set:
-            valid.append(s)
-        else:
-            invalid.append(s)
-    return (valid, invalid)
-
-
 INITIAL_GUARDRAILS = """# Guardrails
 
 Rules and warnings for this codebase. Entries added automatically from agent sessions.
@@ -365,21 +311,6 @@ def ensure_initialized() -> None:
     _get_theme_manager()  # Ensure theme is loaded
     console.print("[error]Not initialized. Run 'agent-recall init' first.[/error]")
     raise typer.Exit(1)
-
-
-def get_agent_dir() -> Path:
-    return Path.cwd() / ".agent"
-
-
-def get_ralph_components() -> tuple[Path, SQLiteStorage, FileStorage]:
-    agent_dir = get_agent_dir()
-    if not agent_dir.exists():
-        _get_theme_manager()
-        console.print("[error]Not initialized. Run 'agent-recall init' first.[/error]")
-        raise typer.Exit(1)
-    storage = SQLiteStorage(agent_dir / "state.db")
-    files = FileStorage(agent_dir)
-    return agent_dir, storage, files
 
 
 @lru_cache(maxsize=1)
@@ -586,6 +517,14 @@ def _collect_cli_commands_for_palette() -> list[str]:
     return commands
 
 
+def get_default_prd_path() -> Path:
+    return ralph_cli.get_default_prd_path()
+
+
+def get_default_script_path() -> Path:
+    return ralph_cli.get_default_script_path()
+
+
 @app.command("command-inventory")
 def command_inventory() -> None:
     """Print command inventory for CLI, TUI, and palette."""
@@ -687,28 +626,10 @@ def _read_tui_command(timeout_seconds: float) -> str | None:
     return line.rstrip("\n")
 
 
-def _read_ralph_config(files: FileStorage) -> dict[str, Any]:
-    config_dict = files.read_config()
-    ralph_config = config_dict.get("ralph", {}) if isinstance(config_dict, dict) else {}
-    return ralph_config if isinstance(ralph_config, dict) else {}
-
-
 def _read_adapter_config(files: FileStorage) -> dict[str, Any]:
     config_dict = files.read_config()
     adapter_config = config_dict.get("adapters", {}) if isinstance(config_dict, dict) else {}
     return adapter_config if isinstance(adapter_config, dict) else {}
-
-
-def _write_ralph_config(files: FileStorage, updates: dict[str, object]) -> dict[str, object]:
-    config_dict = files.read_config()
-    if "ralph" not in config_dict or not isinstance(config_dict.get("ralph"), dict):
-        config_dict["ralph"] = {}
-    ralph_config = config_dict["ralph"]
-    if isinstance(ralph_config, dict):
-        ralph_config.update(updates)
-    config_dict["ralph"] = ralph_config
-    files.write_config(config_dict)
-    return config_dict
 
 
 def _write_adapter_config(files: FileStorage, updates: dict[str, object]) -> dict[str, object]:
@@ -2147,70 +2068,9 @@ def status():
         lines.append(f"  [error]Last error: {bg_status.error_message}[/error]")
 
     config_dict = files.read_config()
-    lines.extend(_render_ralph_status(config_dict))
+    lines.extend(render_ralph_status(config_dict))
 
     console.print(Panel.fit("\n".join(lines), title="Agent Recall Status"))
-
-
-def _render_ralph_status(_config_dict: dict[str, object]) -> list[str]:
-    ralph_config = _read_ralph_config(FileStorage(AGENT_DIR))
-
-    enabled_value = ralph_config.get("enabled")
-    enabled = bool(enabled_value) if isinstance(enabled_value, bool) else False
-
-    max_iterations_value = ralph_config.get("max_iterations")
-    max_iterations = (
-        int(max_iterations_value) if isinstance(max_iterations_value, int | float) else 10
-    )
-
-    sleep_seconds_value = ralph_config.get("sleep_seconds")
-    sleep_seconds = int(sleep_seconds_value) if isinstance(sleep_seconds_value, int | float) else 2
-
-    compact_mode_value = ralph_config.get("compact_mode")
-    compact_mode = (
-        compact_mode_value
-        if isinstance(compact_mode_value, str) and compact_mode_value
-        else "always"
-    )
-
-    state = "enabled" if enabled else "disabled"
-    recent_file = AGENT_DIR / "RECENT.md"
-    last_run_timestamp: str | None = None
-    last_outcome: str | None = None
-    if recent_file.exists():
-        try:
-            current_heading: str | None = None
-            for raw_line in recent_file.read_text(encoding="utf-8").splitlines():
-                line = raw_line.strip()
-                if line.startswith("## "):
-                    current_heading = line.removeprefix("## ").strip()
-                elif line.startswith("- Outcome:"):
-                    value = line.split(":", 1)[1].strip()
-                    if value:
-                        last_outcome = value
-                        last_run_timestamp = current_heading
-        except OSError:
-            pass
-    selected_prd_value = ralph_config.get("selected_prd_ids")
-    selected_prd_ids: list[str] | None = None
-    if isinstance(selected_prd_value, list):
-        selected_prd_ids = [str(x) for x in selected_prd_value if x]
-    selected_prd_display = (
-        ", ".join(selected_prd_ids) if selected_prd_ids else "all (model decides)"
-    )
-
-    lines = [
-        "[bold]Ralph Loop:[/bold]",
-        f"  Status: {state}",
-        f"  Max iterations: {max_iterations}",
-        f"  Sleep seconds:  {sleep_seconds}",
-        f"  Compact mode:   {compact_mode}",
-        f"  Selected PRDs:  {selected_prd_display}",
-        f"  Last run:       {last_run_timestamp or 'none'}",
-        f"  Last outcome:   {last_outcome or 'none'}",
-        "",
-    ]
-    return lines
 
 
 def _fetch_latest_version() -> str | None:
@@ -2680,9 +2540,9 @@ def _run_model_config_for_tui(
 def _list_prd_items_for_tui_picker() -> dict[str, Any]:
     """Load PRD items and Ralph config for the TUI PRD selection modal."""
     prd_path = get_default_prd_path()
-    items = _load_prd_items(prd_path)
+    items = load_prd_items(prd_path)
     files = get_files()
-    ralph_config = _read_ralph_config(files)
+    ralph_config = read_ralph_config(files)
     selected_value = ralph_config.get("selected_prd_ids")
     selected_ids: list[str] = []
     if isinstance(selected_value, list):
@@ -3269,288 +3129,6 @@ def providers():
     )
 
 
-@app.command("ralph")
-def ralph(
-    action: str = typer.Argument(
-        ...,
-        help="Action: status, enable, disable, refresh-context, archive-completed, search-archive",
-    ),
-    query: str | None = typer.Argument(None, help="Search query for search-archive"),
-    max_iterations: int | None = typer.Option(
-        None,
-        "--max-iterations",
-        min=1,
-        help="Max iterations for Ralph loop config",
-    ),
-    prd_file: Path | None = typer.Option(
-        None,
-        "--prd-file",
-        "--prd",
-        "-p",
-        help="Path to PRD JSON file (default: auto-detected)",
-    ),
-    sleep_seconds: int | None = typer.Option(
-        None,
-        "--sleep-seconds",
-        min=0,
-        help="Sleep seconds between iterations",
-    ),
-    compact_mode: str | None = typer.Option(
-        None,
-        "--compact-mode",
-        help="Compact mode: always, on-failure, off",
-    ),
-    task: str | None = typer.Option(
-        None,
-        "--task",
-        "-t",
-        help="Task description for refresh-context",
-    ),
-    item_id: str | None = typer.Option(
-        None,
-        "--item",
-        "-i",
-        help="PRD item id for refresh-context",
-    ),
-    iteration: int | None = typer.Option(
-        None,
-        "--iteration",
-        "-n",
-        help="Iteration number for refresh-context",
-    ),
-    top_k: int = typer.Option(
-        5,
-        "--top",
-        "-k",
-        min=1,
-        help="Max search results for search-archive",
-    ),
-    prds: str | None = typer.Option(
-        None,
-        "--prds",
-        help="Optional. Comma-separated PRD IDs. Omit for all items (model decides).",
-    ),
-    prune_only: bool = typer.Option(
-        False,
-        "--prune-only",
-        help="For archive-completed: only prune archived items from PRD, do not archive new ones.",
-    ),
-):
-    """Manage Ralph loop configuration."""
-    _get_theme_manager()
-    ensure_initialized()
-    files = get_files()
-
-    normalized = action.strip().lower()
-    if normalized not in {
-        "status",
-        "enable",
-        "disable",
-        "set-prds",
-        "select",
-        "get-selected-prds",
-        "refresh-context",
-        "archive-completed",
-        "search-archive",
-    }:
-        console.print(
-            "[error]Action must be one of: status, enable, disable, set-prds, select, "
-            "get-selected-prds, refresh-context, archive-completed, search-archive[/error]"
-        )
-        raise typer.Exit(1)
-
-    if normalized == "select":
-        console.print(
-            "[dim]PRD selection is interactive in the TUI. Use one of:[/dim]\n"
-            "  • [bold]agent-recall open[/bold] then palette (Ctrl+P) → 'Choose PRD items'\n"
-            "  • [bold]agent-recall ralph set-prds --prds AR-001,AR-002[/bold] to set via CLI"
-        )
-        return
-
-    if normalized == "get-selected-prds":
-        ralph_cfg = _read_ralph_config(files)
-        selected_value = ralph_cfg.get("selected_prd_ids")
-        if isinstance(selected_value, list) and selected_value:
-            console.print(",".join(str(x) for x in selected_value if x))
-        return
-
-    if compact_mode is not None:
-        compact_mode = compact_mode.strip().lower()
-        if compact_mode not in {"always", "on-failure", "off"}:
-            console.print("[error]Invalid compact mode. Use always, on-failure, or off.[/error]")
-            raise typer.Exit(1)
-
-    if normalized == "status":
-        config_dict = files.read_config()
-        lines = _render_ralph_status(config_dict)
-        console.print(Panel.fit("\n".join(lines), title="Ralph Loop"))
-        return
-
-    if normalized == "enable":
-        agent_dir, storage, loop_files = get_ralph_components()
-        loop = RalphLoop(agent_dir, storage, loop_files)
-        updates: dict[str, object] = {"enabled": True}
-        if max_iterations is not None:
-            updates["max_iterations"] = max_iterations
-        if sleep_seconds is not None:
-            updates["sleep_seconds"] = sleep_seconds
-        if compact_mode is not None:
-            updates["compact_mode"] = compact_mode
-        config_dict = _write_ralph_config(files, updates)
-        if prd_file is None:
-            state = loop.enable()
-            lines = _render_ralph_status(config_dict)
-            console.print(Panel.fit("\n".join(lines), title="Ralph Loop Updated"))
-        else:
-            if not prd_file.exists():
-                console.print(f"[error]PRD file not found: {prd_file}[/error]")
-                raise typer.Exit(1)
-            item_count = loop.initialize_from_prd(prd_file)
-            console.print(f"[success]✓ Ralph enabled ({item_count} PRD items)[/success]")
-        return
-
-    if normalized == "disable":
-        agent_dir, storage, loop_files = get_ralph_components()
-        loop = RalphLoop(agent_dir, storage, loop_files)
-        state = loop.disable()
-        config_dict = _write_ralph_config(files, {"enabled": False})
-        console.print(
-            f"[warning]Ralph disabled (total iterations: {state.total_iterations})[/warning]"
-        )
-        lines = _render_ralph_status(config_dict)
-        console.print(Panel.fit("\n".join(lines), title="Ralph Loop Updated"))
-        return
-
-    if normalized == "archive-completed":
-        prd_path = prd_file or get_default_prd_path()
-        if not prd_path.exists():
-            console.print(f"[error]PRD file not found: {prd_path}[/error]")
-            raise typer.Exit(1)
-        archive = PRDArchive(AGENT_DIR, get_storage() if not prune_only else None)
-        if prune_only:
-            pruned = archive.prune_archived_from_prd(prd_path)
-            if pruned:
-                console.print(f"[success]✓ Pruned {pruned} archived item(s) from PRD[/success]")
-            else:
-                console.print("No archived items to prune from PRD")
-        else:
-            archived_items = archive.archive_completed_from_prd(
-                prd_path, iteration=int(iteration or 0)
-            )
-            if not archived_items:
-                console.print("No new items to archive")
-                return
-            console.print(f"[success]✓ Archived {len(archived_items)} item(s)[/success]")
-            for item in archived_items:
-                console.print(f"• {item.id}: {item.title}")
-        return
-
-    if normalized == "search-archive":
-        if query is None or not query.strip():
-            console.print("[error]Search query is required.[/error]")
-            raise typer.Exit(1)
-        archive = PRDArchive(AGENT_DIR)
-        results = archive.search(query.strip(), top_k=top_k)
-        if not results:
-            console.print("No matching archived items found")
-            return
-        table = Table(title="Archived PRD Search", box=box.SIMPLE)
-        table.add_column("ID", style="cyan")
-        table.add_column("Title")
-        table.add_column("Score", justify="right")
-        for item, score in results:
-            table.add_row(item.id, item.title, f"{score:.3f}")
-        console.print(table)
-        return
-
-    if normalized == "set-prds":
-        if prds is None:
-            console.print("[error]--prds is required for set-prds action.[/error]")
-            raise typer.Exit(1)
-        raw_ids = [x.strip() for x in re.split(r"[,\s]+", prds) if x.strip()]
-        prd_path = prd_file or get_default_prd_path()
-        ralph_cfg = _read_ralph_config(files)
-        max_iter = int(ralph_cfg.get("max_iterations") or 10)
-        if raw_ids:
-            valid_ids, invalid_ids = _validate_prd_ids(prd_path, raw_ids, max_iter)
-            if invalid_ids:
-                console.print(
-                    f"[error]Invalid PRD IDs (not found in {prd_path}): "
-                    f"{', '.join(invalid_ids)}[/error]"
-                )
-                raise typer.Exit(1)
-            if len(valid_ids) > max_iter:
-                console.print(
-                    f"[error]Selected {len(valid_ids)} PRDs exceeds max_iterations ({max_iter}). "
-                    f"Select at most {max_iter} items.[/error]"
-                )
-                raise typer.Exit(1)
-            updates = {"selected_prd_ids": valid_ids}
-        else:
-            updates = {"selected_prd_ids": None}
-        config_dict = _write_ralph_config(files, updates)
-        lines = _render_ralph_status(config_dict)
-        console.print(Panel.fit("\n".join(lines), title="Ralph PRD Selection Updated"))
-        return
-
-    if normalized == "refresh-context":
-        storage = get_storage()
-        hook = ContextRefreshHook(AGENT_DIR, storage, files)
-        try:
-            summary = hook.refresh(task=task, item_id=item_id, iteration=iteration)
-        except Exception as exc:  # noqa: BLE001
-            console.print(f"[error]Context refresh failed: {exc}[/error]")
-            raise typer.Exit(1) from None
-        adapters_written = summary.get("adapters_written")
-        adapter_list = adapters_written if isinstance(adapters_written, list) else []
-        adapter_names = ", ".join(str(name) for name in adapter_list)
-        lines = [
-            "[success]✓ Context refreshed[/success]",
-            f"  Context length: {summary.get('context_length', 0)}",
-            f"  Adapters: {adapter_names or 'none'}",
-        ]
-        task_value = summary.get("task")
-        if isinstance(task_value, str) and task_value.strip():
-            lines.append(f"  Task: {task_value}")
-        console.print("\n".join(lines))
-        return
-
-    updates: dict[str, object] = {"enabled": normalized == "enable"}
-    if max_iterations is not None:
-        updates["max_iterations"] = max_iterations
-    if sleep_seconds is not None:
-        updates["sleep_seconds"] = sleep_seconds
-    if compact_mode is not None:
-        updates["compact_mode"] = compact_mode
-
-    if prds is not None:
-        raw_ids = [x.strip() for x in re.split(r"[,\s]+", prds) if x.strip()]
-        prd_path = prd_file or get_default_prd_path()
-        ralph_cfg = _read_ralph_config(files)
-        max_iter = int(ralph_cfg.get("max_iterations") or 10)
-        if raw_ids:
-            valid_ids, invalid_ids = _validate_prd_ids(prd_path, raw_ids, max_iter)
-            if invalid_ids:
-                console.print(
-                    f"[error]Invalid PRD IDs (not found in {prd_path}): "
-                    f"{', '.join(invalid_ids)}[/error]"
-                )
-                raise typer.Exit(1)
-            if len(valid_ids) > max_iter:
-                console.print(
-                    f"[error]Selected {len(valid_ids)} PRDs exceeds max_iterations ({max_iter}). "
-                    f"Select at most {max_iter} items.[/error]"
-                )
-                raise typer.Exit(1)
-            updates["selected_prd_ids"] = valid_ids
-        else:
-            updates["selected_prd_ids"] = None
-
-    config_dict = _write_ralph_config(files, updates)
-    lines = _render_ralph_status(config_dict)
-    console.print(Panel.fit("\n".join(lines), title="Ralph Loop Updated"))
-
-
 @app.command()
 def test_llm():
     """Test the configured LLM provider with a small generation call."""
@@ -3756,6 +3334,7 @@ def theme_show():
 app.add_typer(theme_app, name="theme")
 app.add_typer(config_app, name="config")
 app.add_typer(curation_app, name="curation")
+app.add_typer(ralph_app, name="ralph")
 
 
 @curation_app.command("list")

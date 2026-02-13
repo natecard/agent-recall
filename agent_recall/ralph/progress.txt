@@ -52,3 +52,4 @@
 2026-02-13T10:05:00Z | Iteration 2 | AR-601 | Confirmed compact.py already uses canonical tier_format imports; no code changes needed; validation green.
 2026-02-13T22:25:00Z | Iteration 3 | AR-602 | Verified Ralph-block skipping logic in compact.py already matches acceptance; no code changes needed; validation pending.
 2026-02-13T18:31:00Z | Iteration 5 | AR-301 | Added Ralph CLI enable/disable state file management (ralph_state.json) with PRD init support, CLI alias for --prd, and CLI tests; validation pending.
+2026-02-13T12:45:00Z | Iteration 6 | AR-301 | Split Ralph CLI into dedicated Typer subapp with shared helpers; wired subcommands, preserved main CLI wrappers, reprioritized remaining items; validation green.

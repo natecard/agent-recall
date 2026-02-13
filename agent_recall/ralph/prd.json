@@ -67,7 +67,7 @@
     {
       "id": "AR-301",
       "category": "functional",
-      "priority": 1,
+      "priority": 3,
       "title": "Create Ralph CLI scaffolding with enable and disable commands",
       "description": "Create src/agent_recall/cli/ralph.py as a Typer sub-application with shared helpers (get_agent_dir, get_ralph_components) and the enable and disable commands. These commands are identical across both specifications and form the foundation that status and run build upon.",
       "user_story": "As a developer, I want to enable and disable the Ralph loop from the CLI so I can control when automated PRD-driven development is active for my repository.",
@@ -96,12 +96,12 @@
         "uv run ruff check .",
         "uv run ty check"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-302",
       "category": "functional",
-      "priority": 3,
+      "priority": 2,
       "title": "Implement Ralph status command with dual-mode display",
       "description": "Implement the 'status' command in ralph.py supporting two display modes. Mode A (from spec 1): reads RalphStateManager state and displays a Rich Panel with status, iteration counts, last run time, last outcome, and PRD path, plus a Rich Table of state-tracked PRD items with color-coded statuses. Mode B (from spec 2): reads a JSON PRD file and displays project name, version, total/completed/remaining counts, plus a Rich Table sorted by priority showing '\u2713 Passed' or 'Pending' status. Auto-detection selects Mode B when JSON PRD exists, falling back to Mode A.",
       "user_story": "As a developer, I want the status command to show me the most relevant view of Ralph progress \u2014 either the live loop state when running the Python orchestrator, or the PRD completion status when using the bash loop \u2014 so I always have an accurate picture regardless of which execution mode I'm using.",
@@ -138,7 +138,7 @@
     {
       "id": "AR-303",
       "category": "functional",
-      "priority": 2,
+      "priority": 1,
       "title": "Implement Ralph run command with dual-mode execution",
       "description": "Implement the 'run' command in ralph.py supporting two execution modes. Mode A (from spec 1): Python orchestrator via asyncio.run(loop.run_loop()) with --max/-m and --item/-i flags, progress_callback for real-time console output, and a summary panel. Mode B (from spec 2): bash script delegation via subprocess.run() with --agent-cmd/-a (required), --validate-cmd/-v, --max-iterations/-n, --prd-file/-p, --compact-mode, --sleep-seconds flags, and exit code handling. Mode selection is determined by whether --agent-cmd is provided (Mode B) or not (Mode A).",
       "user_story": "As a developer, I want the run command to support both the Python loop orchestrator (for full integration with state management and progress callbacks) and bash script delegation (for simpler CLI-driven workflows), so I can choose the execution mode that fits my needs.",
