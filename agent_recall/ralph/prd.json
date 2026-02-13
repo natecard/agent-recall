@@ -192,7 +192,8 @@
 			"user_story": "Allow a developer to enable shared memory in one config switch and use it from different workstations.",
 			"steps": [
 				"[done] Define a storage interface contract that supports local and shared backends with the same core operations.",
-				"Implement a single-tenant shared backend service/client path for sessions, chunks, and tier files.",
+				"[done] Implement a single-tenant shared backend client path for sessions/chunks/checkpoints via shared filesystem URLs (`file://` and `sqlite://`).",
+				"Extend shared backend to HTTP service/client transport and shared tier-file synchronization.",
 				"Add retry, timeout, and fallback behavior so local mode can continue if shared backend is unavailable.",
 				"Add end-to-end tests that run the same sync/retrieve/compact flow against both local and shared modes."
 			],
