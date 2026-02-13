@@ -238,3 +238,6 @@
 
 ## 2026-02-13T21:20:00Z Iteration 1 (AR-201)
 - Use dataclasses for archive record models and keep datetime serialization ISO-8601 with UTC normalization.
+
+## 2026-02-13T22:15:00Z Iteration 2 (AR-202)
+- Keep PRD archive search encapsulated in PRDArchive (generate embeddings + cosine similarity) so CLI wiring stays thin.

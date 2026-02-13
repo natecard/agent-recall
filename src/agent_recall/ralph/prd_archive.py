@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+from agent_recall.core.embeddings import cosine_similarity, generate_embedding
 from agent_recall.storage.base import Storage
+from agent_recall.storage.models import Chunk, ChunkSource, SemanticLabel
 
 
 @dataclass
@@ -188,7 +190,43 @@ class PRDArchive:
         return self._load_archive()
 
     def _index_archived_item(self, item: ArchivedPRDItem) -> None:
-        return
+        if self.storage is None:
+            return
+        text = item.to_searchable_text()
+        embedding = generate_embedding(text, dimensions=64)
+        chunk = Chunk(
+            source=ChunkSource.IMPORT,
+            content=text,
+            label=SemanticLabel.DECISION_RATIONALE,
+            tags=["prd", "archived", item.id.lower()],
+            embedding=embedding,
+        )
+        self.storage.store_chunk(chunk)
+
+    def search(
+        self, query: str, top_k: int = 5, item_ids: list[str] | None = None
+    ) -> list[tuple[ArchivedPRDItem, float]]:
+        items = self._load_archive()
+        if not items:
+            return []
+
+        query_embedding = generate_embedding(query, dimensions=64)
+        allowed_ids = {item_id.lower() for item_id in item_ids} if item_ids else None
+        scored: list[tuple[ArchivedPRDItem, float]] = []
+        for item in items:
+            if allowed_ids is not None and item.id.lower() not in allowed_ids:
+                continue
+            item_embedding = generate_embedding(item.to_searchable_text(), dimensions=64)
+            score = cosine_similarity(query_embedding, item_embedding)
+            scored.append((item, score))
+
+        scored.sort(key=lambda pair: pair[1], reverse=True)
+        return scored[: max(0, top_k)]
+
+    def match_knowledge_to_prd(
+        self, knowledge: str, top_k: int = 5, item_ids: list[str] | None = None
+    ) -> list[tuple[ArchivedPRDItem, float]]:
+        return self.search(knowledge, top_k=top_k, item_ids=item_ids)
 
 
 def _parse_datetime(value: Any) -> datetime:

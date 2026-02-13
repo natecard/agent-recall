@@ -164,7 +164,7 @@
 		{
 			"id": "AR-007",
 			"category": "functional",
-			"priority": 3,
+			"priority": 10,
 			"title": "Introduce optional shared team memory backend",
 			"description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
 			"user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
@@ -298,7 +298,7 @@
 		{
 			"id": "AR-014",
 			"category": "functional",
-			"priority": 2,
+			"priority": 3,
 			"title": "Add backup, restore, and migration tooling for shared memory",
 			"description": "Provide operational tooling for safe upgrades and disaster recovery of shared memory data.",
 			"user_story": "Allow teams to upgrade backend schema and recover memory state without losing history.",
@@ -446,7 +446,7 @@
 		{
 			"id": "AR-202",
 			"category": "functional",
-			"priority": 4,
+			"priority": 1,
 			"title": "Implement PRD archive semantic search and knowledge indexing",
 			"description": "Extend PRDArchive in prd_archive.py with semantic search capabilities: embedding generation for archived items, cosine similarity search, chunk indexing into the Storage backend, and knowledge-to-PRD matching. This enables developers to connect current work to past PRD items.",
 			"user_story": "As a developer, I need to semantically search archived PRD items and trace where guardrails or patterns originated, so I can understand the history behind project decisions.",
@@ -471,7 +471,7 @@
 				"Semantic search produces relevant results (e.g., searching 'authentication' matches an auth PRD item)."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "AR-203",
@@ -508,7 +508,7 @@
 		{
 			"id": "AR-204",
 			"category": "functional",
-			"priority": 5,
+			"priority": 4,
 			"title": "Implement archive-completed and search-archive CLI commands",
 			"description": "Add two new CLI commands to the Ralph Typer sub-application: 'archive-completed' for archiving completed PRD items from a JSON PRD file, and 'search-archive' for semantically searching archived items. These commands enable lifecycle management of PRD knowledge.",
 			"user_story": "As a developer, I want CLI commands to archive completed PRD items and search the archive so I can preserve and retrieve past development decisions from the terminal.",
@@ -545,7 +545,7 @@
 		{
 			"id": "AR-205",
 			"category": "functional",
-			"priority": 6,
+			"priority": 5,
 			"title": "Implement refresh-context CLI command",
 			"description": "Add a 'refresh-context' command to the Ralph Typer sub-application that exposes the ContextRefreshHook as a standalone CLI invocation. This command is designed to be called by the bash Ralph loop script between iterations to ensure adapter payloads are current.",
 			"user_story": "As a developer using the bash Ralph loop script, I need a CLI command that refreshes context and adapter payloads between iterations so the agent receives up-to-date knowledge without requiring the Python loop orchestrator.",
@@ -577,7 +577,7 @@
 		{
 			"id": "AR-206",
 			"category": "integration",
-			"priority": 7,
+			"priority": 6,
 			"title": "Add context refresh and archival hooks to bash Ralph loop script",
 			"description": "Update the bash Ralph loop script (ralph-agent-recall-loop.sh) to call the context refresh CLI command between iterations and the archive-completed CLI command when all PRD items pass. This bridges the bash-based loop with the Python-based knowledge system.",
 			"user_story": "As a developer using the bash Ralph loop, I need context to be automatically refreshed between iterations and completed items to be archived when the loop finishes, so the bash workflow has feature parity with the Python orchestrator.",
@@ -609,7 +609,7 @@
 		{
 			"id": "AR-207",
 			"category": "functional",
-			"priority": 8,
+			"priority": 7,
 			"title": "Implement get_default_prd_path and get_default_script_path CLI helpers",
 			"description": "Implement the get_default_prd_path() and get_default_script_path() helper functions in ralph.py that search a prioritized list of candidate paths for PRD JSON files and the bash loop script respectively, supporting multiple project layout conventions.",
 			"user_story": "As a developer, I want the Ralph CLI commands to automatically find my PRD file and loop script without requiring explicit path arguments every time, supporting both .agent/ralph/ and agent_recall/ralph/ project layouts.",
@@ -636,7 +636,7 @@
 		{
 			"id": "AR-208",
 			"category": "testing",
-			"priority": 9,
+			"priority": 8,
 			"title": "Implement comprehensive test suite for PRD archive, context refresh, and new CLI commands",
 			"description": "Create unit and integration tests covering all new components from this specification: PRD archive data model and persistence, semantic search and indexing, context refresh hook, archive-completed CLI, search-archive CLI, refresh-context CLI, bash loop integration hooks, and path helper functions.",
 			"user_story": "As a developer contributing to agent-recall, I need comprehensive tests for the PRD archive system, context refresh hook, and new CLI commands to catch regressions and verify end-to-end correctness.",
@@ -674,7 +674,7 @@
 		{
 			"id": "AR-301",
 			"category": "functional",
-			"priority": 10,
+			"priority": 9,
 			"title": "Create Ralph CLI scaffolding with enable and disable commands",
 			"description": "Create src/agent_recall/cli/ralph.py as a Typer sub-application with shared helpers (get_agent_dir, get_ralph_components) and the enable and disable commands. These commands are identical across both specifications and form the foundation that status and run build upon.",
 			"user_story": "As a developer, I want to enable and disable the Ralph loop from the CLI so I can control when automated PRD-driven development is active for my repository.",
@@ -704,7 +704,7 @@
 		{
 			"id": "AR-302",
 			"category": "functional",
-			"priority": 11,
+			"priority": 10,
 			"title": "Implement Ralph status command with dual-mode display",
 			"description": "Implement the 'status' command in ralph.py supporting two display modes. Mode A (from spec 1): reads RalphStateManager state and displays a Rich Panel with status, iteration counts, last run time, last outcome, and PRD path, plus a Rich Table of state-tracked PRD items with color-coded statuses. Mode B (from spec 2): reads a JSON PRD file and displays project name, version, total/completed/remaining counts, plus a Rich Table sorted by priority showing '✓ Passed' or 'Pending' status. Auto-detection selects Mode B when JSON PRD exists, falling back to Mode A.",
 			"user_story": "As a developer, I want the status command to show me the most relevant view of Ralph progress — either the live loop state when running the Python orchestrator, or the PRD completion status when using the bash loop — so I always have an accurate picture regardless of which execution mode I'm using.",
@@ -737,7 +737,7 @@
 		{
 			"id": "AR-303",
 			"category": "functional",
-			"priority": 12,
+			"priority": 11,
 			"title": "Implement Ralph run command with dual-mode execution",
 			"description": "Implement the 'run' command in ralph.py supporting two execution modes. Mode A (from spec 1): Python orchestrator via asyncio.run(loop.run_loop()) with --max/-m and --item/-i flags, progress_callback for real-time console output, and a summary panel. Mode B (from spec 2): bash script delegation via subprocess.run() with --agent-cmd/-a (required), --validate-cmd/-v, --max-iterations/-n, --prd-file/-p, --compact-mode, --sleep-seconds flags, and exit code handling. Mode selection is determined by whether --agent-cmd is provided (Mode B) or not (Mode A).",
 			"user_story": "As a developer, I want the run command to support both the Python loop orchestrator (for full integration with state management and progress callbacks) and bash script delegation (for simpler CLI-driven workflows), so I can choose the execution mode that fits my needs.",
@@ -777,7 +777,7 @@
 		{
 			"id": "AR-501",
 			"category": "functional",
-			"priority": 13,
+			"priority": 12,
 			"title": "Implement tier format core detection layer",
 			"description": "Create src/agent_recall/core/tier_format.py with the EntryFormat enum (including PREAMBLE value from spec 2), all three regex patterns with named capture groups, the canonical detection function detect_line_format(), and the boolean helper functions is_ralph_entry_start() and is_bullet_entry(). This layer provides the foundation that both the structured parsing layer and compact.py depend on.",
 			"user_story": "As a developer working on agent-recall internals, I need a single source of truth for detecting whether a tier file line belongs to the bullet format, Ralph format, recent-bullet format, or preamble, so that all downstream consumers classify lines consistently.",
@@ -814,7 +814,7 @@
 		{
 			"id": "AR-502",
 			"category": "functional",
-			"priority": 14,
+			"priority": 13,
 			"title": "Implement tier format structured parsing layer",
 			"description": "Extend src/agent_recall/core/tier_format.py with the ParsedEntry and TierContent dataclasses, the parse_ralph_header() and parse_bullet_entry() extraction functions, and the full parse_tier_content() function that parses a complete tier file into a structured TierContent object. This includes multi-line Ralph block tracking where consecutive non-header lines following a Ralph header are grouped into a single ParsedEntry.",
 			"user_story": "As a developer, I need to parse tier files into structured typed objects so I can programmatically query, filter, and manipulate entries by format type, iteration number, item ID, or entry kind without brittle string manipulation.",
@@ -859,7 +859,7 @@
 		{
 			"id": "AR-503",
 			"category": "functional",
-			"priority": 15,
+			"priority": 14,
 			"title": "Implement tier format merge, round-trip, and backward-compatible split",
 			"description": "Extend src/agent_recall/core/tier_format.py with merge_tier_content() accepting a TierContent object with optional preserve_order parameter, and a backward-compatible split_tier_by_format() wrapper that returns (preamble, bullet_raw, ralph_raw) tuples from parse_tier_content(). Ensure that content round-trips through parse_tier_content() → merge_tier_content() without entry loss.",
 			"user_story": "As a developer, I need to reassemble tier files from their parsed components in the correct order (preamble → bullets → Ralph entries) and I need the old split_tier_by_format API to keep working for existing callers, so that both old and new code paths produce correct tier files.",
@@ -899,7 +899,7 @@
 		{
 			"id": "AR-601",
 			"category": "functional",
-			"priority": 16,
+			"priority": 15,
 			"title": "Update compact.py imports to canonical tier_format API",
 			"description": "Update all imports in src/agent_recall/core/compact.py to use the canonical function names from the extended tier_format module: is_ralph_entry_start (not is_ralph_entry_line), is_bullet_entry (not is_bullet_entry_line). Optionally import parse_tier_content and TierContent for richer format-aware processing in downstream sub-PRDs. Verify no deprecated alias names appear anywhere in compact.py.",
 			"user_story": "As a developer maintaining compact.py, I need imports to reference the canonical tier_format API so that when deprecated aliases are eventually removed, compact.py continues to work without modification.",
@@ -928,7 +928,7 @@
 		{
 			"id": "AR-602",
 			"category": "functional",
-			"priority": 17,
+			"priority": 16,
 			"title": "Update _split_preamble_and_lines to skip Ralph entry blocks",
 			"description": "Update the _split_preamble_and_lines() static method in compact.py to detect and skip Ralph entry blocks using is_ralph_entry_start(). Implement in_ralph_block tracking with correct block termination logic: a Ralph block ends when a new '## ' header is encountered OR when two consecutive empty lines appear. Lines within Ralph blocks are excluded from both the preamble and extracted lists.",
 			"user_story": "As a developer running 'agent-recall run' (compaction), I need the bullet-entry extraction logic to completely skip over Ralph-format entry blocks so that compaction only processes bullet entries and leaves Ralph entries untouched.",
@@ -962,7 +962,7 @@
 		{
 			"id": "AR-603",
 			"category": "functional",
-			"priority": 18,
+			"priority": 17,
 			"title": "Ensure Ralph blocks are preserved on compact.py rewrite with integration tests",
 			"description": "Ensure that when compact.py rewrites a tier file after compaction, all Ralph entry blocks that were skipped during extraction are preserved verbatim in the output. Add comprehensive integration tests covering mixed-format files (GUARDRAILS.md, STYLE.md, RECENT.md), Ralph-only files, bullet-only files, and round-trip preservation. Verify that no deprecated tier_format alias names exist in compact.py.",
 			"user_story": "As a developer, I need absolute certainty that running compaction never destroys Ralph loop entries in my tier files, regardless of the mix of entry formats present, so I can safely run 'agent-recall run' at any time.",

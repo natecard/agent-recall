@@ -304,3 +304,6 @@
 
 ## 2026-02-13T21:20:00Z Iteration 1 (AR-201)
 - When adding JSON archive persistence, treat missing or corrupt archive files as empty and continue without raising.
+
+## 2026-02-13T22:15:00Z Iteration 2 (AR-202)
+- Keep archive indexing as a no-op when storage is None and guard storage access in _index_archived_item to avoid NoneType errors.
