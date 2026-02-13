@@ -54,3 +54,4 @@
 2026-02-13T18:31:00Z | Iteration 5 | AR-301 | Added Ralph CLI enable/disable state file management (ralph_state.json) with PRD init support, CLI alias for --prd, and CLI tests; validation pending.
 2026-02-13T12:45:00Z | Iteration 6 | AR-301 | Split Ralph CLI into dedicated Typer subapp with shared helpers; wired subcommands, preserved main CLI wrappers, reprioritized remaining items; validation green.
 2026-02-13T00:20:00Z | Iteration 7 | AR-303 | Added Ralph run CLI bash delegation (agent-cmd mode) with script/prd resolution, exit handling, and command contract update; validation pending.
+2026-02-13T23:59:59Z | Iteration 8 | AR-302 | Implemented dual-mode Ralph status (PRD JSON vs state) with Rich panels/tables and auto-detection; validation green.

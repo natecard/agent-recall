@@ -277,3 +277,6 @@
 
 ## 2026-02-13T00:00:00Z Iteration 6 (AR-301)
 - Prefer Typer subapps for command groups while keeping main CLI helper wrappers for test stability.
+
+## 2026-02-13T23:59:59Z Iteration 8 (AR-302)
+- For dual-mode CLI status views, split rendering into focused helpers and reuse shared truncation utilities.

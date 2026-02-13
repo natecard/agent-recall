@@ -10,6 +10,15 @@
 - Notes: Added Ralph run CLI in bash delegation mode with script/prd validation, subprocess execution, and exit messaging; Python mode remains TODO when --agent-cmd omitted. Updated command contract and TUI suggestions coverage.
 - Next: Implement Python loop Mode A (async loop + progress callback) and then AR-302 status dual-mode.
 
+## 2026-02-13T23:59:59Z Iteration 8
+- Item: AR-302 - Implement Ralph status command with dual-mode display
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Added Ralph status auto-detection for PRD JSON vs state file, plus Rich panels/tables and PRD summary with priority-sorted items.
+- Next: Implement AR-303 Mode A Python loop (async run, progress callbacks, summary panel).
+
 ## 2026-02-13T23:59:00Z Iteration 1
 - Item: AR-501 - Implement tier format core detection layer
 - Mode: feature

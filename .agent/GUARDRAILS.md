@@ -344,3 +344,6 @@
 
 ## 2026-02-13T00:00:00Z Iteration 6 (AR-301)
 - When moving CLI command groups into subapps, keep backward-compatible helper functions in main.py to satisfy existing tests.
+
+## 2026-02-13T23:59:59Z Iteration 8 (AR-302)
+- Avoid expanding Ralph state schema unless the run-loop persists those fields; keep status Mode A tolerant of missing keys.

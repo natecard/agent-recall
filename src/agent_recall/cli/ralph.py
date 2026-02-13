@@ -16,7 +16,7 @@ from rich.table import Table
 from agent_recall.cli.theme import DEFAULT_THEME, ThemeManager
 from agent_recall.core.config import load_config
 from agent_recall.ralph.context_refresh import ContextRefreshHook
-from agent_recall.ralph.loop import RalphLoop
+from agent_recall.ralph.loop import RalphLoop, RalphStateManager, RalphStatus
 from agent_recall.ralph.prd_archive import PRDArchive
 from agent_recall.storage import create_storage_backend
 from agent_recall.storage.base import Storage
@@ -225,11 +225,152 @@ def render_ralph_status(_config_dict: dict[str, object]) -> list[str]:
     return lines
 
 
+def _truncate(text: str, max_len: int) -> str:
+    if max_len <= 0:
+        return ""
+    if len(text) <= max_len:
+        return text
+    if max_len <= 3:
+        return text[:max_len]
+    return f"{text[: max_len - 3]}..."
+
+
+def _render_status_mode_a(agent_dir: Path) -> None:
+    manager = RalphStateManager(agent_dir)
+    state = manager.load()
+    state_payload: dict[str, Any] = {}
+    if manager.state_path.exists():
+        try:
+            payload = json.loads(manager.state_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                state_payload = payload
+        except (OSError, json.JSONDecodeError):
+            state_payload = {}
+
+    status_style = "green" if state.status == RalphStatus.ENABLED else "red"
+    lines = [
+        f"Status: [{status_style}]{state.status.value}[/{status_style}]",
+        f"Current iteration: {int(state_payload.get('current_iteration') or 0)}",
+        f"Total iterations: {state.total_iterations}",
+        f"Successful iterations: {int(state_payload.get('successful_iterations') or 0)}",
+        f"Failed iterations: {int(state_payload.get('failed_iterations') or 0)}",
+    ]
+    last_run_at = state_payload.get("last_run_at")
+    if isinstance(last_run_at, str) and last_run_at:
+        lines.append(f"Last run: {last_run_at}")
+    last_outcome = state_payload.get("last_outcome")
+    if isinstance(last_outcome, str) and last_outcome:
+        lines.append(f"Last outcome: {last_outcome}")
+    prd_path = state_payload.get("prd_path")
+    if isinstance(prd_path, str) and prd_path:
+        lines.append(f"PRD path: {prd_path}")
+
+    panel = Panel.fit("\n".join(lines), title="Ralph Status")
+    console.print(panel)
+
+    items = state_payload.get("items")
+    item_list = list(items) if isinstance(items, list) else []
+    table = Table(title="PRD Items", box=box.SIMPLE)
+    table.add_column("ID", style="cyan")
+    table.add_column("Title")
+    table.add_column("Status")
+    table.add_column("Iterations", justify="right")
+
+    status_styles = {
+        "pending": "dim",
+        "in_progress": "yellow",
+        "completed": "green",
+        "blocked": "red",
+        "skipped": "dim",
+    }
+    for item in item_list:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("id") or "")
+        title = _truncate(str(item.get("title") or ""), 40)
+        status_raw = str(item.get("status") or "pending").lower()
+        style = status_styles.get(status_raw, "dim")
+        status_text = f"[{style}]{status_raw}[/{style}]"
+        iterations = str(item.get("iterations") or "0")
+        table.add_row(item_id, title, status_text, iterations)
+    console.print(table)
+
+
+def _render_status_mode_b(prd_path: Path) -> None:
+    try:
+        payload = json.loads(prd_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        console.print(f"[error]Invalid PRD JSON: {exc}[/error]")
+        raise typer.Exit(1)
+
+    if not isinstance(payload, dict):
+        console.print(f"[error]Invalid PRD JSON: {prd_path}[/error]")
+        raise typer.Exit(1)
+
+    project = str(payload.get("project") or "Unknown")
+    version = str(payload.get("version") or "")
+    items = payload.get("items")
+    item_list = list(items) if isinstance(items, list) else []
+
+    total = len(item_list)
+    passed = sum(1 for item in item_list if isinstance(item, dict) and item.get("passes") is True)
+    remaining = total - passed
+
+    lines = [
+        f"PRD path: {prd_path}",
+        f"Project: {project}",
+        f"Version: {version or 'unknown'}",
+        f"Total items: {total}",
+        f"Completed: [green]{passed}[/green]",
+        f"Remaining: [yellow]{remaining}[/yellow]",
+    ]
+    console.print(Panel.fit("\n".join(lines), title="Ralph PRD"))
+
+    table = Table(title="PRD Items", box=box.SIMPLE)
+    table.add_column("ID", style="cyan")
+    table.add_column("Priority", justify="right")
+    table.add_column("Title")
+    table.add_column("Status")
+
+    def sort_key(item: dict[str, Any]) -> int:
+        priority = item.get("priority")
+        return int(priority) if isinstance(priority, int) else 999999
+
+    for item in sorted((i for i in item_list if isinstance(i, dict)), key=sort_key):
+        item_id = str(item.get("id") or "")
+        priority_raw = item.get("priority")
+        priority = str(priority_raw) if isinstance(priority_raw, int) else "-"
+        title = _truncate(str(item.get("title") or ""), 50)
+        if item.get("passes") is True:
+            status_text = "[green]✓ Passed[/green]"
+        else:
+            status_text = "[yellow]Pending[/yellow]"
+        table.add_row(item_id, priority, title, status_text)
+    console.print(table)
+
+
 @ralph_app.command("status")
 def ralph_status() -> None:
     """Show Ralph loop status."""
     _get_theme_manager()
-    ensure_initialized()
+    prd_path = get_default_prd_path()
+    if prd_path.exists():
+        _render_status_mode_b(prd_path)
+        return
+
+    agent_dir = get_agent_dir()
+    if not agent_dir.exists():
+        console.print(
+            "[error]No PRD JSON or Ralph state found. "
+            "Run 'agent-recall init' or provide a PRD JSON file.[/error]"
+        )
+        raise typer.Exit(1)
+
+    state_manager = RalphStateManager(agent_dir)
+    if state_manager.state_path.exists():
+        _render_status_mode_a(agent_dir)
+        return
+
     files = get_files()
     config_dict = files.read_config()
     lines = render_ralph_status(config_dict)
