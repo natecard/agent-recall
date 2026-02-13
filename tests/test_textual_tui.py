@@ -16,6 +16,8 @@ def test_build_command_suggestions_excludes_slash_variants() -> None:
     assert "sync" in suggestions
     assert "settings" in suggestions
     assert "config settings" in suggestions
+    assert "config model" in suggestions
+    assert "ralph status" in suggestions
 
 
 def test_clean_optional_text_handles_none_variants() -> None:

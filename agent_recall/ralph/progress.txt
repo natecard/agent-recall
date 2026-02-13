@@ -27,3 +27,5 @@
 2026-02-13T05:12:08Z | Iteration 3 | AR-011 | Added shared HTTP audit event emission for mutation calls with config toggles, audit models, and tests; validation pending.
 2026-02-13T06:00:00Z | Iteration 4 | AR-007 | Documented shared storage migration/opt-in path and config example in README; reprioritized remaining PRD items.
 2026-02-13T04:18:42Z | Iteration 5 | AR-015 | Added Ralph loop CLI/TUI controls (ralph status/enable/disable), default config, and status display; tests + validation green.
+2026-02-13T07:10:00Z | Iteration 1 | AR-018 | Added command contract inventory and parity reporting, refactored TUI palette to share contract-driven suggestions, and added tests; validation green.
+2026-02-13T08:00:00Z | Iteration 2 | AR-018 | Extended command parity report to include extra CLI commands for drift visibility; validation pending.

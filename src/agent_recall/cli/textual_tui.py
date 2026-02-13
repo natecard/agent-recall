@@ -21,6 +21,7 @@ from textual.widgets import Button, Checkbox, Footer, Header, Input, OptionList,
 from textual.widgets.option_list import Option
 from textual.worker import Worker, WorkerState
 
+from agent_recall.cli.command_contract import get_command_contract
 from agent_recall.core.onboarding import API_KEY_ENV_BY_PROVIDER
 from agent_recall.ingest.sources import SOURCE_DEFINITIONS
 
@@ -61,32 +62,28 @@ def _source_checkbox_id(source_name: str) -> str:
 
 
 def _build_command_suggestions(cli_commands: list[str]) -> list[str]:
-    base = [
-        "help",
-        "status",
-        "open",
-        "run",
-        "sync --no-compact",
-        "compact",
-        "sources",
-        "settings",
-        "preferences",
-        "config settings",
-        "config setup",
-        "config setup --force",
-        "config setup --quick",
-        "config model --provider ollama --model llama3.1",
-        "config model --temperature 0.2 --max-tokens 8192",
-        "view overview",
-        "view sources",
-        "view llm",
-        "view knowledge",
-        "view settings",
-        "view console",
-        "view all",
-        "menu overview",
-        "quit",
-    ]
+    base = ["help", "run", "sync --no-compact", "settings", "preferences", "quit"]
+    for contract in get_command_contract():
+        if "tui" not in contract.surfaces:
+            continue
+        base.append(contract.command)
+        base.extend(contract.aliases)
+    base.extend(
+        [
+            "config setup --force",
+            "config setup --quick",
+            "config model --provider ollama --model llama3.1",
+            "config model --temperature 0.2 --max-tokens 8192",
+            "view overview",
+            "view sources",
+            "view llm",
+            "view knowledge",
+            "view settings",
+            "view console",
+            "view all",
+            "menu overview",
+        ]
+    )
 
     suggestions: list[str] = []
     seen: set[str] = set()
@@ -182,6 +179,153 @@ class PaletteAction:
     shortcut: str = ""
     binding: str = ""
     keywords: str = ""
+
+
+def get_palette_actions() -> list[PaletteAction]:
+    return [
+        PaletteAction(
+            "setup",
+            "Setup",
+            "Configure sources and model defaults for this repo",
+            "Core",
+            shortcut="configure repository setup",
+            keywords="onboarding setup",
+        ),
+        PaletteAction(
+            "knowledge-run",
+            "Run Knowledge Update",
+            "Ingest conversations and synthesize GUARDRAILS, STYLE, and RECENT",
+            "Core",
+            shortcut="ingest + synthesize",
+            binding="Ctrl+K",
+            keywords="run compact synthesis llm",
+        ),
+        PaletteAction(
+            "run:select",
+            "Run Selected Conversations",
+            "Choose specific conversations for a targeted knowledge update",
+            "Core",
+            shortcut="targeted run",
+            keywords="sessions select run llm",
+        ),
+        PaletteAction(
+            "sync",
+            "Sync Conversations",
+            "Ingest from enabled sources without running synthesis",
+            "Core",
+            shortcut="ingest only",
+            binding="Ctrl+Y",
+            keywords="sync ingest",
+        ),
+        PaletteAction(
+            "status",
+            "Refresh Dashboard",
+            "Reload all dashboard panels now",
+            "Core",
+            shortcut="refresh now",
+            binding="Ctrl+R",
+            keywords="status dashboard refresh",
+        ),
+        PaletteAction(
+            "sources",
+            "Source Health",
+            "Check source availability and discovered conversation counts",
+            "Sessions",
+            shortcut="availability + counts",
+            keywords="sources cursor claude",
+        ),
+        PaletteAction(
+            "theme",
+            "Theme",
+            "Switch themes instantly with arrows and Enter",
+            "Sessions",
+            shortcut="preview + apply",
+            binding="Ctrl+T",
+            keywords="theme list set",
+        ),
+        PaletteAction(
+            "sessions",
+            "Conversations",
+            "Browse discovered conversations for this repository",
+            "Sessions",
+            shortcut="browse conversation list",
+            keywords="sessions conversations history",
+        ),
+        PaletteAction(
+            "view:overview",
+            "Overview",
+            "High-level repository status and health",
+            "Views",
+            keywords="view overview",
+        ),
+        PaletteAction(
+            "view:sources",
+            "Sources View",
+            "Source connectivity and ingestion status",
+            "Views",
+            keywords="view sources",
+        ),
+        PaletteAction(
+            "view:llm",
+            "LLM View",
+            "Provider, model, and synthesis configuration",
+            "Views",
+            keywords="view llm",
+        ),
+        PaletteAction(
+            "view:knowledge",
+            "Knowledge View",
+            "Knowledge base artifacts and indexed chunks",
+            "Views",
+            keywords="view knowledge",
+        ),
+        PaletteAction(
+            "view:settings",
+            "Settings View",
+            "Runtime and interface settings",
+            "Views",
+            keywords="view settings",
+        ),
+        PaletteAction(
+            "view:console",
+            "Console View",
+            "Recent command output and activity history",
+            "Views",
+            keywords="view console",
+        ),
+        PaletteAction(
+            "view:all",
+            "All Views",
+            "Show all dashboard panels together",
+            "Views",
+            keywords="view all",
+        ),
+        PaletteAction(
+            "model",
+            "Model Preferences",
+            "Adjust provider, model, base URL, and generation defaults",
+            "Settings",
+            shortcut="provider + model config",
+            keywords="provider model temperature max tokens",
+        ),
+        PaletteAction(
+            "settings",
+            "Workspace Preferences",
+            "Change default view, refresh speed, and workspace scope",
+            "Settings",
+            shortcut="refresh/view/workspaces",
+            binding="Ctrl+G",
+            keywords="settings preferences",
+        ),
+        PaletteAction(
+            "quit",
+            "Quit",
+            "Exit the TUI",
+            "System",
+            binding="Ctrl+Q",
+            keywords="quit exit",
+        ),
+    ]
 
 
 class CommandPaletteModal(ModalScreen[str | None]):
@@ -1213,7 +1357,7 @@ class AgentRecallTextualApp(App[None]):
 
     def action_open_command_palette(self) -> None:
         self.push_screen(
-            CommandPaletteModal(self._palette_actions()),
+            CommandPaletteModal(get_palette_actions()),
             self._handle_palette_action,
         )
 
@@ -1492,153 +1636,6 @@ class AgentRecallTextualApp(App[None]):
         self._theme_preview_active = False
         self._restore_preview_origin()
         self._theme_preview_origin = None
-
-    def _palette_actions(self) -> list[PaletteAction]:
-        actions = [
-            PaletteAction(
-                "setup",
-                "Setup",
-                "Configure sources and model defaults for this repo",
-                "Core",
-                shortcut="configure repository setup",
-                keywords="onboarding setup",
-            ),
-            PaletteAction(
-                "knowledge-run",
-                "Run Knowledge Update",
-                "Ingest conversations and synthesize GUARDRAILS, STYLE, and RECENT",
-                "Core",
-                shortcut="ingest + synthesize",
-                binding="Ctrl+K",
-                keywords="run compact synthesis llm",
-            ),
-            PaletteAction(
-                "run:select",
-                "Run Selected Conversations",
-                "Choose specific conversations for a targeted knowledge update",
-                "Core",
-                shortcut="targeted run",
-                keywords="sessions select run llm",
-            ),
-            PaletteAction(
-                "sync",
-                "Sync Conversations",
-                "Ingest from enabled sources without running synthesis",
-                "Core",
-                shortcut="ingest only",
-                binding="Ctrl+Y",
-                keywords="sync ingest",
-            ),
-            PaletteAction(
-                "status",
-                "Refresh Dashboard",
-                "Reload all dashboard panels now",
-                "Core",
-                shortcut="refresh now",
-                binding="Ctrl+R",
-                keywords="status dashboard refresh",
-            ),
-            PaletteAction(
-                "sources",
-                "Source Health",
-                "Check source availability and discovered conversation counts",
-                "Sessions",
-                shortcut="availability + counts",
-                keywords="sources cursor claude",
-            ),
-            PaletteAction(
-                "theme",
-                "Theme",
-                "Switch themes instantly with arrows and Enter",
-                "Sessions",
-                shortcut="preview + apply",
-                binding="Ctrl+T",
-                keywords="theme list set",
-            ),
-            PaletteAction(
-                "sessions",
-                "Conversations",
-                "Browse discovered conversations for this repository",
-                "Sessions",
-                shortcut="browse conversation list",
-                keywords="sessions conversations history",
-            ),
-            PaletteAction(
-                "view:overview",
-                "Overview",
-                "High-level repository status and health",
-                "Views",
-                keywords="view overview",
-            ),
-            PaletteAction(
-                "view:sources",
-                "Sources View",
-                "Source connectivity and ingestion status",
-                "Views",
-                keywords="view sources",
-            ),
-            PaletteAction(
-                "view:llm",
-                "LLM View",
-                "Provider, model, and synthesis configuration",
-                "Views",
-                keywords="view llm",
-            ),
-            PaletteAction(
-                "view:knowledge",
-                "Knowledge View",
-                "Knowledge base artifacts and indexed chunks",
-                "Views",
-                keywords="view knowledge",
-            ),
-            PaletteAction(
-                "view:settings",
-                "Settings View",
-                "Runtime and interface settings",
-                "Views",
-                keywords="view settings",
-            ),
-            PaletteAction(
-                "view:console",
-                "Console View",
-                "Recent command output and activity history",
-                "Views",
-                keywords="view console",
-            ),
-            PaletteAction(
-                "view:all",
-                "All Views",
-                "Show all dashboard panels together",
-                "Views",
-                keywords="view all",
-            ),
-            PaletteAction(
-                "model",
-                "Model Preferences",
-                "Adjust provider, model, base URL, and generation defaults",
-                "Settings",
-                shortcut="provider + model config",
-                keywords="provider model temperature max tokens",
-            ),
-            PaletteAction(
-                "settings",
-                "Workspace Preferences",
-                "Change default view, refresh speed, and workspace scope",
-                "Settings",
-                shortcut="refresh/view/workspaces",
-                binding="Ctrl+G",
-                keywords="settings preferences",
-            ),
-            PaletteAction(
-                "quit",
-                "Quit",
-                "Exit the TUI",
-                "System",
-                binding="Ctrl+Q",
-                keywords="quit exit",
-            ),
-        ]
-        return actions
 
     def _handle_palette_action(self, action_id: str | None) -> None:
         if not action_id:

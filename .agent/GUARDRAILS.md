@@ -119,6 +119,12 @@
 - Implement fallback logic silently if the goal is continuity, but ensure errors are raised if fallback also fails or isn't configured.
 - Pass local DB paths to shared storage backends during initialization so they can self-configure fallback behavior.
 
+## 2026-02-13T07:10:00Z Iteration 1 (AR-018)
+- Keep command parity checks scoped to explicit surfaces in the command contract; do not require TUI-only commands to exist in CLI.
+
+## 2026-02-13T08:00:00Z Iteration 2 (AR-018)
+- When reporting command parity, surface both extra CLI and extra TUI commands so drift is visible from either side.
+
 ## 2026-02-13T02:30:00Z Iteration 6 (AR-009)
 - Use `respx` to verify HTTP clients against mocked endpoints without requiring a running server in unit tests.
 - Always use `response.raise_for_status()` in HTTP client methods to ensure errors propagate correctly.

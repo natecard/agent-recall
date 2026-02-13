@@ -31,6 +31,8 @@ from typer.testing import CliRunner
 
 from agent_recall import __version__
 from agent_recall.cli.banner import print_banner
+from agent_recall.cli.command_contract import command_parity_report, get_command_contract
+from agent_recall.cli.textual_tui import get_palette_actions
 from agent_recall.cli.theme import DEFAULT_THEME, ThemeManager
 from agent_recall.core.background_sync import BackgroundSyncManager
 from agent_recall.core.compact import CompactionEngine
@@ -451,21 +453,18 @@ def _filter_ingesters_by_sources(ingesters, selected_sources: list[str] | None):
 
 
 def _tui_help_lines() -> list[str]:
-    return [
-        "[bold]Slash Commands[/bold]",
-        "[dim]/view overview|sources|llm|knowledge|settings|console|all[/dim] - switch TUI view",
-        "[dim]/status[/dim] - Show stats and source availability",
-        "[dim]/sync --no-compact[/dim] - Sync sessions quickly",
-        "[dim]/ralph status|enable|disable[/dim] - Manage Ralph loop config",
-        "[dim]/compact[/dim] - Run knowledge synthesis now",
-        "[dim]/compact-tiers[/dim] - Compact tier files (dedupe, normalize, apply budgets)",
-        "[dim]/run[/dim] - Alias for /sync (includes synthesis by default)",
-        "[dim]/sources[/dim] - Show detected session sources",
-        "[dim]/config model --temperature 0.2 --max-tokens 8192[/dim] - Tune model settings",
-        "[dim]/config setup --force[/dim] - Re-run setup in this repo",
-        "[dim]/settings[/dim] - Open settings view",
-        "[dim]/quit[/dim] - Exit the TUI",
-    ]
+    lines = ["[bold]Slash Commands[/bold]"]
+    for contract in get_command_contract():
+        if "tui" not in contract.surfaces:
+            continue
+        lines.append(f"[dim]/{contract.command}[/dim] - {contract.description}")
+    lines.append(
+        "[dim]/view overview|sources|llm|knowledge|settings|console|all[/dim] - switch TUI view"
+    )
+    lines.append("[dim]/run[/dim] - Alias for /sync (includes synthesis by default)")
+    lines.append("[dim]/settings[/dim] - Open settings view")
+    lines.append("[dim]/quit[/dim] - Exit the TUI")
+    return lines
 
 
 def _collect_cli_commands_for_palette() -> list[str]:
@@ -489,6 +488,74 @@ def _collect_cli_commands_for_palette() -> list[str]:
 
     _walk(root)
     return commands
+
+
+@app.command("command-inventory")
+def command_inventory() -> None:
+    """Print command inventory for CLI, TUI, and palette."""
+    cli_commands = set(_collect_cli_commands_for_palette())
+    tui_slash_commands: set[str] = set()
+    for contract in get_command_contract():
+        if "tui" not in contract.surfaces:
+            continue
+        tui_slash_commands.add(contract.command)
+        tui_slash_commands.update(contract.aliases)
+    palette_actions = {action.action_id for action in get_palette_actions()}
+    parity = command_parity_report(
+        cli_commands=cli_commands,
+        tui_commands=tui_slash_commands,
+    )
+
+    table = Table(title="Command Inventory", box=box.SIMPLE)
+    table.add_column("Surface")
+    table.add_column("Count", justify="right")
+    table.add_row("CLI", str(len(cli_commands)))
+    table.add_row("TUI Slash", str(len(tui_slash_commands)))
+    table.add_row("Palette", str(len(palette_actions)))
+    console.print(table)
+
+    contract_table = Table(title="Contract Commands", box=box.SIMPLE)
+    contract_table.add_column("Command")
+    contract_table.add_column("Aliases")
+    contract_table.add_column("Surfaces")
+    for contract in get_command_contract():
+        aliases = ", ".join(contract.aliases) if contract.aliases else "-"
+        surfaces = ", ".join(contract.surfaces)
+        contract_table.add_row(contract.command, aliases, surfaces)
+    console.print(contract_table)
+
+    if (
+        parity["missing_in_tui"]
+        or parity["missing_in_cli"]
+        or parity["extra_in_tui"]
+        or parity["extra_in_cli"]
+    ):
+        parity_table = Table(title="Parity Gaps", box=box.SIMPLE)
+        parity_table.add_column("Category")
+        parity_table.add_column("Commands")
+        parity_table.add_row(
+            "Missing in TUI",
+            ", ".join(sorted(parity["missing_in_tui"])) or "-",
+        )
+        parity_table.add_row(
+            "Missing in CLI",
+            ", ".join(sorted(parity["missing_in_cli"])) or "-",
+        )
+        parity_table.add_row(
+            "Extra in TUI",
+            ", ".join(sorted(parity["extra_in_tui"])) or "-",
+        )
+        parity_table.add_row(
+            "Extra in CLI",
+            ", ".join(sorted(parity["extra_in_cli"])) or "-",
+        )
+        console.print(parity_table)
+
+    palette_table = Table(title="Palette Actions", box=box.SIMPLE)
+    palette_table.add_column("Action")
+    for action_id in sorted(palette_actions):
+        palette_table.add_row(action_id)
+    console.print(palette_table)
 
 
 def _normalize_tui_command(raw: str) -> str:

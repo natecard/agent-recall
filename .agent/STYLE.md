@@ -119,6 +119,12 @@
 - Use `unittest.mock.patch` context managers for mocking dependencies in tests to ensure clean teardown.
 - Avoid broad `except Exception` blocks in production code unless specifically implementing a "last resort" fallback.
 
+## 2026-02-13T07:10:00Z Iteration 1 (AR-018)
+- Define command contract data in a dedicated module and reuse it for help text, suggestions, and parity reporting.
+
+## 2026-02-13T08:00:00Z Iteration 2 (AR-018)
+- Extend parity helpers to report extra CLI commands alongside missing/extra TUI entries.
+
 ## 2026-02-13T02:30:00Z Iteration 6 (AR-009)
 - Map `Storage` interface methods to flat, noun-based REST endpoints (e.g. `POST /sessions`, `GET /sessions/{id}`) for clarity.
 - Use query parameters (`GET /entries?labels=...`) for optional filters instead of complex path structures.

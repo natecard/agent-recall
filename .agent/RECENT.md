@@ -1,6 +1,24 @@
 - Notes: Completed AR-003 step 4 by wiring retrieval config (`backend`, `top_k`, `fusion_k`, `rerank_enabled`, `rerank_candidate_k`) into `start`, `context`, `refresh-context`, and `retrieve`; added CLI overrides for context/retrieve and retrieval wiring tests.
 - Next: Move to AR-004 and start with tracer-bullet indexing policy for decision/exploration labels.
 
+## 2026-02-13T08:00:00Z Iteration 2
+- Item: AR-018 - Enforce CLI and TUI command parity from one command contract
+- Mode: feature
+- Agent exit code: 0
+- Validation: passed
+- Outcome: progressed
+- Notes: Extended command parity reporting to include extra CLI commands so CLI-only drift is visible alongside extra TUI entries; updated parity report output and tests.
+- Next: Continue AR-018 with parity tests for TUI/CLI drift enforcement.
+
+## 2026-02-13T07:10:00Z Iteration 1
+- Item: AR-018 - Enforce CLI and TUI command parity from one command contract
+- Mode: feature
+- Agent exit code: 0
+- Validation: passed
+- Outcome: progressed
+- Notes: Centralized command definitions in `command_contract` and reused them for TUI help + palette suggestions; added `command-inventory` CLI report and parity helper with tests.
+- Next: Continue AR-018 by wiring parity checks into tests and updating remaining parity gaps.
+
 ## 2026-02-13T05:12:08Z Iteration 3
 - Item: AR-011 - Add auth, RBAC, and audit trail for shared backend
 - Mode: feature

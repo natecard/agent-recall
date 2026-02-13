@@ -1383,6 +1383,7 @@ def test_tui_palette_command_catalog_includes_cli_commands() -> None:
     assert "config setup" in commands
     assert "config model" in commands
     assert "ralph" in commands
+    assert "command-inventory" in commands
 
 
 def test_cli_ralph_status_uses_defaults() -> None:
