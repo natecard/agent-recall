@@ -1748,6 +1748,8 @@ def test_cli_ralph_archive_completed_uses_default_prd_path() -> None:
         assert result.exit_code == 0
         assert "Archived 1 item(s)" in result.output
         assert "AR-001" in result.output
+        remaining = json.loads((Path(".agent") / "ralph" / "prd.json").read_text())
+        assert remaining["items"] == []
 
 
 def test_cli_ralph_archive_completed_missing_prd_exits_with_error() -> None:
@@ -1775,6 +1777,9 @@ def test_cli_ralph_archive_completed_no_passing_items() -> None:
         result = runner.invoke(cli_main.app, ["ralph", "archive-completed"])
         assert result.exit_code == 0
         assert "No new items to archive" in result.output
+        remaining = json.loads((Path(".agent") / "ralph" / "prd.json").read_text())
+        assert len(remaining["items"]) == 1
+        assert remaining["items"][0]["id"] == "AR-001"
 
 
 def test_cli_ralph_search_archive_with_populated_archive() -> None:

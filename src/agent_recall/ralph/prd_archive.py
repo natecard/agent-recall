@@ -167,6 +167,7 @@ class PRDArchive:
         if not isinstance(items, list):
             return []
         existing_ids = {item.id for item in self._load_archive()}
+        completed_item_ids: set[str] = set()
         archived_items: list[ArchivedPRDItem] = []
         for item in items:
             if not isinstance(item, dict):
@@ -175,10 +176,40 @@ class PRDArchive:
                 continue
             item_id = str(item.get("id", ""))
             if not item_id or item_id in existing_ids:
+                if item_id and item_id in existing_ids:
+                    completed_item_ids.add(item_id)
                 continue
             archived_items.append(self.archive_item(item, iteration=iteration))
             existing_ids.add(item_id)
+            completed_item_ids.add(item_id)
+
+        if completed_item_ids:
+            self._prune_prd_items(prd_path=prd_path, archived_ids=completed_item_ids)
         return archived_items
+
+    def _prune_prd_items(self, prd_path: Path, archived_ids: set[str]) -> None:
+        if not archived_ids:
+            return
+
+        payload = json.loads(prd_path.read_text())
+        items = payload.get("items") if isinstance(payload, dict) else None
+        if not isinstance(items, list):
+            return
+
+        filtered_items: list[Any] = []
+        for item in items:
+            if not isinstance(item, dict):
+                filtered_items.append(item)
+                continue
+            item_id = str(item.get("id", ""))
+            should_remove = bool(item.get("passes")) and item_id in archived_ids
+            if should_remove:
+                continue
+            filtered_items.append(item)
+
+        if len(filtered_items) != len(items):
+            payload["items"] = filtered_items
+            prd_path.write_text(json.dumps(payload, indent=2))
 
     def get_by_id(self, item_id: str) -> ArchivedPRDItem | None:
         for item in self._load_archive():

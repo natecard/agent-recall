@@ -6,6 +6,8 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from agent_recall.ralph.prd_archive import ArchivedPRDItem, PRDArchive
 from agent_recall.storage.models import ChunkSource, SemanticLabel
 from agent_recall.storage.sqlite import SQLiteStorage
@@ -232,6 +234,103 @@ def test_archive_completed_from_prd_skips_already_archived(tmp_path: Path) -> No
     assert len(first_run) == 2
     second_run = archive.archive_completed_from_prd(prd_path)
     assert len(second_run) == 0
+
+
+def test_archive_completed_from_prd_prunes_archived_items_from_prd(tmp_path: Path) -> None:
+    (tmp_path / "ralph").mkdir(parents=True)
+    prd_path = tmp_path / "prd.json"
+    prd_path.write_text(
+        json.dumps(
+            {
+                "project": "Test",
+                "items": [
+                    {"id": "AR-001", "title": "Done", "passes": True},
+                    {"id": "AR-002", "title": "Pending", "passes": False},
+                ],
+            }
+        )
+    )
+    archive = PRDArchive(tmp_path)
+    archived = archive.archive_completed_from_prd(prd_path)
+
+    assert len(archived) == 1
+    updated_payload = json.loads(prd_path.read_text())
+    updated_ids = [item["id"] for item in updated_payload["items"]]
+    assert updated_ids == ["AR-002"]
+
+
+def test_archive_completed_from_prd_prunes_previously_archived_items_from_prd(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "ralph").mkdir(parents=True)
+    prd_path = tmp_path / "prd.json"
+    prd_path.write_text(
+        json.dumps(
+            {
+                "project": "Test",
+                "items": [
+                    {"id": "AR-001", "title": "Done", "passes": True},
+                    {"id": "AR-002", "title": "Pending", "passes": False},
+                ],
+            }
+        )
+    )
+    archive = PRDArchive(tmp_path)
+    assert len(archive.archive_completed_from_prd(prd_path)) == 1
+
+    prd_path.write_text(
+        json.dumps(
+            {
+                "project": "Test",
+                "items": [
+                    {"id": "AR-001", "title": "Done", "passes": True},
+                    {"id": "AR-002", "title": "Pending", "passes": False},
+                ],
+            }
+        )
+    )
+
+    archived = archive.archive_completed_from_prd(prd_path)
+    assert archived == []
+
+    updated_payload = json.loads(prd_path.read_text())
+    updated_ids = [item["id"] for item in updated_payload["items"]]
+    assert updated_ids == ["AR-002"]
+
+
+def test_archive_completed_from_prd_does_not_prune_on_partial_archive_failure(
+    tmp_path: Path,
+) -> None:
+    class PartiallyFailingArchive(PRDArchive):
+        def __init__(self, agent_dir: Path):
+            super().__init__(agent_dir)
+            self._calls = 0
+
+        def archive_item(
+            self, prd_item: dict[str, object], *, iteration: int = 0
+        ) -> ArchivedPRDItem:
+            self._calls += 1
+            if self._calls == 2:
+                raise RuntimeError("simulated archive failure")
+            return super().archive_item(prd_item, iteration=iteration)
+
+    (tmp_path / "ralph").mkdir(parents=True)
+    prd_path = tmp_path / "prd.json"
+    original_payload = {
+        "project": "Test",
+        "items": [
+            {"id": "AR-001", "title": "Done1", "passes": True},
+            {"id": "AR-002", "title": "Done2", "passes": True},
+            {"id": "AR-003", "title": "Pending", "passes": False},
+        ],
+    }
+    prd_path.write_text(json.dumps(original_payload))
+
+    archive = PartiallyFailingArchive(tmp_path)
+    with pytest.raises(RuntimeError, match="simulated archive failure"):
+        archive.archive_completed_from_prd(prd_path)
+
+    assert json.loads(prd_path.read_text()) == original_payload
 
 
 # --- PRDArchive.search ---
