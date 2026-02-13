@@ -13,6 +13,13 @@ repos:
 
   - repo: local
     hooks:
+      - id: add-ruff-changes
+        name: add ruff/format changes
+        entry: git add -u
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
       - id: ty
         name: ty check
         entry: uv run ty check

@@ -256,6 +256,10 @@ class RalphLoopConfig(BaseModel):
     max_iterations: int = Field(default=10, ge=1)
     sleep_seconds: int = Field(default=2, ge=0)
     compact_mode: Literal["always", "on-failure", "off"] = "always"
+    selected_prd_ids: list[str] | None = Field(
+        default=None,
+        description="Optional. PRD item IDs to include; None means all items (model decides)",
+    )
 
 
 class AdapterConfig(BaseModel):

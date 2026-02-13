@@ -8,7 +8,7 @@ from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from rich.panel import Panel
 from rich.theme import Theme
@@ -30,6 +30,7 @@ ThemeDefaultsFn = Callable[[], tuple[list[str], str]]
 ThemeRuntimeFn = Callable[[], tuple[str, Theme]]
 ExecuteCommandFn = Callable[[str, int, int], tuple[bool, list[str]]]
 ListSessionsForPickerFn = Callable[[int, bool], list[dict[str, Any]]]
+ListPrdItemsForPickerFn = Callable[[], dict[str, Any]]
 ThemeResolveFn = Callable[[str], Theme | None]
 _LOADING_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
@@ -249,6 +250,14 @@ def get_palette_actions() -> list[PaletteAction]:
             "Core",
             shortcut="loop status",
             keywords="ralph status last run outcome",
+        ),
+        PaletteAction(
+            "ralph-select",
+            "Select PRD Items",
+            "Choose which PRD items to include in the Ralph loop",
+            "Core",
+            shortcut="ralph select",
+            keywords="ralph prd select items",
         ),
         PaletteAction(
             "sources",
@@ -1139,6 +1148,158 @@ class SessionRunModal(ModalScreen[dict[str, Any] | None]):
         return f"{marker} {title} [dim]({started} · {message_count} msg · {processed})[/dim]"
 
 
+class PRDSelectModal(ModalScreen[dict[str, Any] | None]):
+    BINDINGS = [
+        Binding("escape", "dismiss(None)", "Close"),
+        Binding("space", "toggle_selection", "Toggle"),
+        Binding("enter", "apply", "Apply"),
+    ]
+
+    def __init__(
+        self,
+        prd_items: list[dict[str, Any]],
+        selected_ids: list[str],
+        max_iterations: int,
+    ):
+        super().__init__()
+        self.prd_items = prd_items
+        self.selected_prd_ids: set[str] = set(selected_ids)
+        self.max_iterations = max_iterations
+        self.filter_query = ""
+
+    def compose(self) -> ComposeResult:
+        with Container(id="modal_overlay"):
+            with Vertical(id="modal_card"):
+                yield Static(
+                    "Select PRD Items (optional — leave empty for all items; model decides)",
+                    classes="modal_title",
+                )
+                yield Input(
+                    placeholder="Filter PRD items...",
+                    id="prd_select_filter",
+                    classes="field_input",
+                )
+                yield OptionList(id="prd_select_list")
+                yield Static("", id="prd_select_status")
+                with Horizontal(classes="modal_actions"):
+                    yield Button("Apply", variant="primary", id="prd_select_apply")
+                    yield Button("Cancel", id="prd_select_cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#prd_select_filter", Input).focus()
+        self._rebuild_options()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "prd_select_filter":
+            return
+        self.filter_query = event.value
+        self._rebuild_options()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option_list.id != "prd_select_list":
+            return
+        self._toggle_highlighted()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "prd_select_cancel":
+            self.dismiss(None)
+            return
+        if event.button.id == "prd_select_apply":
+            self._submit()
+
+    def action_toggle_selection(self) -> None:
+        self._toggle_highlighted()
+
+    def action_apply(self) -> None:
+        self._submit()
+
+    def _toggle_highlighted(self) -> None:
+        option_list = self.query_one("#prd_select_list", OptionList)
+        highlighted = option_list.highlighted
+        if highlighted is None:
+            return
+        option = option_list.get_option_at_index(highlighted)
+        option_id = option.id or ""
+        if not option_id.startswith("prd:"):
+            return
+        prd_id = option_id.split(":", 1)[1]
+        if not prd_id:
+            return
+        if prd_id in self.selected_prd_ids:
+            self.selected_prd_ids.remove(prd_id)
+        else:
+            self.selected_prd_ids.add(prd_id)
+        self._rebuild_options()
+
+    def _submit(self) -> None:
+        ordered_selection = [
+            str(item.get("id") or "")
+            for item in self.prd_items
+            if str(item.get("id") or "") in self.selected_prd_ids
+        ]
+        ordered_selection = [x for x in ordered_selection if x]
+        if ordered_selection and len(ordered_selection) > self.max_iterations:
+            self.query_one("#prd_select_status", Static).update(
+                f"[red]Selected {len(ordered_selection)} PRDs exceeds max_iterations "
+                f"({self.max_iterations}). Select at most {self.max_iterations}.[/red]"
+            )
+            return
+        self.dismiss({"selected_prd_ids": ordered_selection or None})
+
+    def _rebuild_options(self) -> None:
+        query = self.filter_query.strip().lower()
+        visible_items: list[dict[str, Any]] = []
+        for item in self.prd_items:
+            title = str(item.get("title") or "").lower()
+            item_id = str(item.get("id") or "").lower()
+            if query and query not in f"{title} {item_id}":
+                continue
+            visible_items.append(item)
+
+        option_list = self.query_one("#prd_select_list", OptionList)
+        options: list[Option] = []
+        for item in visible_items:
+            item_id = str(item.get("id") or "")
+            if not item_id:
+                continue
+            selected = item_id in self.selected_prd_ids
+            options.append(
+                Option(
+                    self._line_for_prd_item(item, selected),
+                    id=f"prd:{item_id}",
+                )
+            )
+
+        if not options:
+            options = [Option("No matching PRD items.", id="prd:", disabled=True)]
+
+        option_list.set_options(options)
+        for index, option in enumerate(options):
+            if option.disabled:
+                continue
+            option_list.highlighted = index
+            break
+
+        count_ok = (
+            len(self.selected_prd_ids) <= self.max_iterations if self.selected_prd_ids else True
+        )
+        limit_hint = f" (max {self.max_iterations})" if self.selected_prd_ids else ""
+        empty_hint = " · Empty = all items (model decides)" if not self.selected_prd_ids else ""
+        self.query_one("#prd_select_status", Static).update(
+            f"[dim]{len(visible_items)} shown · {len(self.selected_prd_ids)} selected"
+            f"{limit_hint}{empty_hint} · Space toggles, Enter applies[/dim]"
+            + ("" if count_ok else " [red]· Exceeds limit![/red]")
+        )
+
+    def _line_for_prd_item(self, item: dict[str, Any], selected: bool) -> str:
+        marker = "[green]✓[/green]" if selected else "[dim]○[/dim]"
+        title = str(item.get("title") or "Untitled")
+        item_id = str(item.get("id") or "-")
+        priority = int(item.get("priority") or 0)
+        status = "passed" if bool(item.get("passes")) else "pending"
+        return f"{marker} {title} [dim]({item_id} · priority {priority} · {status})[/dim]"
+
+
 class AgentRecallTextualApp(App[None]):
     CSS = """
     #root {
@@ -1288,6 +1449,7 @@ class AgentRecallTextualApp(App[None]):
         render_dashboard: Callable[..., Any],
         execute_command: ExecuteCommandFn,
         list_sessions_for_picker: ListSessionsForPickerFn,
+        list_prd_items_for_picker: ListPrdItemsForPickerFn | None = None,
         run_setup_payload: Callable[[dict[str, object]], tuple[bool, list[str]]],
         run_model_config: Callable[
             [str | None, str | None, str | None, float | None, int | None, bool],
@@ -1311,6 +1473,7 @@ class AgentRecallTextualApp(App[None]):
         self._render_dashboard = render_dashboard
         self._execute_command = execute_command
         self._list_sessions_for_picker = list_sessions_for_picker
+        self._list_prd_items_for_picker = list_prd_items_for_picker
         self._run_setup_payload = run_setup_payload
         self._run_model_config = run_model_config
         self._theme_defaults_provider = theme_defaults_provider
@@ -1703,6 +1866,7 @@ class AgentRecallTextualApp(App[None]):
             "ralph-enable": "ralph enable",
             "ralph-disable": "ralph disable",
             "ralph-status": "ralph status",
+            "ralph-select": "ralph select",
             "sources": "sources",
             "sessions": "sessions",
         }
@@ -1721,6 +1885,22 @@ class AgentRecallTextualApp(App[None]):
             exit_on_error=False,
         )
         self._worker_context[id(worker)] = "session_picker"
+
+    def action_open_prd_select_modal(self) -> None:
+        if self._list_prd_items_for_picker is None:
+            self.status = "PRD selection unavailable"
+            self._append_activity("PRD selection is not configured.")
+            return
+        self.status = "Loading PRD items"
+        self._append_activity("Loading PRD items for selection...")
+        worker = self.run_worker(
+            self._list_prd_items_for_picker,
+            thread=True,
+            group="tui-ops",
+            exclusive=True,
+            exit_on_error=False,
+        )
+        self._worker_context[id(worker)] = "prd_picker"
 
     def _run_backend_command(self, command: str, *, bypass_local: bool = False) -> None:
         if not bypass_local and self._handle_local_command(command):
@@ -1826,6 +2006,11 @@ class AgentRecallTextualApp(App[None]):
             self.status = "Select conversations"
             return True
 
+        if action == "ralph" and second == "select":
+            self.action_open_prd_select_modal()
+            self.status = "Select PRD items"
+            return True
+
         return False
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
@@ -1927,6 +2112,22 @@ class AgentRecallTextualApp(App[None]):
         self._append_activity(f"Selected {len(session_ids)} conversation(s) for knowledge run.")
         self._run_backend_command(command)
 
+    def _apply_prd_select_modal_result(self, result: dict[str, Any] | None) -> None:
+        if result is None:
+            self._append_activity("PRD selection cancelled.")
+            return
+        selected = result.get("selected_prd_ids")
+        if selected is None:
+            selected = []
+        prds_arg = ",".join(str(x) for x in selected) if selected else ""
+        command = f"ralph set-prds --prds {shlex.quote(prds_arg)}"
+        self._append_activity(
+            f"Selected {len(selected)} PRD item(s)."
+            if selected
+            else "Cleared PRD selection (all items)."
+        )
+        self._run_backend_command(command)
+
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         worker_key = id(event.worker)
         context = self._worker_context.get(worker_key)
@@ -2014,6 +2215,30 @@ class AgentRecallTextualApp(App[None]):
             self.push_screen(
                 SessionRunModal(sessions),
                 self._apply_session_run_modal_result,
+            )
+            self._refresh_dashboard_panel()
+            return
+
+        if context == "prd_picker":
+            if not isinstance(result, dict):
+                self.status = "Failed to load PRD items"
+                self._append_activity("Could not load PRD items.")
+                self._refresh_dashboard_panel()
+                return
+            prd_data = cast(dict[str, Any], result)
+            items = prd_data.get("items") or []
+            selected_ids = prd_data.get("selected_ids") or []
+            max_iterations = int(prd_data.get("max_iterations") or 10)
+            if not items:
+                self.status = "No PRD items found"
+                self._append_activity("No PRD items available to select.")
+                self._refresh_dashboard_panel()
+                return
+            self.status = "Select PRD items"
+            self._append_activity(f"Loaded {len(items)} PRD item(s).")
+            self.push_screen(
+                PRDSelectModal(items, selected_ids, max_iterations),
+                self._apply_prd_select_modal_result,
             )
             self._refresh_dashboard_panel()
             return

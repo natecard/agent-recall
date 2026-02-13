@@ -1021,7 +1021,7 @@
 				"Ralph loop processes only selected items when configured."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
+			"passes": true
 		}
 	]
 }

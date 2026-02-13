@@ -233,6 +233,40 @@ def get_default_script_path() -> Path:
     return candidates[0]
 
 
+def _load_prd_items(prd_path: Path) -> list[dict[str, Any]]:
+    """Load PRD items from JSON file. Returns empty list on error."""
+    try:
+        data = json.loads(prd_path.read_text(encoding="utf-8"))
+        items = data.get("items")
+        return list(items) if isinstance(items, list) else []
+    except (OSError, json.JSONDecodeError, TypeError):
+        return []
+
+
+def _validate_prd_ids(
+    prd_path: Path,
+    ids: list[str],
+    max_iterations: int,
+) -> tuple[list[str], list[str]]:
+    """
+    Validate PRD IDs. Returns (valid_ids, invalid_ids).
+    Raises no error; caller checks invalid_ids and count vs max_iterations.
+    """
+    items = _load_prd_items(prd_path)
+    valid_ids_set = {str(it.get("id", "")) for it in items if it.get("id")}
+    valid: list[str] = []
+    invalid: list[str] = []
+    for i in ids:
+        s = str(i).strip()
+        if not s:
+            continue
+        if s in valid_ids_set:
+            valid.append(s)
+        else:
+            invalid.append(s)
+    return (valid, invalid)
+
+
 INITIAL_GUARDRAILS = """# Guardrails
 
 Rules and warnings for this codebase. Entries added automatically from agent sessions.
@@ -2125,16 +2159,26 @@ def _render_ralph_status(_config_dict: dict[str, object]) -> list[str]:
                         last_run_timestamp = current_heading
         except OSError:
             pass
-    return [
+    selected_prd_value = ralph_config.get("selected_prd_ids")
+    selected_prd_ids: list[str] | None = None
+    if isinstance(selected_prd_value, list):
+        selected_prd_ids = [str(x) for x in selected_prd_value if x]
+    selected_prd_display = (
+        ", ".join(selected_prd_ids) if selected_prd_ids else "all (model decides)"
+    )
+
+    lines = [
         "[bold]Ralph Loop:[/bold]",
         f"  Status: {state}",
         f"  Max iterations: {max_iterations}",
         f"  Sleep seconds:  {sleep_seconds}",
         f"  Compact mode:   {compact_mode}",
+        f"  Selected PRDs:  {selected_prd_display}",
         f"  Last run:       {last_run_timestamp or 'none'}",
         f"  Last outcome:   {last_outcome or 'none'}",
         "",
     ]
+    return lines
 
 
 def _fetch_latest_version() -> str | None:
@@ -2601,6 +2645,37 @@ def _run_model_config_for_tui(
     return [line.strip() for line in temp_output.getvalue().splitlines() if line.strip()][-12:]
 
 
+def _list_prd_items_for_tui_picker() -> dict[str, Any]:
+    """Load PRD items and Ralph config for the TUI PRD selection modal."""
+    prd_path = get_default_prd_path()
+    items = _load_prd_items(prd_path)
+    files = get_files()
+    ralph_config = _read_ralph_config(files)
+    selected_value = ralph_config.get("selected_prd_ids")
+    selected_ids: list[str] = []
+    if isinstance(selected_value, list):
+        selected_ids = [str(x) for x in selected_value if x]
+    max_iterations = int(ralph_config.get("max_iterations") or 10)
+    prepared: list[dict[str, Any]] = []
+    for it in items:
+        item_id = str(it.get("id") or "")
+        if not item_id:
+            continue
+        prepared.append(
+            {
+                "id": item_id,
+                "title": str(it.get("title") or "Untitled"),
+                "priority": int(it.get("priority") or 0),
+                "passes": bool(it.get("passes")),
+            }
+        )
+    return {
+        "items": prepared,
+        "selected_ids": selected_ids,
+        "max_iterations": max_iterations,
+    }
+
+
 def _list_sessions_for_tui_picker(
     max_sessions: int = 200,
     *,
@@ -2776,6 +2851,7 @@ def tui(
                     all_cursor_workspaces=include_all_cursor,
                 )
             ),
+            list_prd_items_for_picker=_list_prd_items_for_tui_picker,
             run_setup_payload=_run_setup_from_payload,
             run_model_config=_run_model_config_for_tui,
             theme_defaults_provider=_get_theme_defaults_for_tui,
@@ -3216,6 +3292,11 @@ def ralph(
         min=1,
         help="Max search results for search-archive",
     ),
+    prds: str | None = typer.Option(
+        None,
+        "--prds",
+        help="Optional. Comma-separated PRD IDs. Omit for all items (model decides).",
+    ),
 ):
     """Manage Ralph loop configuration."""
     _get_theme_manager()
@@ -3227,13 +3308,14 @@ def ralph(
         "status",
         "enable",
         "disable",
+        "set-prds",
         "refresh-context",
         "archive-completed",
         "search-archive",
     }:
         console.print(
-            "[error]Action must be one of: status, enable, disable, refresh-context, "
-            "archive-completed, search-archive[/error]"
+            "[error]Action must be one of: status, enable, disable, set-prds, "
+            "refresh-context, archive-completed, search-archive[/error]"
         )
         raise typer.Exit(1)
 
@@ -3283,6 +3365,36 @@ def ralph(
         console.print(table)
         return
 
+    if normalized == "set-prds":
+        if prds is None:
+            console.print("[error]--prds is required for set-prds action.[/error]")
+            raise typer.Exit(1)
+        raw_ids = [x.strip() for x in re.split(r"[,\s]+", prds) if x.strip()]
+        prd_path = prd_file or get_default_prd_path()
+        ralph_cfg = _read_ralph_config(files)
+        max_iter = int(ralph_cfg.get("max_iterations") or 10)
+        if raw_ids:
+            valid_ids, invalid_ids = _validate_prd_ids(prd_path, raw_ids, max_iter)
+            if invalid_ids:
+                console.print(
+                    f"[error]Invalid PRD IDs (not found in {prd_path}): "
+                    f"{', '.join(invalid_ids)}[/error]"
+                )
+                raise typer.Exit(1)
+            if len(valid_ids) > max_iter:
+                console.print(
+                    f"[error]Selected {len(valid_ids)} PRDs exceeds max_iterations ({max_iter}). "
+                    f"Select at most {max_iter} items.[/error]"
+                )
+                raise typer.Exit(1)
+            updates = {"selected_prd_ids": valid_ids}
+        else:
+            updates = {"selected_prd_ids": None}
+        config_dict = _write_ralph_config(files, updates)
+        lines = _render_ralph_status(config_dict)
+        console.print(Panel.fit("\n".join(lines), title="Ralph PRD Selection Updated"))
+        return
+
     if normalized == "refresh-context":
         storage = get_storage()
         hook = ContextRefreshHook(AGENT_DIR, storage, files)
@@ -3312,6 +3424,29 @@ def ralph(
         updates["sleep_seconds"] = sleep_seconds
     if compact_mode is not None:
         updates["compact_mode"] = compact_mode
+
+    if prds is not None:
+        raw_ids = [x.strip() for x in re.split(r"[,\s]+", prds) if x.strip()]
+        prd_path = prd_file or get_default_prd_path()
+        ralph_cfg = _read_ralph_config(files)
+        max_iter = int(ralph_cfg.get("max_iterations") or 10)
+        if raw_ids:
+            valid_ids, invalid_ids = _validate_prd_ids(prd_path, raw_ids, max_iter)
+            if invalid_ids:
+                console.print(
+                    f"[error]Invalid PRD IDs (not found in {prd_path}): "
+                    f"{', '.join(invalid_ids)}[/error]"
+                )
+                raise typer.Exit(1)
+            if len(valid_ids) > max_iter:
+                console.print(
+                    f"[error]Selected {len(valid_ids)} PRDs exceeds max_iterations ({max_iter}). "
+                    f"Select at most {max_iter} items.[/error]"
+                )
+                raise typer.Exit(1)
+            updates["selected_prd_ids"] = valid_ids
+        else:
+            updates["selected_prd_ids"] = None
 
     config_dict = _write_ralph_config(files, updates)
     lines = _render_ralph_status(config_dict)
