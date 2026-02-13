@@ -243,7 +243,9 @@ def get_files() -> FileStorage:
     shared_tiers_dir: Path | None = None
     if config.storage.backend == "shared":
         try:
-            shared_tiers_dir = resolve_shared_db_path(config.storage.shared.base_url).parent
+            resolved = resolve_shared_db_path(config.storage.shared.base_url)
+            if isinstance(resolved, Path):
+                shared_tiers_dir = resolved.parent
         except (NotImplementedError, ValueError):
             shared_tiers_dir = None
     return FileStorage(AGENT_DIR, shared_tiers_dir=shared_tiers_dir)

@@ -196,7 +196,7 @@
 				"[done] Add shared tier-file synchronization for filesystem shared backends (`file://` and `sqlite://`).",
 				"Extend shared backend to HTTP service/client transport.",
 				"Add retry, timeout, and fallback behavior so local mode can continue if shared backend is unavailable.",
-				"Add end-to-end tests that run the same sync/retrieve/compact flow against both local and shared modes."
+				"[done] Add end-to-end tests that run the same sync/retrieve/compact flow against both local and shared modes."
 			],
 			"acceptance": [
 				"Shared backend mode can ingest, compact, and retrieve memory from a second machine.",

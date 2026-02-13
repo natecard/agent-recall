@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import pytest
+import respx
+from httpx import Response
 
 from agent_recall.storage import create_storage_backend
 from agent_recall.storage.files import FileStorage, KnowledgeTier
@@ -11,7 +12,7 @@ from agent_recall.storage.models import (
     SemanticLabel,
     Session,
 )
-from agent_recall.storage.remote import RemoteStorage
+from agent_recall.storage.remote import RemoteStorage, _HTTPClient
 from agent_recall.storage.sqlite import SQLiteStorage
 
 
@@ -37,9 +38,10 @@ def test_create_storage_backend_uses_remote_storage_for_shared_file_url(tmp_path
     storage = create_storage_backend(config, tmp_path / "state.db")
 
     assert isinstance(storage, RemoteStorage)
+    assert isinstance(storage._delegate, SQLiteStorage)
 
 
-def test_create_storage_backend_shared_http_still_not_implemented(tmp_path) -> None:
+def test_create_storage_backend_uses_remote_storage_for_http_url(tmp_path) -> None:
     config = AgentRecallConfig.model_validate(
         {
             "storage": {
@@ -49,8 +51,75 @@ def test_create_storage_backend_shared_http_still_not_implemented(tmp_path) -> N
         }
     )
 
-    with pytest.raises(NotImplementedError, match="HTTP shared storage service mode"):
-        create_storage_backend(config, tmp_path / "state.db")
+    storage = create_storage_backend(config, tmp_path / "state.db")
+
+    assert isinstance(storage, RemoteStorage)
+    assert isinstance(storage._delegate, _HTTPClient)
+
+
+@respx.mock
+def test_remote_http_client_get_session(tmp_path) -> None:
+    base_url = "https://memory.example.com"
+    config = AgentRecallConfig.model_validate(
+        {
+            "storage": {
+                "backend": "shared",
+                "shared": {"base_url": base_url},
+            }
+        }
+    )
+    session = Session(task="test task")
+    respx.get(f"{base_url}/sessions/{session.id}").mock(
+        return_value=Response(200, json=session.model_dump(mode="json"))
+    )
+
+    storage = create_storage_backend(config, tmp_path / "state.db")
+    retrieved = storage.get_session(session.id)
+
+    assert retrieved is not None
+    assert retrieved.id == session.id
+    assert retrieved.task == "test task"
+
+
+@respx.mock
+def test_remote_http_client_get_session_not_found(tmp_path) -> None:
+    base_url = "https://memory.example.com"
+    config = AgentRecallConfig.model_validate(
+        {
+            "storage": {
+                "backend": "shared",
+                "shared": {"base_url": base_url},
+            }
+        }
+    )
+    session = Session(task="test task")
+    respx.get(f"{base_url}/sessions/{session.id}").mock(return_value=Response(404))
+
+    storage = create_storage_backend(config, tmp_path / "state.db")
+    retrieved = storage.get_session(session.id)
+
+    assert retrieved is None
+
+
+@respx.mock
+def test_remote_http_client_create_session(tmp_path) -> None:
+    base_url = "https://memory.example.com"
+    config = AgentRecallConfig.model_validate(
+        {
+            "storage": {
+                "backend": "shared",
+                "shared": {"base_url": base_url},
+            }
+        }
+    )
+    session = Session(task="test task")
+    route = respx.post(f"{base_url}/sessions").mock(return_value=Response(201))
+
+    storage = create_storage_backend(config, tmp_path / "state.db")
+    storage.create_session(session)
+
+    assert route.called
+    assert route.calls.last.request.content == session.model_dump_json().encode("utf-8")
 
 
 def test_remote_storage_shares_state_across_instances(tmp_path) -> None:
@@ -112,3 +181,4 @@ def test_file_storage_reads_shared_tier_before_local(tmp_path) -> None:
     files = FileStorage(repo_agent_dir, shared_tiers_dir=shared_dir)
 
     assert files.read_tier(KnowledgeTier.STYLE) == "# Shared style\n- Team rule\n"
+
