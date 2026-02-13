@@ -73,7 +73,7 @@ jobs:
       - name: Verify CLI is accessible
         run: |
           uv run agent-recall --help
-          uv run agent-recall --splash
+          uv run agent-recall --version
 
       - name: Verify imports work
         run: |

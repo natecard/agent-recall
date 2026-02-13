@@ -16,7 +16,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, TypeVar
 
+import httpx
 import typer
+from packaging.version import Version
 from rich import box
 from rich.console import Console, Group
 from rich.markup import escape
@@ -27,6 +29,7 @@ from rich.theme import Theme
 from typer.main import get_command as get_typer_command
 from typer.testing import CliRunner
 
+from agent_recall import __version__
 from agent_recall.cli.banner import print_banner
 from agent_recall.cli.theme import DEFAULT_THEME, ThemeManager
 from agent_recall.core.background_sync import BackgroundSyncManager
@@ -82,6 +85,41 @@ from agent_recall.storage.remote import resolve_shared_db_path
 
 app = typer.Typer(help="Agent Memory System - Persistent knowledge for AI coding agents")
 _slash_runner = CliRunner()
+
+
+def _print_version_and_maybe_update() -> None:
+    """Print installed version and update hint if available."""
+    current = __version__
+    console.print(f"agent-recall {current}")
+
+    latest = _fetch_latest_version()
+    if latest is None:
+        return
+
+    try:
+        if Version(latest) > Version(current):
+            console.print(
+                f"[dim]A newer version ({latest}) is available. "
+                "Upgrade with: uv tool upgrade agent-recall[/dim]"
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+@app.callback(invoke_without_command=True)
+def _main_callback(
+    ctx: typer.Context,
+    version_flag: bool = typer.Option(
+        False,
+        "--version",
+        "-v",
+        help="Show version and exit.",
+        is_eager=True,
+    ),
+) -> None:
+    if version_flag:
+        _print_version_and_maybe_update()
+        raise typer.Exit()
 config_app = typer.Typer(help="Manage onboarding and model configuration")
 _ansi_escape_pattern = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 _box_drawing_chars = set("│┃─━┄┅┆┇┈┉┊┋┌┍┎┏┐┑┒┓└┕┖┗┘┙┚┛├┝┞┟┠┡┢┣┤┥┦┧┨┩┪┫┬┭┮┯┰┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿")
@@ -1772,6 +1810,18 @@ def status():
         lines.append(f"  [error]Last error: {bg_status.error_message}[/error]")
 
     console.print(Panel.fit("\n".join(lines), title="Agent Recall Status"))
+
+
+def _fetch_latest_version() -> str | None:
+    """Fetch the latest version from PyPI. Returns None on any error."""
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get("https://pypi.org/pypi/agent-recall/json")
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("info", {}).get("version")
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _build_tui_dashboard(
