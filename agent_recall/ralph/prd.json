@@ -377,6 +377,86 @@
         "uv run ty check"
       ],
       "passes": false
+    },
+    {
+      "id": "AR-015",
+      "category": "functional",
+      "priority": 2,
+      "title": "Enable and manage Ralph loop from CLI and TUI",
+      "description": "Expose first-class controls for the Ralph loop script lifecycle so users can configure, start, stop, and inspect loop runs without manual shell scripting.",
+      "user_story": "Allow developers to run the Ralph loop from the Agent Recall CLI/TUI with clear status, safe defaults, and predictable behavior.",
+      "steps": [
+        "Add CLI commands to enable/disable Ralph loop execution and configure loop mode/settings.",
+        "Add TUI controls for starting/stopping the loop and viewing current loop status/last run outcome.",
+        "Persist loop configuration in project config and ensure behavior is explicit across restarts.",
+        "Add tests covering CLI/TUI wiring, state persistence, and failure diagnostics."
+      ],
+      "acceptance": [
+        "Users can enable or disable Ralph loop behavior directly from CLI and TUI.",
+        "Loop state and last run status are visible without inspecting script logs manually.",
+        "Loop control behavior is deterministic and does not break non-loop workflows.",
+        "Failures are surfaced with actionable messages and safe recovery steps."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-016",
+      "category": "functional",
+      "priority": 1,
+      "title": "Standardize tier-file write policy and in-loop hygiene",
+      "description": "Define and enforce structured write policies for GUARDRAILS/STYLE/RECENT so loop-time updates remain scoped, deterministic, and low-noise before compaction.",
+      "user_story": "Allow agents to write useful iteration learnings without creating duplicated or contradictory tier-file content.",
+      "steps": [
+        "Decide and document ownership boundaries between Ralph-loop writes and post-loop compaction responsibilities.",
+        "Define canonical schemas and write policies for `.agent/GUARDRAILS.md`, `.agent/STYLE.md`, and `.agent/RECENT.md`.",
+        "Implement lightweight in-loop write hygiene (section-targeted updates, duplicate guards, and bounded append behavior).",
+        "Add explicit write modes for loop-time updates (append and replace-section) and require policy-aware writes.",
+        "Add validation and lint checks that detect malformed sections, duplication, and low-signal noise before persisting."
+      ],
+      "acceptance": [
+        "Tier files preserve explicit, non-duplicated teachings with predictable structure.",
+        "Loop-time writes are section-scoped and deterministic across repeated iterations.",
+        "Agents can safely update tier files each iteration without clobbering high-value historical guidance.",
+        "Validation rejects malformed or policy-violating writes before file persistence."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-017",
+      "category": "functional",
+      "priority": 1,
+      "title": "Add post-loop tier compaction hook with manual TUI/CLI trigger",
+      "description": "Implement a post-loop compaction hook that normalizes GUARDRAILS/STYLE/RECENT and can also be run manually from TUI and CLI on demand.",
+      "user_story": "Allow developers to keep tier files concise and high-signal automatically after each iteration, while retaining manual control when they need immediate cleanup.",
+      "steps": [
+        "Implement a post-loop hook that compacts tier files (normalize, deduplicate, summarize, and apply size budgets).",
+        "Add configuration toggles for auto-run behavior, budgets, and compaction strictness.",
+        "Add a CLI command to run tier compaction manually and show a concise before/after summary.",
+        "Add a TUI action to run the same hook manually from the interface with visible status/outcome.",
+        "Add regression tests proving parity between auto-hook output and manual TUI/CLI runs."
+      ],
+      "acceptance": [
+        "Post-loop compaction runs automatically when enabled and keeps tier-file growth bounded.",
+        "Users can manually trigger the exact same compaction behavior from both CLI and TUI.",
+        "Manual and automatic compaction paths produce the same canonical output format.",
+        "Failures are surfaced clearly without corrupting existing tier-file content."
+      ],
+      "validation": [
+        "uv run pytest",
+        "uv run ruff check .",
+        "uv run ty check"
+      ],
+      "passes": false
     }
   ]
 }
