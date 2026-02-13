@@ -197,7 +197,7 @@
     {
       "id": "AR-007",
       "category": "functional",
-      "priority": 3,
+      "priority": 2,
       "title": "Introduce optional shared team memory backend",
       "description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
       "user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
@@ -381,7 +381,7 @@
     {
       "id": "AR-015",
       "category": "functional",
-      "priority": 2,
+      "priority": 1,
       "title": "Enable and manage Ralph loop from CLI and TUI",
       "description": "Expose first-class controls for the Ralph loop script lifecycle so users can configure, start, stop, and inspect loop runs without manual shell scripting.",
       "user_story": "Allow developers to run the Ralph loop from the Agent Recall CLI/TUI with clear status, safe defaults, and predictable behavior.",
@@ -402,7 +402,7 @@
         "uv run ruff check .",
         "uv run ty check"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-016",

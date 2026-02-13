@@ -21,6 +21,7 @@
 - `agent-recall config model [--provider P] [--model M] [--base-url URL] [--temperature T] [--max-tokens N] [--validate/--no-validate]`
 - `agent-recall test-llm`
 - `agent-recall theme list|set|show`
+- `agent-recall ralph status|enable|disable [--max-iterations N] [--sleep-seconds N] [--compact-mode always|on-failure|off]`
 
 Inside `agent-recall tui`, use keybindings:
 - `Ctrl+P` opens a searchable command palette.

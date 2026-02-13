@@ -19,6 +19,15 @@
 - Notes: Aligned command contract entries with actual CLI/TUI surfaces (including grouping commands like `config`, `theme`, `ralph`), and added a focused parity drift test.
 - Next: Run validation and confirm AR-018 acceptance status.
 
+## 2026-02-13T09:45:00Z Iteration 4
+- Item: AR-015 - Enable and manage Ralph loop from CLI and TUI
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Documented `agent-recall ralph` command in CLI reference and added CLI test coverage for compact-mode persistence.
+- Next: Run validation and confirm AR-015 acceptance status.
+
 ## 2026-02-13T07:10:00Z Iteration 1
 - Item: AR-018 - Enforce CLI and TUI command parity from one command contract
 - Mode: feature

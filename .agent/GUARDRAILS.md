@@ -128,6 +128,9 @@
 ## 2026-02-13T09:12:00Z Iteration 3 (AR-018)
 - Keep deprecated CLI aliases (like `config-llm`) out of the command contract so parity only tracks supported surfaces.
 
+## 2026-02-13T09:45:00Z Iteration 4 (AR-015)
+- When adding CLI features, update CLI reference docs and add at least one CLI regression test that asserts config persistence.
+
 ## 2026-02-13T02:30:00Z Iteration 6 (AR-009)
 - Use `respx` to verify HTTP clients against mocked endpoints without requiring a running server in unit tests.
 - Always use `response.raise_for_status()` in HTTP client methods to ensure errors propagate correctly.

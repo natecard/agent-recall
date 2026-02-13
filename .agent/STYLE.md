@@ -128,6 +128,9 @@
 ## 2026-02-13T09:12:00Z Iteration 3 (AR-018)
 - Treat top-level CLI command groups (e.g. `config`, `theme`, `ralph`) as contract entries to avoid false extra-in-CLI drift.
 
+## 2026-02-13T09:45:00Z Iteration 4 (AR-015)
+- Keep CLI config updates verified by reading `.agent/config.yaml` in tests after invoking the command.
+
 ## 2026-02-13T02:30:00Z Iteration 6 (AR-009)
 - Map `Storage` interface methods to flat, noun-based REST endpoints (e.g. `POST /sessions`, `GET /sessions/{id}`) for clarity.
 - Use query parameters (`GET /entries?labels=...`) for optional filters instead of complex path structures.

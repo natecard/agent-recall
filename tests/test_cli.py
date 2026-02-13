@@ -1411,3 +1411,17 @@ def test_cli_ralph_enable_updates_config() -> None:
         assert ralph_config.get("enabled") is True
         assert ralph_config.get("max_iterations") == 12
         assert ralph_config.get("sleep_seconds") == 3
+
+
+def test_cli_ralph_compact_mode_updates_config() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(
+            cli_main.app,
+            ["ralph", "enable", "--compact-mode", "on-failure"],
+        )
+        assert result.exit_code == 0
+        assert "Compact mode:   on-failure" in result.output
+        config = FileStorage(Path(".agent")).read_config()
+        ralph_config = config.get("ralph", {})
+        assert ralph_config.get("compact_mode") == "on-failure"
