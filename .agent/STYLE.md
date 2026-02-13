@@ -153,6 +153,9 @@
 ## 2026-02-13T23:59:00Z Iteration 1 (AR-501)
 - Use StrEnum for user-facing enum values to keep CLI/JSON output stable and readable.
 
+## 2026-02-13T23:59:00Z Iteration 2 (AR-502)
+- Use dataclasses with default_factory lists for parsed tier content containers to avoid shared mutable defaults.
+
 ## 2026-02-13T02:02:56Z Iteration 4 (AR-010)
 - Prefer one logical change per commit.
 - Keep validation command green before committing: uv run pytest && uv run ruff check . && uv run ty check

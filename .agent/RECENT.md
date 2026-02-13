@@ -10,6 +10,15 @@
 - Notes: Added `core/tier_format.py` with EntryFormat enum, bullet/Ralph/recent regexes, detection helpers, and backward-compatible aliases.
 - Next: Run validation, then move to AR-502 structured parsing layer.
 
+## 2026-02-13T23:59:00Z Iteration 2
+- Item: AR-502 - Implement tier format structured parsing layer
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Added ParsedEntry/TierContent dataclasses plus parse helpers; Ralph blocks group multi-line content with termination on double-empty lines or non-Ralph headers.
+- Next: Run validation, then move to AR-503 merge/split helpers.
+
 ## 2026-02-13T22:15:00Z Iteration 2
 - Item: AR-202 - Implement PRD archive semantic search and knowledge indexing
 - Mode: feature
