@@ -14,6 +14,13 @@ compaction:
   index_narrative_min_confidence: 0.8
   archive_sessions_older_than_days: 30
 
+tier_compaction:
+  auto_run: true
+  max_entries_per_tier: 50
+  strict_deduplication: false
+  summary_threshold_entries: 40
+  summary_max_entries: 20
+
 retrieval:
   backend: fts5
   top_k: 5
