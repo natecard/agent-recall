@@ -200,6 +200,40 @@ class _HTTPClient(Storage):
         response.raise_for_status()
         return [LogEntry.model_validate(e) for e in response.json()]
 
+    def list_entries_by_curation_status(
+        self,
+        status: CurationStatus | None = None,
+        limit: int = 100,
+    ) -> list[LogEntry]:
+        if status is None:
+            status = CurationStatus.APPROVED
+        params: dict[str, Any] = {"limit": limit, "curation_status": status.value}
+        response = self._client.get("/entries", params=params)
+        response.raise_for_status()
+        return [LogEntry.model_validate(e) for e in response.json()]
+
+    def update_entry_curation_status(
+        self,
+        entry_id: UUID,
+        status: CurationStatus,
+    ) -> LogEntry | None:
+        self._require_role("admin", "writer")
+        response = self._client.put(
+            f"/entries/{entry_id}",
+            json={"curation_status": status.value},
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        entry = LogEntry.model_validate(response.json())
+        self._audit_event(
+            AuditAction.UPDATE,
+            "log_entry",
+            resource_id=str(entry_id),
+            metadata={"curation_status": status.value},
+        )
+        return entry
+
     def count_log_entries(self) -> int:
         response = self._client.get("/entries/count")
         response.raise_for_status()
@@ -485,6 +519,22 @@ class RemoteStorage(Storage):
 
     def get_entries_by_label(self, labels: list[SemanticLabel], limit: int = 100) -> list[LogEntry]:
         return self._execute("get_entries_by_label", labels=labels, limit=limit)
+
+    def list_entries_by_curation_status(
+        self,
+        status: CurationStatus | None = None,
+        limit: int = 100,
+    ) -> list[LogEntry]:
+        if status is None:
+            status = CurationStatus.APPROVED
+        return self._execute("list_entries_by_curation_status", status=status, limit=limit)
+
+    def update_entry_curation_status(
+        self,
+        entry_id: UUID,
+        status: CurationStatus,
+    ) -> LogEntry | None:
+        return self._execute("update_entry_curation_status", entry_id, status)
 
     def count_log_entries(self) -> int:
         return self._execute("count_log_entries")

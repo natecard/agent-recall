@@ -1,6 +1,15 @@
 - Notes: Completed AR-003 step 4 by wiring retrieval config (`backend`, `top_k`, `fusion_k`, `rerank_enabled`, `rerank_candidate_k`) into `start`, `context`, `refresh-context`, and `retrieve`; added CLI overrides for context/retrieve and retrieval wiring tests.
 - Next: Move to AR-004 and start with tracer-bullet indexing policy for decision/exploration labels.
 
+## 2026-02-13T10:58:12Z Iteration 6
+- Item: AR-012 - Add memory curation queue with approval workflow
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Added curation CLI commands (list/approve/reject) plus storage methods for listing/updating curation status; updated command contract and added CLI tests.
+- Next: Update compaction/retrieval to respect curation status filters and add queue lifecycle tests.
+
 ## 2026-02-13T10:32:00Z Iteration 5
 - Item: AR-012 - Add memory curation queue with approval workflow
 - Mode: feature

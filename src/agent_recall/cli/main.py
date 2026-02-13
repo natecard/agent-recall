@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, TypeVar
+from uuid import UUID
 
 import httpx
 import typer
@@ -82,7 +83,7 @@ from agent_recall.llm import (
 from agent_recall.storage import create_storage_backend
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
-from agent_recall.storage.models import LLMConfig, RetrievalConfig, SemanticLabel
+from agent_recall.storage.models import CurationStatus, LLMConfig, RetrievalConfig, SemanticLabel
 from agent_recall.storage.remote import resolve_shared_db_path
 
 app = typer.Typer(help="Agent Memory System - Persistent knowledge for AI coding agents")
@@ -3077,6 +3078,7 @@ def ingest(
 
 
 theme_app = typer.Typer(help="Manage CLI themes")
+curation_app = typer.Typer(help="Review and approve extracted learnings")
 
 
 @theme_app.command("list")
@@ -3154,6 +3156,85 @@ def theme_show():
 
 app.add_typer(theme_app, name="theme")
 app.add_typer(config_app, name="config")
+app.add_typer(curation_app, name="curation")
+
+
+@curation_app.command("list")
+def curation_list(
+    status: str = typer.Option("pending", "--status", "-s", help="pending, approved, rejected"),
+    limit: int = typer.Option(50, "--limit", "-l", min=1, help="Maximum entries"),
+):
+    """List log entries by curation status."""
+    _get_theme_manager()  # Ensure theme is loaded
+    storage = get_storage()
+    try:
+        status_enum = CurationStatus(status.strip().lower())
+    except ValueError:
+        valid = ", ".join(item.value for item in CurationStatus)
+        console.print(f"[error]Invalid status '{status}'. Valid: {valid}[/error]")
+        raise typer.Exit(1) from None
+
+    entries = storage.list_entries_by_curation_status(status_enum, limit=limit)
+    if not entries:
+        console.print(f"[warning]No entries found for status '{status_enum.value}'.[/warning]")
+        raise typer.Exit(0)
+
+    table = Table(title=f"Curation Queue ({status_enum.value})", box=box.SIMPLE)
+    table.add_column("ID", style="dim")
+    table.add_column("Label")
+    table.add_column("Confidence", justify="right")
+    table.add_column("Status")
+    table.add_column("Content")
+    for entry in entries:
+        preview = textwrap.shorten(entry.content, width=80, placeholder="...")
+        table.add_row(
+            str(entry.id),
+            entry.label.value,
+            f"{entry.confidence:.2f}",
+            entry.curation_status.value,
+            preview,
+        )
+    console.print(table)
+
+
+@curation_app.command("approve")
+def curation_approve(
+    entry_id: str = typer.Argument(..., help="Entry UUID to approve"),
+):
+    """Approve a pending log entry."""
+    _get_theme_manager()  # Ensure theme is loaded
+    storage = get_storage()
+    try:
+        entry_uuid = UUID(entry_id)
+    except ValueError:
+        console.print(f"[error]Invalid entry id '{entry_id}'. Expected UUID.[/error]")
+        raise typer.Exit(1) from None
+
+    updated = storage.update_entry_curation_status(entry_uuid, CurationStatus.APPROVED)
+    if updated is None:
+        console.print(f"[warning]Entry not found: {entry_id}[/warning]")
+        raise typer.Exit(1)
+    console.print(f"[success]✓ Approved entry {entry_id}[/success]")
+
+
+@curation_app.command("reject")
+def curation_reject(
+    entry_id: str = typer.Argument(..., help="Entry UUID to reject"),
+):
+    """Reject a pending log entry."""
+    _get_theme_manager()  # Ensure theme is loaded
+    storage = get_storage()
+    try:
+        entry_uuid = UUID(entry_id)
+    except ValueError:
+        console.print(f"[error]Invalid entry id '{entry_id}'. Expected UUID.[/error]")
+        raise typer.Exit(1) from None
+
+    updated = storage.update_entry_curation_status(entry_uuid, CurationStatus.REJECTED)
+    if updated is None:
+        console.print(f"[warning]Entry not found: {entry_id}[/warning]")
+        raise typer.Exit(1)
+    console.print(f"[success]✓ Rejected entry {entry_id}[/success]")
 
 
 @app.command("write-guardrails")

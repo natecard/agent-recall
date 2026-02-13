@@ -8,6 +8,7 @@ from uuid import UUID
 from agent_recall.storage.models import (
     BackgroundSyncStatus,
     Chunk,
+    CurationStatus,
     LogEntry,
     SemanticLabel,
     Session,
@@ -97,6 +98,20 @@ class Storage(ABC):
     @abstractmethod
     def get_entries_by_label(self, labels: list[SemanticLabel], limit: int = 100) -> list[LogEntry]:
         """Retrieve recent log entries matching a set of semantic labels."""
+        ...
+
+    @abstractmethod
+    def list_entries_by_curation_status(
+        self, status: CurationStatus | None = None, limit: int = 100
+    ) -> list[LogEntry]:
+        """Retrieve log entries matching a curation status (defaults to approved)."""
+        ...
+
+    @abstractmethod
+    def update_entry_curation_status(
+        self, entry_id: UUID, status: CurationStatus
+    ) -> LogEntry | None:
+        """Update a log entry's curation status, returning the entry if found."""
         ...
 
     @abstractmethod

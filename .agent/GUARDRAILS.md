@@ -282,3 +282,6 @@
   - code = main()
 - Primary actionable signal: Traceback (most recent call last):
 - Runtime logs: agent_recall/ralph/.runtime/agent-5.log, agent_recall/ralph/.runtime/validate-5.log
+
+## 2026-02-13T10:58:12Z Iteration 6 (AR-012)
+- When adding new CLI command groups, update the command contract so parity reports do not flag extra CLI drift.

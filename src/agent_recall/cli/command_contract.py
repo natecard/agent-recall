@@ -181,6 +181,30 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("cli",),
         ),
         CommandContract(
+            command="curation",
+            aliases=(),
+            description="Review and approve extracted learnings",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="curation list",
+            aliases=(),
+            description="List log entries by curation status",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="curation approve",
+            aliases=(),
+            description="Approve a pending log entry",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="curation reject",
+            aliases=(),
+            description="Reject a pending log entry",
+            surfaces=("cli",),
+        ),
+        CommandContract(
             command="config setup",
             aliases=(),
             description="Run repository setup",

@@ -10,7 +10,7 @@ import agent_recall.cli.main as cli_main
 from agent_recall.ingest.base import RawMessage, RawSession
 from agent_recall.llm.base import LLMProvider, LLMResponse, Message
 from agent_recall.storage.files import FileStorage
-from agent_recall.storage.models import Chunk, ChunkSource, SemanticLabel
+from agent_recall.storage.models import Chunk, ChunkSource, CurationStatus, SemanticLabel
 from agent_recall.storage.sqlite import SQLiteStorage
 
 runner = CliRunner()
@@ -338,6 +338,50 @@ def test_cli_retrieve_uses_retrieval_config_defaults(monkeypatch) -> None:
         assert captured["rerank_candidate_k"] == 10
         assert captured["query"] == "semantic query"
         assert captured["top_k"] == 7
+
+
+def test_cli_curation_list_renders_pending_entries() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        cli_main.get_storage.cache_clear()
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+        assert storage.list_entries_by_curation_status(CurationStatus.PENDING, limit=1) == []
+
+        entry = cli_main.LogWriter(storage).log(
+            content="Pending review item",
+            label=SemanticLabel.GOTCHA,
+            tags=["review"],
+        )
+        storage.update_entry_curation_status(entry.id, CurationStatus.PENDING)
+
+        result = runner.invoke(cli_main.app, ["curation", "list", "--status", "pending"])
+        assert result.exit_code == 0
+        assert "Pending review item" in result.output
+
+
+def test_cli_curation_approve_and_reject() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        cli_main.get_storage.cache_clear()
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+
+        entry = cli_main.LogWriter(storage).log(
+            content="Needs review",
+            label=SemanticLabel.PATTERN,
+        )
+        storage.update_entry_curation_status(entry.id, CurationStatus.PENDING)
+
+        approve_result = runner.invoke(cli_main.app, ["curation", "approve", str(entry.id)])
+        assert approve_result.exit_code == 0
+
+        rejected_entry = cli_main.LogWriter(storage).log(
+            content="Reject this",
+            label=SemanticLabel.GOTCHA,
+        )
+        storage.update_entry_curation_status(rejected_entry.id, CurationStatus.PENDING)
+
+        reject_result = runner.invoke(cli_main.app, ["curation", "reject", str(rejected_entry.id)])
+        assert reject_result.exit_code == 0
 
 
 def test_cli_refresh_context_writes_bundle_using_active_task() -> None:

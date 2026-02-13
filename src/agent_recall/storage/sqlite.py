@@ -389,6 +389,49 @@ class SQLiteStorage(Storage):
             ).fetchall()
         return [self._row_to_entry(row) for row in rows]
 
+    def list_entries_by_curation_status(
+        self,
+        status: CurationStatus | None = None,
+        limit: int = 100,
+    ) -> list[LogEntry]:
+        query = "SELECT * FROM log_entries WHERE tenant_id = ? AND project_id = ?"
+        params: list[Any] = [self.tenant_id, self.project_id]
+        if status is None:
+            status = CurationStatus.APPROVED
+        query += " AND curation_status = ?"
+        params.append(status.value)
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [self._row_to_entry(row) for row in rows]
+
+    def update_entry_curation_status(
+        self,
+        entry_id: UUID,
+        status: CurationStatus,
+    ) -> LogEntry | None:
+        self._validate_namespace()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM log_entries WHERE id = ? AND tenant_id = ? AND project_id = ?",
+                (str(entry_id), self.tenant_id, self.project_id),
+            ).fetchone()
+            if not row:
+                return None
+            conn.execute(
+                (
+                    "UPDATE log_entries SET curation_status = ? "
+                    "WHERE id = ? AND tenant_id = ? AND project_id = ?"
+                ),
+                (status.value, str(entry_id), self.tenant_id, self.project_id),
+            )
+            refreshed = conn.execute(
+                "SELECT * FROM log_entries WHERE id = ? AND tenant_id = ? AND project_id = ?",
+                (str(entry_id), self.tenant_id, self.project_id),
+            ).fetchone()
+        return self._row_to_entry(refreshed) if refreshed else None
+
     def count_log_entries(self) -> int:
         with self._connect() as conn:
             row = conn.execute(

@@ -216,3 +216,6 @@
 
 ## 2026-02-13T04:18:42Z Iteration 5 (AR-015)
 - Add CLI config commands as small helpers for reading/writing config sections so status and updates stay consistent across CLI/TUI.
+
+## 2026-02-13T10:58:12Z Iteration 6 (AR-012)
+- For curation workflows, reuse existing storage APIs and add narrow list/update methods to avoid spreading SQL across CLI.

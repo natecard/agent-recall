@@ -197,7 +197,7 @@
     {
       "id": "AR-007",
       "category": "functional",
-      "priority": 1,
+      "priority": 2,
       "title": "Introduce optional shared team memory backend",
       "description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
       "user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
@@ -303,13 +303,13 @@
     {
       "id": "AR-012",
       "category": "functional",
-      "priority": 2,
+      "priority": 1,
       "title": "Add memory curation queue with approval workflow",
       "description": "Create a review path so extracted learnings can be approved, edited, or rejected before promotion.",
       "user_story": "Allow maintainers to keep team memory high quality and prevent noisy or incorrect rules from persisting.",
       "steps": [
-        "Add a pending-memory queue state for newly extracted learnings.",
-        "Implement approve/edit/reject operations and status transitions in storage and CLI.",
+        "[done] Add a pending-memory queue state for newly extracted learnings.",
+        "[done] Implement approve/edit/reject operations and status transitions in storage and CLI.",
         "Update compaction/retrieval to respect curation status filters.",
         "Add tests covering queue lifecycle and promotion behavior."
       ],
