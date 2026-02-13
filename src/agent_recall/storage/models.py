@@ -263,6 +263,14 @@ class AdapterConfig(BaseModel):
 
     enabled: bool = False
     output_dir: str = ".agent/context"
+    token_budget: int | None = Field(
+        default=None,
+        description="Optional token budget for adapter payload context",
+    )
+    per_adapter_token_budget: dict[str, int] = Field(
+        default_factory=dict,
+        description="Optional per-adapter token budgets (tokens)",
+    )
 
 
 class SessionCheckpoint(BaseModel):

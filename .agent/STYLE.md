@@ -142,6 +142,7 @@
 ## 2026-02-13T04:05:00Z Iteration 2 (AR-011)
 - Keep RBAC checks as small HTTP client helpers (e.g. `_require_role`) rather than scattering conditional logic per call.
 - Add focused allow/deny tests alongside existing HTTP client tests to pin RBAC behavior.
+- Keep token budget trimming deterministic and byte-based (chars/4) to avoid external tokenizer drift.
 
 ## 2026-02-13T05:12:08Z Iteration 3 (AR-011)
 - Model audit events as Pydantic payloads and reuse JSON serialization helpers for HTTP posts.

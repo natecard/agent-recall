@@ -224,8 +224,8 @@
 - Agent exit code: 0
 - Validation: pending
 - Outcome: progressed
-- Notes: Added adapter payload scaffolding via `refresh-context --adapter-payloads` to write per-agent `context.json` payloads under `.agent/context/<adapter>/`. Added adapter config defaults and CLI status output plus tests for Codex payload generation.
-- Next: Add token budget control and adapter opt-in config wiring for additional agents; add integration tests to prevent duplicate injection.
+- Notes: Added adapter token budgets (global + per-adapter) for refresh-context payloads; trimmed payload context deterministically and wired config defaults with tests.
+- Next: Add adapter opt-in/opt-out CLI controls and integration tests to prevent duplicate injection.
 
 ## 2026-02-13T02:30:00Z Iteration 6
 - Item: AR-009 - Ship shared backend tracer-bullet (single-tenant)

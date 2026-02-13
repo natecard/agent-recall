@@ -427,6 +427,31 @@ def test_cli_refresh_context_writes_adapter_payloads() -> None:
         assert payload["context"]
 
 
+def test_cli_refresh_context_applies_adapter_token_budget() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        assert runner.invoke(cli_main.app, ["start", "budgeted adapter payload"]).exit_code == 0
+        files = FileStorage(Path(".agent"))
+        config = files.read_config()
+        config["adapters"] = {
+            "enabled": True,
+            "output_dir": ".agent/context",
+            "token_budget": 1,
+            "per_adapter_token_budget": {"codex": 2},
+        }
+        files.write_config(config)
+
+        result = runner.invoke(cli_main.app, ["refresh-context"])
+        assert result.exit_code == 0
+
+        bundle_dir = Path(".agent") / "context"
+        codex_payload = json.loads((bundle_dir / "codex" / "context.json").read_text())
+        cursor_payload = json.loads((bundle_dir / "cursor" / "context.json").read_text())
+
+        assert len(codex_payload["context"]) <= 8
+        assert len(cursor_payload["context"]) <= 4
+
+
 def test_cli_refresh_context_retries_transient_failure(monkeypatch) -> None:
     attempts = {"count": 0}
 

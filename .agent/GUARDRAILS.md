@@ -266,6 +266,7 @@
 
 ## 2026-02-13T10:32:00Z Iteration 5 (AR-012)
 - When adding new DB columns, update SQL placeholders in INSERT statements to match the new column count.
+- When adding config fields, wire them from config models through CLI usage and include template defaults to avoid drift.
 
 ## 2026-02-13T04:18:42Z Iteration 5 (AR-015)
 - When adding CLI config features, update model defaults, config templates, and init-time defaults together to avoid drift.

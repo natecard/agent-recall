@@ -1114,6 +1114,8 @@ def refresh_context(
                     refreshed_at=refreshed_at,
                     output_dir=Path(adapter_cfg.output_dir),
                     adapters=get_default_adapters(),
+                    token_budget=adapter_cfg.token_budget,
+                    per_adapter_budgets=adapter_cfg.per_adapter_token_budget,
                 )
             break
         except Exception as exc:  # noqa: BLE001

@@ -31,6 +31,17 @@ def _normalize_timestamp(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+def _trim_context(context: str, token_budget: int | None) -> str:
+    if token_budget is None:
+        return context
+    if token_budget <= 0:
+        return context
+    budget_chars = token_budget * 4
+    if len(context) <= budget_chars:
+        return context
+    return context[:budget_chars]
+
+
 def build_adapter_payload(
     *,
     adapter: ContextAdapter,
@@ -60,14 +71,19 @@ def write_adapter_payloads(
     refreshed_at: datetime,
     output_dir: Path,
     adapters: Iterable[ContextAdapter] | None = None,
+    token_budget: int | None = None,
+    per_adapter_budgets: dict[str, int] | None = None,
 ) -> dict[str, Path]:
     written: dict[str, Path] = {}
     adapter_list = list(adapters) if adapters is not None else get_default_adapters()
+    per_adapter = per_adapter_budgets or {}
 
     for adapter in adapter_list:
+        budget = per_adapter.get(adapter.name, token_budget)
+        trimmed_context = _trim_context(context, budget)
         payload = build_adapter_payload(
             adapter=adapter,
-            context=context,
+            context=trimmed_context,
             task=task,
             active_session_id=active_session_id,
             repo_path=repo_path,
