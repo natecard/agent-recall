@@ -245,3 +245,5 @@
 ## 2026-02-13T22:45:00Z Iteration 3 (AR-203)
 - Format Ralph refresh task strings in one place (hook) to keep CLI/batch callers consistent.
 - Keep CLI action routing consolidated in the existing command handler when adding Ralph sub-actions.
+## 2026-02-13T23:55:00Z Iteration 5 (AR-204)
+- Keep Ralph CLI outputs aligned with existing Rich patterns (Panel/Table/bullets) to match other CLI surfaces.

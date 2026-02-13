@@ -82,6 +82,7 @@ from agent_recall.llm import (
     validate_provider_config,
 )
 from agent_recall.ralph.context_refresh import ContextRefreshHook
+from agent_recall.ralph.prd_archive import PRDArchive
 from agent_recall.storage import create_storage_backend
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
@@ -207,6 +208,19 @@ AGENT_DIR = Path(".agent")
 DB_PATH = AGENT_DIR / "state.db"
 T = TypeVar("T")
 SOURCE_CHOICES_TEXT = ", ".join(VALID_SOURCE_NAMES)
+
+
+def get_default_prd_path() -> Path:
+    candidates = [
+        Path(".agent/ralph/prd.json"),
+        Path("agent_recall/ralph/prd.json"),
+        Path("prd.json"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
 
 INITIAL_GUARDRAILS = """# Guardrails
 
@@ -3138,12 +3152,22 @@ def providers():
 
 @app.command("ralph")
 def ralph(
-    action: str = typer.Argument(..., help="Action: status, enable, disable, refresh-context"),
+    action: str = typer.Argument(
+        ...,
+        help="Action: status, enable, disable, refresh-context, archive-completed, search-archive",
+    ),
+    query: str | None = typer.Argument(None, help="Search query for search-archive"),
     max_iterations: int | None = typer.Option(
         None,
         "--max-iterations",
         min=1,
         help="Max iterations for Ralph loop config",
+    ),
+    prd_file: Path | None = typer.Option(
+        None,
+        "--prd-file",
+        "-p",
+        help="Path to PRD JSON file (default: auto-detected)",
     ),
     sleep_seconds: int | None = typer.Option(
         None,
@@ -3174,6 +3198,13 @@ def ralph(
         "-n",
         help="Iteration number for refresh-context",
     ),
+    top_k: int = typer.Option(
+        5,
+        "--top",
+        "-k",
+        min=1,
+        help="Max search results for search-archive",
+    ),
 ):
     """Manage Ralph loop configuration."""
     _get_theme_manager()
@@ -3181,9 +3212,17 @@ def ralph(
     files = get_files()
 
     normalized = action.strip().lower()
-    if normalized not in {"status", "enable", "disable", "refresh-context"}:
+    if normalized not in {
+        "status",
+        "enable",
+        "disable",
+        "refresh-context",
+        "archive-completed",
+        "search-archive",
+    }:
         console.print(
-            "[error]Action must be one of: status, enable, disable, refresh-context[/error]"
+            "[error]Action must be one of: status, enable, disable, refresh-context, "
+            "archive-completed, search-archive[/error]"
         )
         raise typer.Exit(1)
 
@@ -3197,6 +3236,40 @@ def ralph(
         config_dict = files.read_config()
         lines = _render_ralph_status(config_dict)
         console.print(Panel.fit("\n".join(lines), title="Ralph Loop"))
+        return
+
+    if normalized == "archive-completed":
+        prd_path = prd_file or get_default_prd_path()
+        if not prd_path.exists():
+            console.print(f"[error]PRD file not found: {prd_path}[/error]")
+            raise typer.Exit(1)
+        storage = get_storage()
+        archive = PRDArchive(AGENT_DIR, storage)
+        archived_items = archive.archive_completed_from_prd(prd_path, iteration=int(iteration or 0))
+        if not archived_items:
+            console.print("No new items to archive")
+            return
+        console.print(f"[success]✓ Archived {len(archived_items)} item(s)[/success]")
+        for item in archived_items:
+            console.print(f"• {item.id}: {item.title}")
+        return
+
+    if normalized == "search-archive":
+        if query is None or not query.strip():
+            console.print("[error]Search query is required.[/error]")
+            raise typer.Exit(1)
+        archive = PRDArchive(AGENT_DIR)
+        results = archive.search(query.strip(), top_k=top_k)
+        if not results:
+            console.print("No matching archived items found")
+            return
+        table = Table(title="Archived PRD Search", box=box.SIMPLE)
+        table.add_column("ID", style="cyan")
+        table.add_column("Title")
+        table.add_column("Score", justify="right")
+        for item, score in results:
+            table.add_row(item.id, item.title, f"{score:.3f}")
+        console.print(table)
         return
 
     if normalized == "refresh-context":
