@@ -30,7 +30,11 @@ def test_create_storage_backend_uses_remote_storage_for_shared_file_url(tmp_path
         {
             "storage": {
                 "backend": "shared",
-                "shared": {"base_url": f"file://{shared_dir}"},
+                "shared": {
+                    "base_url": f"file://{shared_dir}",
+                    "tenant_id": "test-tenant",
+                    "project_id": "test-project",
+                },
             }
         }
     )
@@ -46,7 +50,11 @@ def test_create_storage_backend_uses_remote_storage_for_http_url(tmp_path) -> No
         {
             "storage": {
                 "backend": "shared",
-                "shared": {"base_url": "https://memory.example.com"},
+                "shared": {
+                    "base_url": "https://memory.example.com",
+                    "tenant_id": "test-tenant",
+                    "project_id": "test-project",
+                },
             }
         }
     )
@@ -64,7 +72,11 @@ def test_remote_http_client_get_session(tmp_path) -> None:
         {
             "storage": {
                 "backend": "shared",
-                "shared": {"base_url": base_url},
+                "shared": {
+                    "base_url": base_url,
+                    "tenant_id": "test-tenant",
+                    "project_id": "test-project",
+                },
             }
         }
     )
@@ -88,7 +100,11 @@ def test_remote_http_client_get_session_not_found(tmp_path) -> None:
         {
             "storage": {
                 "backend": "shared",
-                "shared": {"base_url": base_url},
+                "shared": {
+                    "base_url": base_url,
+                    "tenant_id": "test-tenant",
+                    "project_id": "test-project",
+                },
             }
         }
     )
@@ -108,7 +124,11 @@ def test_remote_http_client_create_session(tmp_path) -> None:
         {
             "storage": {
                 "backend": "shared",
-                "shared": {"base_url": base_url},
+                "shared": {
+                    "base_url": base_url,
+                    "tenant_id": "test-tenant",
+                    "project_id": "test-project",
+                },
             }
         }
     )
@@ -129,7 +149,11 @@ def test_remote_storage_shares_state_across_instances(tmp_path) -> None:
         {
             "storage": {
                 "backend": "shared",
-                "shared": {"base_url": shared_url},
+                "shared": {
+                    "base_url": shared_url,
+                    "tenant_id": "test-tenant",
+                    "project_id": "test-project",
+                },
             }
         }
     )
@@ -181,4 +205,3 @@ def test_file_storage_reads_shared_tier_before_local(tmp_path) -> None:
     files = FileStorage(repo_agent_dir, shared_tiers_dir=shared_dir)
 
     assert files.read_tier(KnowledgeTier.STYLE) == "# Shared style\n- Team rule\n"
-

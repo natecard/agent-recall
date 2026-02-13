@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from agent_recall.storage.base import Storage
+from agent_recall.storage.base import Storage, validate_shared_namespace
 from agent_recall.storage.models import (
     BackgroundSyncStatus,
     Chunk,
@@ -50,6 +50,8 @@ END;
 SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    project_id TEXT NOT NULL DEFAULT 'default',
     status TEXT NOT NULL,
     started_at TEXT NOT NULL,
     ended_at TEXT,
@@ -60,6 +62,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE TABLE IF NOT EXISTS log_entries (
     id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    project_id TEXT NOT NULL DEFAULT 'default',
     session_id TEXT REFERENCES sessions(id),
     source TEXT NOT NULL,
     source_session_id TEXT,
@@ -73,6 +77,8 @@ CREATE TABLE IF NOT EXISTS log_entries (
 
 CREATE TABLE IF NOT EXISTS chunks (
     id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    project_id TEXT NOT NULL DEFAULT 'default',
     source TEXT NOT NULL,
     source_ids TEXT NOT NULL,
     content TEXT NOT NULL,
@@ -87,15 +93,22 @@ CREATE TABLE IF NOT EXISTS chunks (
 
 CREATE TABLE IF NOT EXISTS processed_sessions (
     source_session_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    project_id TEXT NOT NULL DEFAULT 'default',
     processed_at TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_entries_session ON log_entries(session_id);
 CREATE INDEX IF NOT EXISTS idx_entries_label ON log_entries(label);
 CREATE INDEX IF NOT EXISTS idx_chunks_label ON chunks(label);
+CREATE INDEX IF NOT EXISTS idx_sessions_scope ON sessions(tenant_id, project_id);
+CREATE INDEX IF NOT EXISTS idx_entries_scope ON log_entries(tenant_id, project_id);
+CREATE INDEX IF NOT EXISTS idx_chunks_scope ON chunks(tenant_id, project_id);
 
 CREATE TABLE IF NOT EXISTS session_checkpoints (
     id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    project_id TEXT NOT NULL DEFAULT 'default',
     source_session_id TEXT NOT NULL UNIQUE,
     last_message_timestamp TEXT,
     last_message_index INTEGER,
@@ -108,6 +121,8 @@ CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON session_checkpoints(source
 
 CREATE TABLE IF NOT EXISTS background_sync_status (
     id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    project_id TEXT NOT NULL DEFAULT 'default',
     is_running INTEGER NOT NULL DEFAULT 0,
     started_at TEXT,
     completed_at TEXT,
@@ -121,14 +136,65 @@ CREATE TABLE IF NOT EXISTS background_sync_status (
 
 
 class SQLiteStorage(Storage):
-    def __init__(self, db_path: Path):
+    def __init__(
+        self,
+        db_path: Path,
+        tenant_id: str = "default",
+        project_id: str = "default",
+        strict_namespace_validation: bool = False,
+    ) -> None:
         self.db_path = db_path
+        self.tenant_id = tenant_id
+        self.project_id = project_id
+        self.strict_namespace_validation = strict_namespace_validation
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     def _init_db(self) -> None:
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+        self._migrate_db()
+
+    def _migrate_db(self) -> None:
+        """Ensure schema has required columns for tenant/project isolation."""
+        tables = [
+            "sessions",
+            "log_entries",
+            "chunks",
+            "processed_sessions",
+            "session_checkpoints",
+            "background_sync_status",
+        ]
+        with self._connect() as conn:
+            for table in tables:
+                # Check if table exists first (it should from SCHEMA, but safety check)
+                exists = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                    (table,),
+                ).fetchone()
+                if not exists:
+                    continue
+
+                columns = [
+                    row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+                ]
+                if "tenant_id" not in columns:
+                    conn.execute(
+                        f"ALTER TABLE {table} ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'"
+                    )
+                    conn.execute(
+                        f"CREATE INDEX IF NOT EXISTS idx_{table}_scope "
+                        f"ON {table}(tenant_id, project_id)"
+                    )
+                if "project_id" not in columns:
+                    conn.execute(
+                        f"ALTER TABLE {table} ADD COLUMN project_id TEXT NOT NULL DEFAULT 'default'"
+                    )
+
+    def _validate_namespace(self) -> None:
+        """Validate namespace if strict mode is enabled."""
+        if self.strict_namespace_validation:
+            validate_shared_namespace(self.tenant_id, self.project_id)
 
     @contextmanager
     def _connect(self):
@@ -142,14 +208,18 @@ class SQLiteStorage(Storage):
             conn.close()
 
     def create_session(self, session: Session) -> None:
+        self._validate_namespace()
         with self._connect() as conn:
             conn.execute(
                 """INSERT INTO sessions (
-                       id, status, started_at, ended_at, task, summary, entry_count
+                       id, tenant_id, project_id, status, started_at, ended_at,
+                       task, summary, entry_count
                    )
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     str(session.id),
+                    self.tenant_id,
+                    self.project_id,
                     session.status.value,
                     session.started_at.isoformat(),
                     session.ended_at.isoformat() if session.ended_at else None,
@@ -161,14 +231,21 @@ class SQLiteStorage(Storage):
 
     def get_session(self, session_id: UUID) -> Session | None:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM sessions WHERE id = ?", (str(session_id),)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM sessions WHERE id = ? AND tenant_id = ? AND project_id = ?",
+                (str(session_id), self.tenant_id, self.project_id),
+            ).fetchone()
         return self._row_to_session(row) if row else None
 
     def get_active_session(self) -> Session | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM sessions WHERE status = ? ORDER BY started_at DESC LIMIT 1",
-                (SessionStatus.ACTIVE.value,),
+                (
+                    "SELECT * FROM sessions "
+                    "WHERE status = ? AND tenant_id = ? AND project_id = ? "
+                    "ORDER BY started_at DESC LIMIT 1"
+                ),
+                (SessionStatus.ACTIVE.value, self.tenant_id, self.project_id),
             ).fetchone()
         return self._row_to_session(row) if row else None
 
@@ -176,12 +253,21 @@ class SQLiteStorage(Storage):
         with self._connect() as conn:
             if status is None:
                 rows = conn.execute(
-                    "SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?", (limit,)
+                    (
+                        "SELECT * FROM sessions "
+                        "WHERE tenant_id = ? AND project_id = ? "
+                        "ORDER BY started_at DESC LIMIT ?"
+                    ),
+                    (self.tenant_id, self.project_id, limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM sessions WHERE status = ? ORDER BY started_at DESC LIMIT ?",
-                    (status.value, limit),
+                    (
+                        "SELECT * FROM sessions "
+                        "WHERE status = ? AND tenant_id = ? AND project_id = ? "
+                        "ORDER BY started_at DESC LIMIT ?"
+                    ),
+                    (status.value, self.tenant_id, self.project_id, limit),
                 ).fetchall()
         return [self._row_to_session(row) for row in rows]
 
@@ -189,19 +275,23 @@ class SQLiteStorage(Storage):
         with self._connect() as conn:
             conn.execute(
                 """UPDATE sessions SET status=?, ended_at=?, summary=?, entry_count=?
-                   WHERE id=?""",
+                   WHERE id=? AND tenant_id=? AND project_id=?""",
                 (
                     session.status.value,
                     session.ended_at.isoformat() if session.ended_at else None,
                     session.summary,
                     session.entry_count,
                     str(session.id),
+                    self.tenant_id,
+                    self.project_id,
                 ),
             )
 
     def _row_to_session(self, row: sqlite3.Row) -> Session:
         return Session(
             id=UUID(row["id"]),
+            tenant_id=row["tenant_id"],
+            project_id=row["project_id"],
             status=SessionStatus(row["status"]),
             started_at=datetime.fromisoformat(row["started_at"]),
             ended_at=datetime.fromisoformat(row["ended_at"]) if row["ended_at"] else None,
@@ -211,16 +301,19 @@ class SQLiteStorage(Storage):
         )
 
     def append_entry(self, entry: LogEntry) -> None:
+        self._validate_namespace()
         with self._connect() as conn:
             conn.execute(
                 """INSERT INTO log_entries
                    (
-                       id, session_id, source, source_session_id, timestamp,
+                       id, tenant_id, project_id, session_id, source, source_session_id, timestamp,
                        content, label, tags, confidence, metadata
                    )
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     str(entry.id),
+                    self.tenant_id,
+                    self.project_id,
                     str(entry.session_id) if entry.session_id else None,
                     entry.source.value,
                     entry.source_session_id,
@@ -234,15 +327,22 @@ class SQLiteStorage(Storage):
             )
             if entry.session_id:
                 conn.execute(
-                    "UPDATE sessions SET entry_count = entry_count + 1 WHERE id = ?",
-                    (str(entry.session_id),),
+                    (
+                        "UPDATE sessions SET entry_count = entry_count + 1 "
+                        "WHERE id = ? AND tenant_id = ? AND project_id = ?"
+                    ),
+                    (str(entry.session_id), self.tenant_id, self.project_id),
                 )
 
     def get_entries(self, session_id: UUID) -> list[LogEntry]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM log_entries WHERE session_id = ? ORDER BY timestamp",
-                (str(session_id),),
+                (
+                    "SELECT * FROM log_entries "
+                    "WHERE session_id = ? AND tenant_id = ? AND project_id = ? "
+                    "ORDER BY timestamp"
+                ),
+                (str(session_id), self.tenant_id, self.project_id),
             ).fetchall()
         return [self._row_to_entry(row) for row in rows]
 
@@ -254,21 +354,28 @@ class SQLiteStorage(Storage):
         with self._connect() as conn:
             rows = conn.execute(
                 (
-                    f"SELECT * FROM log_entries WHERE label IN ({placeholders}) "
+                    f"SELECT * FROM log_entries "
+                    f"WHERE label IN ({placeholders}) "
+                    "AND tenant_id = ? AND project_id = ? "
                     "ORDER BY timestamp DESC LIMIT ?"
                 ),
-                [label.value for label in labels] + [limit],
+                [label.value for label in labels] + [self.tenant_id, self.project_id, limit],
             ).fetchall()
         return [self._row_to_entry(row) for row in rows]
 
     def count_log_entries(self) -> int:
         with self._connect() as conn:
-            row = conn.execute("SELECT COUNT(*) AS n FROM log_entries").fetchone()
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM log_entries WHERE tenant_id = ? AND project_id = ?",
+                (self.tenant_id, self.project_id),
+            ).fetchone()
         return int(row["n"]) if row else 0
 
     def _row_to_entry(self, row: sqlite3.Row) -> LogEntry:
         return LogEntry(
             id=UUID(row["id"]),
+            tenant_id=row["tenant_id"],
+            project_id=row["project_id"],
             session_id=UUID(row["session_id"]) if row["session_id"] else None,
             source=LogSource(row["source"]),
             source_session_id=row["source_session_id"],
@@ -281,18 +388,21 @@ class SQLiteStorage(Storage):
         )
 
     def store_chunk(self, chunk: Chunk) -> None:
+        self._validate_namespace()
         for attempt in range(2):
             try:
                 with self._connect() as conn:
                     conn.execute(
                         """INSERT INTO chunks
                            (
-                               id, source, source_ids, content, label,
+                               id, tenant_id, project_id, source, source_ids, content, label,
                                tags, created_at, token_count, embedding
                            )
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             str(chunk.id),
+                            self.tenant_id,
+                            self.project_id,
                             chunk.source.value,
                             json.dumps([str(item) for item in chunk.source_ids]),
                             chunk.content,
@@ -346,14 +456,22 @@ class SQLiteStorage(Storage):
     def has_chunk(self, content: str, label: SemanticLabel) -> bool:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT 1 FROM chunks WHERE content = ? AND label = ? LIMIT 1",
-                (content, label.value),
+                (
+                    "SELECT 1 FROM chunks "
+                    "WHERE content = ? AND label = ? "
+                    "AND tenant_id = ? AND project_id = ? "
+                    "LIMIT 1"
+                ),
+                (content, label.value, self.tenant_id, self.project_id),
             ).fetchone()
         return row is not None
 
     def count_chunks(self) -> int:
         with self._connect() as conn:
-            row = conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM chunks WHERE tenant_id = ? AND project_id = ?",
+                (self.tenant_id, self.project_id),
+            ).fetchone()
         return int(row["n"]) if row else 0
 
     @staticmethod
@@ -394,8 +512,9 @@ class SQLiteStorage(Storage):
                     """SELECT c.* FROM chunks c
                        JOIN chunks_fts fts ON c.rowid = fts.rowid
                        WHERE chunks_fts MATCH ?
+                       AND c.tenant_id = ? AND c.project_id = ?
                        ORDER BY bm25(chunks_fts) LIMIT ?""",
-                    (query, top_k),
+                    (query, self.tenant_id, self.project_id, top_k),
                 ).fetchall()
             except sqlite3.OperationalError:
                 return []
@@ -406,13 +525,17 @@ class SQLiteStorage(Storage):
             rows = conn.execute(
                 """SELECT * FROM chunks
                    WHERE embedding IS NOT NULL
-                   ORDER BY created_at DESC, id ASC"""
+                   AND tenant_id = ? AND project_id = ?
+                   ORDER BY created_at DESC, id ASC""",
+                (self.tenant_id, self.project_id),
             ).fetchall()
         return [self._row_to_chunk(row) for row in rows]
 
     def _row_to_chunk(self, row: sqlite3.Row) -> Chunk:
         return Chunk(
             id=UUID(row["id"]),
+            tenant_id=row["tenant_id"],
+            project_id=row["project_id"],
             source=ChunkSource(row["source"]),
             source_ids=[UUID(item) for item in json.loads(row["source_ids"])],
             content=row["content"],
@@ -426,19 +549,23 @@ class SQLiteStorage(Storage):
     def is_session_processed(self, source_session_id: str) -> bool:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT 1 FROM processed_sessions WHERE source_session_id = ?",
-                (source_session_id,),
+                (
+                    "SELECT 1 FROM processed_sessions "
+                    "WHERE source_session_id = ? AND tenant_id = ? AND project_id = ?"
+                ),
+                (source_session_id, self.tenant_id, self.project_id),
             ).fetchone()
         return row is not None
 
     def mark_session_processed(self, source_session_id: str) -> None:
+        self._validate_namespace()
         with self._connect() as conn:
             conn.execute(
                 (
                     "INSERT OR REPLACE INTO processed_sessions "
-                    "(source_session_id, processed_at) VALUES (?, ?)"
+                    "(source_session_id, tenant_id, project_id, processed_at) VALUES (?, ?, ?, ?)"
                 ),
-                (source_session_id, datetime.now(UTC).isoformat()),
+                (source_session_id, self.tenant_id, self.project_id, datetime.now(UTC).isoformat()),
             )
 
     def clear_processed_sessions(
@@ -450,8 +577,11 @@ class SQLiteStorage(Storage):
         with self._connect() as conn:
             if source_session_id:
                 cursor = conn.execute(
-                    "DELETE FROM processed_sessions WHERE source_session_id = ?",
-                    (source_session_id,),
+                    (
+                        "DELETE FROM processed_sessions "
+                        "WHERE source_session_id = ? AND tenant_id = ? AND project_id = ?"
+                    ),
+                    (source_session_id, self.tenant_id, self.project_id),
                 )
                 return int(cursor.rowcount or 0)
 
@@ -459,23 +589,29 @@ class SQLiteStorage(Storage):
                 normalized = source.strip().lower().replace("_", "-")
                 pattern = f"{normalized}-%"
                 cursor = conn.execute(
-                    "DELETE FROM processed_sessions WHERE source_session_id LIKE ?",
-                    (pattern,),
+                    (
+                        "DELETE FROM processed_sessions "
+                        "WHERE source_session_id LIKE ? AND tenant_id = ? AND project_id = ?"
+                    ),
+                    (pattern, self.tenant_id, self.project_id),
                 )
                 return int(cursor.rowcount or 0)
 
-            cursor = conn.execute("DELETE FROM processed_sessions")
+            cursor = conn.execute(
+                "DELETE FROM processed_sessions WHERE tenant_id = ? AND project_id = ?",
+                (self.tenant_id, self.project_id),
+            )
             return int(cursor.rowcount or 0)
 
     def get_session_checkpoint(self, source_session_id: str) -> SessionCheckpoint | None:
         """Retrieve checkpoint for a source session, or None if not found."""
         with self._connect() as conn:
             row = conn.execute(
-                """SELECT id, source_session_id, last_message_timestamp,
+                """SELECT id, tenant_id, project_id, source_session_id, last_message_timestamp,
                           last_message_index, content_hash, checkpoint_at, updated_at
                    FROM session_checkpoints
-                   WHERE source_session_id = ?""",
-                (source_session_id,),
+                   WHERE source_session_id = ? AND tenant_id = ? AND project_id = ?""",
+                (source_session_id, self.tenant_id, self.project_id),
             ).fetchone()
 
         if not row:
@@ -483,6 +619,8 @@ class SQLiteStorage(Storage):
 
         return SessionCheckpoint(
             id=UUID(row["id"]),
+            tenant_id=row["tenant_id"],
+            project_id=row["project_id"],
             source_session_id=row["source_session_id"],
             last_message_timestamp=(
                 datetime.fromisoformat(row["last_message_timestamp"])
@@ -497,15 +635,17 @@ class SQLiteStorage(Storage):
 
     def save_session_checkpoint(self, checkpoint: SessionCheckpoint) -> None:
         """Persist or update a session checkpoint."""
+        self._validate_namespace()
         now = datetime.now(UTC)
         checkpoint.updated_at = now
 
         with self._connect() as conn:
             conn.execute(
                 """INSERT INTO session_checkpoints
-                    (id, source_session_id, last_message_timestamp, last_message_index,
+                    (id, tenant_id, project_id, source_session_id,
+                     last_message_timestamp, last_message_index,
                      content_hash, checkpoint_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(source_session_id) DO UPDATE SET
                     last_message_timestamp=excluded.last_message_timestamp,
                     last_message_index=excluded.last_message_index,
@@ -513,6 +653,8 @@ class SQLiteStorage(Storage):
                     updated_at=excluded.updated_at""",
                 (
                     str(checkpoint.id),
+                    self.tenant_id,
+                    self.project_id,
                     checkpoint.source_session_id,
                     checkpoint.last_message_timestamp.isoformat()
                     if checkpoint.last_message_timestamp
@@ -538,8 +680,11 @@ class SQLiteStorage(Storage):
         with self._connect() as conn:
             if source_session_id:
                 cursor = conn.execute(
-                    "DELETE FROM session_checkpoints WHERE source_session_id = ?",
-                    (source_session_id,),
+                    (
+                        "DELETE FROM session_checkpoints "
+                        "WHERE source_session_id = ? AND tenant_id = ? AND project_id = ?"
+                    ),
+                    (source_session_id, self.tenant_id, self.project_id),
                 )
                 return int(cursor.rowcount or 0)
 
@@ -547,12 +692,18 @@ class SQLiteStorage(Storage):
                 normalized = source.strip().lower().replace("_", "-")
                 pattern = f"{normalized}-%"
                 cursor = conn.execute(
-                    "DELETE FROM session_checkpoints WHERE source_session_id LIKE ?",
-                    (pattern,),
+                    (
+                        "DELETE FROM session_checkpoints "
+                        "WHERE source_session_id LIKE ? AND tenant_id = ? AND project_id = ?"
+                    ),
+                    (pattern, self.tenant_id, self.project_id),
                 )
                 return int(cursor.rowcount or 0)
 
-            cursor = conn.execute("DELETE FROM session_checkpoints")
+            cursor = conn.execute(
+                "DELETE FROM session_checkpoints WHERE tenant_id = ? AND project_id = ?",
+                (self.tenant_id, self.project_id),
+            )
             return int(cursor.rowcount or 0)
 
     def get_stats(self) -> dict[str, int]:
@@ -560,16 +711,30 @@ class SQLiteStorage(Storage):
         with self._connect() as conn:
             stats: dict[str, int] = {}
 
-            row = conn.execute("SELECT COUNT(*) AS count FROM processed_sessions").fetchone()
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM processed_sessions "
+                "WHERE tenant_id = ? AND project_id = ?",
+                (self.tenant_id, self.project_id),
+            ).fetchone()
             stats["processed_sessions"] = int(row["count"]) if row else 0
 
-            row = conn.execute("SELECT COUNT(*) AS count FROM log_entries").fetchone()
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM log_entries WHERE tenant_id = ? AND project_id = ?",
+                (self.tenant_id, self.project_id),
+            ).fetchone()
             stats["log_entries"] = int(row["count"]) if row else 0
 
-            row = conn.execute("SELECT COUNT(*) AS count FROM chunks").fetchone()
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM chunks WHERE tenant_id = ? AND project_id = ?",
+                (self.tenant_id, self.project_id),
+            ).fetchone()
             stats["chunks"] = int(row["count"]) if row else 0
 
-            row = conn.execute("SELECT COUNT(*) AS count FROM session_checkpoints").fetchone()
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM session_checkpoints "
+                "WHERE tenant_id = ? AND project_id = ?",
+                (self.tenant_id, self.project_id),
+            ).fetchone()
             stats["checkpoints"] = int(row["count"]) if row else 0
 
         return stats
@@ -578,7 +743,11 @@ class SQLiteStorage(Storage):
         """Return the most recent processed-session timestamp."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT MAX(processed_at) AS last_processed FROM processed_sessions"
+                (
+                    "SELECT MAX(processed_at) AS last_processed FROM processed_sessions "
+                    "WHERE tenant_id = ? AND project_id = ?"
+                ),
+                (self.tenant_id, self.project_id),
             ).fetchone()
         if not row:
             return None
@@ -598,11 +767,12 @@ class SQLiteStorage(Storage):
                 SELECT source_session_id, MAX(timestamp) AS last_timestamp, COUNT(*) AS entry_count
                 FROM log_entries
                 WHERE source_session_id IS NOT NULL AND TRIM(source_session_id) != ''
+                AND tenant_id = ? AND project_id = ?
                 GROUP BY source_session_id
                 ORDER BY last_timestamp DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (self.tenant_id, self.project_id, limit),
             ).fetchall()
 
             results: list[dict[str, Any]] = []
@@ -612,11 +782,11 @@ class SQLiteStorage(Storage):
                     """
                     SELECT label, content
                     FROM log_entries
-                    WHERE source_session_id = ?
+                    WHERE source_session_id = ? AND tenant_id = ? AND project_id = ?
                     ORDER BY timestamp DESC
                     LIMIT 5
                     """,
-                    (source_session_id,),
+                    (source_session_id, self.tenant_id, self.project_id),
                 ).fetchall()
                 results.append(
                     {
@@ -641,17 +811,22 @@ class SQLiteStorage(Storage):
         """Retrieve current background sync status, creating default if not exists."""
         with self._connect() as conn:
             row = conn.execute(
-                """SELECT id, is_running, started_at, completed_at, sessions_processed,
-                          learnings_extracted, error_message, pid, updated_at
+                """SELECT id, tenant_id, project_id, is_running, started_at,
+                          completed_at, sessions_processed, learnings_extracted,
+                          error_message, pid, updated_at
                    FROM background_sync_status
-                   ORDER BY updated_at DESC LIMIT 1"""
+                   WHERE tenant_id = ? AND project_id = ?
+                   ORDER BY updated_at DESC LIMIT 1""",
+                (self.tenant_id, self.project_id),
             ).fetchone()
 
         if not row:
-            return BackgroundSyncStatus()
+            return BackgroundSyncStatus(tenant_id=self.tenant_id, project_id=self.project_id)
 
         return BackgroundSyncStatus(
             id=UUID(row["id"]),
+            tenant_id=row["tenant_id"],
+            project_id=row["project_id"],
             is_running=bool(row["is_running"]),
             started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
             completed_at=datetime.fromisoformat(row["completed_at"])
@@ -666,16 +841,20 @@ class SQLiteStorage(Storage):
 
     def save_background_sync_status(self, status: BackgroundSyncStatus) -> None:
         """Persist background sync status."""
+        self._validate_namespace()
         from datetime import UTC
 
         status.updated_at = datetime.now(UTC)
+        # Ensure status object matches our scope
+        status.tenant_id = self.tenant_id
+        status.project_id = self.project_id
 
         with self._connect() as conn:
             conn.execute(
                 """INSERT INTO background_sync_status
-                    (id, is_running, started_at, completed_at, sessions_processed,
-                     learnings_extracted, error_message, pid, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, tenant_id, project_id, is_running, started_at, completed_at,
+                     sessions_processed, learnings_extracted, error_message, pid, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                     is_running=excluded.is_running,
                     started_at=excluded.started_at,
@@ -687,6 +866,8 @@ class SQLiteStorage(Storage):
                     updated_at=excluded.updated_at""",
                 (
                     str(status.id),
+                    self.tenant_id,
+                    self.project_id,
                     1 if status.is_running else 0,
                     status.started_at.isoformat() if status.started_at else None,
                     status.completed_at.isoformat() if status.completed_at else None,

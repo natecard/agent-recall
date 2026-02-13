@@ -11,7 +11,11 @@ from uuid import UUID
 
 import httpx
 
-from agent_recall.storage.base import SharedBackendUnavailableError, Storage
+from agent_recall.storage.base import (
+    SharedBackendUnavailableError,
+    Storage,
+    validate_shared_namespace,
+)
 from agent_recall.storage.models import (
     BackgroundSyncStatus,
     Chunk,
@@ -27,14 +31,10 @@ from agent_recall.storage.sqlite import SQLiteStorage
 
 def resolve_shared_db_path(base_url: str | None) -> Path | str:
     if not base_url:
-        raise ValueError(
-            "Shared storage backend requires `storage.shared.base_url` to be set."
-        )
+        raise ValueError("Shared storage backend requires `storage.shared.base_url` to be set.")
     raw = base_url.strip()
     if not raw:
-        raise ValueError(
-            "Shared storage backend requires a non-empty `storage.shared.base_url`."
-        )
+        raise ValueError("Shared storage backend requires a non-empty `storage.shared.base_url`.")
 
     parsed = urlparse(raw)
     if parsed.scheme in {"http", "https"}:
@@ -73,6 +73,10 @@ class _HTTPClient(Storage):
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
+        # Add isolation headers
+        headers["X-Tenant-ID"] = config.tenant_id
+        headers["X-Project-ID"] = config.project_id
+
         self._client = httpx.Client(
             base_url=config.base_url, headers=headers, timeout=config.timeout_seconds
         )
@@ -95,9 +99,7 @@ class _HTTPClient(Storage):
         response.raise_for_status()
         return Session.model_validate(response.json())
 
-    def list_sessions(
-        self, limit: int = 50, status: SessionStatus | None = None
-    ) -> list[Session]:
+    def list_sessions(self, limit: int = 50, status: SessionStatus | None = None) -> list[Session]:
         params = {"limit": limit}
         if status:
             params["status"] = status.value
@@ -106,9 +108,7 @@ class _HTTPClient(Storage):
         return [Session.model_validate(s) for s in response.json()]
 
     def update_session(self, session: Session) -> None:
-        response = self._client.put(
-            f"/sessions/{session.id}", content=session.model_dump_json()
-        )
+        response = self._client.put(f"/sessions/{session.id}", content=session.model_dump_json())
         response.raise_for_status()
 
     def append_entry(self, entry: LogEntry) -> None:
@@ -120,9 +120,7 @@ class _HTTPClient(Storage):
         response.raise_for_status()
         return [LogEntry.model_validate(e) for e in response.json()]
 
-    def get_entries_by_label(
-        self, labels: list[SemanticLabel], limit: int = 100
-    ) -> list[LogEntry]:
+    def get_entries_by_label(self, labels: list[SemanticLabel], limit: int = 100) -> list[LogEntry]:
         params = {
             "labels": [label.value for label in labels],
             "limit": limit,
@@ -155,9 +153,7 @@ class _HTTPClient(Storage):
         return response.json()["count"]
 
     def search_chunks_fts(self, query: str, top_k: int = 5) -> list[Chunk]:
-        response = self._client.get(
-            "/chunks/search", params={"q": query, "top_k": top_k}
-        )
+        response = self._client.get("/chunks/search", params={"q": query, "top_k": top_k})
         response.raise_for_status()
         return [Chunk.model_validate(c) for c in response.json()]
 
@@ -197,18 +193,14 @@ class _HTTPClient(Storage):
         return response.json()["count"]
 
     def get_session_checkpoint(self, source_session_id: str) -> SessionCheckpoint | None:
-        response = self._client.get(
-            "/checkpoints", params={"source_session_id": source_session_id}
-        )
+        response = self._client.get("/checkpoints", params={"source_session_id": source_session_id})
         if response.status_code == 404:
             return None
         response.raise_for_status()
         return SessionCheckpoint.model_validate(response.json())
 
     def save_session_checkpoint(self, checkpoint: SessionCheckpoint) -> None:
-        response = self._client.put(
-            "/checkpoints", content=checkpoint.model_dump_json()
-        )
+        response = self._client.put("/checkpoints", content=checkpoint.model_dump_json())
         response.raise_for_status()
 
     def clear_session_checkpoints(
@@ -249,9 +241,7 @@ class _HTTPClient(Storage):
         return BackgroundSyncStatus.model_validate(response.json())
 
     def save_background_sync_status(self, status: BackgroundSyncStatus) -> None:
-        response = self._client.put(
-            "/background-sync/status", content=status.model_dump_json()
-        )
+        response = self._client.put("/background-sync/status", content=status.model_dump_json())
         response.raise_for_status()
 
     def start_background_sync(self, pid: int) -> BackgroundSyncStatus:
@@ -288,14 +278,24 @@ class RemoteStorage(Storage):
     _local: Storage | None
 
     def __init__(self, config: SharedStorageConfig, local_db_path: Path | None = None) -> None:
+        # Validate namespace before initializing
+        validate_shared_namespace(config.tenant_id, config.project_id)
+
         self.config = config
         self._local = SQLiteStorage(local_db_path) if local_db_path else None
 
         resolved = resolve_shared_db_path(config.base_url)
 
         if isinstance(resolved, Path):
-            self._delegate = SQLiteStorage(resolved)
+            # Filesystem shared backend - enable strict namespace validation
+            self._delegate = SQLiteStorage(
+                resolved,
+                tenant_id=config.tenant_id,
+                project_id=config.project_id,
+                strict_namespace_validation=True,
+            )
         else:
+            # HTTP backend - client handles namespace via headers
             self._delegate = _HTTPClient(config)
 
     def _execute(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
@@ -344,9 +344,7 @@ class RemoteStorage(Storage):
     def get_active_session(self) -> Session | None:
         return self._execute("get_active_session")
 
-    def list_sessions(
-        self, limit: int = 50, status: SessionStatus | None = None
-    ) -> list[Session]:
+    def list_sessions(self, limit: int = 50, status: SessionStatus | None = None) -> list[Session]:
         return self._execute("list_sessions", limit=limit, status=status)
 
     def update_session(self, session: Session) -> None:
@@ -358,9 +356,7 @@ class RemoteStorage(Storage):
     def get_entries(self, session_id: UUID) -> list[LogEntry]:
         return self._execute("get_entries", session_id)
 
-    def get_entries_by_label(
-        self, labels: list[SemanticLabel], limit: int = 100
-    ) -> list[LogEntry]:
+    def get_entries_by_label(self, labels: list[SemanticLabel], limit: int = 100) -> list[LogEntry]:
         return self._execute("get_entries_by_label", labels=labels, limit=limit)
 
     def count_log_entries(self) -> int:

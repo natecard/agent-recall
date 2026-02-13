@@ -20,6 +20,8 @@ def http_config():
         base_url="http://test-server",
         retry_attempts=1,
         timeout_seconds=1.0,
+        tenant_id="test-tenant",
+        project_id="test-project",
     )
 
 
@@ -69,9 +71,7 @@ def test_get_session(storage):
 @respx.mock
 def test_get_session_not_found(storage):
     session_id = uuid.uuid4()
-    respx.get(f"http://test-server/sessions/{session_id}").mock(
-        return_value=httpx.Response(404)
-    )
+    respx.get(f"http://test-server/sessions/{session_id}").mock(return_value=httpx.Response(404))
 
     session = storage.get_session(session_id)
     assert session is None
@@ -79,9 +79,7 @@ def test_get_session_not_found(storage):
 
 @respx.mock
 def test_list_sessions(storage):
-    respx.get("http://test-server/sessions").mock(
-        return_value=httpx.Response(200, json=[])
-    )
+    respx.get("http://test-server/sessions").mock(return_value=httpx.Response(200, json=[]))
 
     sessions = storage.list_sessions(limit=10, status=SessionStatus.COMPLETED)
     assert sessions == []
@@ -102,6 +100,7 @@ def test_has_chunk(storage):
 
     last_request = respx.calls.last.request
     import json
+
     body = json.loads(last_request.content)
     assert body["content"] == "some content"
     assert body["label"] == "gotcha"
@@ -128,9 +127,7 @@ def test_get_background_sync_status(storage):
 
 @respx.mock
 def test_http_error_raises_exception(storage):
-    respx.get("http://test-server/stats").mock(
-        return_value=httpx.Response(500)
-    )
+    respx.get("http://test-server/stats").mock(return_value=httpx.Response(500))
 
     # RemoteStorage wraps unexpected errors in SharedBackendUnavailableError
     # But since 500 is an HTTPStatusError (not TransportError), it might bubble up?

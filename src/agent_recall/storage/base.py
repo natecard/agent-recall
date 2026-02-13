@@ -18,7 +18,30 @@ from agent_recall.storage.models import (
 
 class SharedBackendUnavailableError(Exception):
     """Raised when the shared storage backend is unreachable."""
+
     pass
+
+
+class NamespaceValidationError(Exception):
+    """Raised when namespace metadata is missing or invalid for shared storage."""
+
+    pass
+
+
+def validate_shared_namespace(tenant_id: str, project_id: str) -> None:
+    """Validate that tenant and project IDs are properly set for shared storage.
+
+    Raises:
+        NamespaceValidationError: If tenant_id or project_id is missing or set to default values.
+    """
+    if not tenant_id or tenant_id.strip() == "" or tenant_id == "default":
+        raise NamespaceValidationError(
+            f"Shared storage requires explicit tenant_id. Got: {tenant_id!r}"
+        )
+    if not project_id or project_id.strip() == "" or project_id == "default":
+        raise NamespaceValidationError(
+            f"Shared storage requires explicit project_id. Got: {project_id!r}"
+        )
 
 
 class Storage(ABC):

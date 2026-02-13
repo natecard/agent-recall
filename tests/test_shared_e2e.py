@@ -51,9 +51,7 @@ class E2EProvider(LLMProvider):
 def mock_llm_provider(monkeypatch):
     provider = E2EProvider()
     monkeypatch.setattr(cli_main, "get_llm", lambda: provider)
-    monkeypatch.setattr(
-        cli_main, "create_llm_provider", lambda *_args, **_kwargs: provider
-    )
+    monkeypatch.setattr(cli_main, "create_llm_provider", lambda *_args, **_kwargs: provider)
     return provider
 
 
@@ -86,6 +84,8 @@ storage:
   backend: shared
   shared:
     base_url: file://{shared_dir}
+    tenant_id: test-tenant
+    project_id: test-project
 llm:
   provider: dummy
   model: dummy
@@ -153,6 +153,8 @@ storage:
   backend: shared
   shared:
     base_url: file://{shared_dir}
+    tenant_id: test-tenant
+    project_id: test-project
 llm:
   provider: dummy
   model: dummy
@@ -203,6 +205,8 @@ storage:
   backend: shared
   shared:
     base_url: file://{shared_dir}
+    tenant_id: test-tenant
+    project_id: test-project
 """)
         # Clear cache just in case, though we don't use Repo A further in this test
         cli_main.get_storage.cache_clear()
@@ -216,6 +220,8 @@ storage:
   backend: shared
   shared:
     base_url: file://{shared_dir}
+    tenant_id: test-tenant
+    project_id: test-project
 """)
 
         # Modify GUARDRAILS.md in Shared storage directly

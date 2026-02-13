@@ -256,10 +256,10 @@
       "description": "Enforce strict workspace/project boundaries in shared memory to prevent cross-project leakage.",
       "user_story": "Allow teams to use shared memory confidently without accidental context bleed between projects.",
       "steps": [
-        "Introduce tenant and project namespace keys across all shared-memory write/read paths.",
-        "Require namespace scope in retrieval/context assembly APIs and CLI command execution.",
-        "Add guardrails that reject writes missing namespace metadata.",
-        "Add cross-tenant and cross-project leakage tests with negative assertions."
+        "[done] Introduce tenant and project namespace keys across all shared-memory write/read paths.",
+        "[done] Require namespace scope in retrieval/context assembly APIs and CLI command execution.",
+        "[done] Add guardrails that reject writes missing namespace metadata.",
+        "[done] Add cross-tenant and cross-project leakage tests with negative assertions."
       ],
       "acceptance": [
         "Memory from one project cannot be retrieved by another project unless explicitly allowed.",
@@ -272,7 +272,7 @@
         "uv run ruff check .",
         "uv run ty check"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-011",

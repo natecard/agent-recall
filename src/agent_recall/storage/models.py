@@ -45,6 +45,8 @@ class LogEntry(BaseModel):
     """Atomic unit of captured knowledge. Immutable after creation."""
 
     id: UUID = Field(default_factory=uuid4)
+    tenant_id: str = "default"
+    project_id: str = "default"
     session_id: UUID | None = None
     source: LogSource
     source_session_id: str | None = None
@@ -62,6 +64,8 @@ class Session(BaseModel):
     """Container for a work session."""
 
     id: UUID = Field(default_factory=uuid4)
+    tenant_id: str = "default"
+    project_id: str = "default"
     status: SessionStatus = SessionStatus.ACTIVE
     started_at: datetime = Field(default_factory=utcnow)
     ended_at: datetime | None = None
@@ -81,6 +85,8 @@ class Chunk(BaseModel):
     """Indexed unit for retrieval."""
 
     id: UUID = Field(default_factory=uuid4)
+    tenant_id: str = "default"
+    project_id: str = "default"
     source: ChunkSource
     source_ids: list[UUID] = Field(default_factory=list)
     content: str
@@ -165,6 +171,14 @@ class SharedStorageConfig(BaseModel):
         le=10,
         description="Retry attempts for transient shared backend failures",
     )
+    tenant_id: str = Field(
+        default="default",
+        description="Tenant identifier for isolation (e.g., org-123)",
+    )
+    project_id: str = Field(
+        default="default",
+        description="Project identifier for isolation (e.g., repo-abc)",
+    )
 
 
 class StorageConfig(BaseModel):
@@ -188,6 +202,8 @@ class SessionCheckpoint(BaseModel):
     """
 
     id: UUID = Field(default_factory=uuid4)
+    tenant_id: str = "default"
+    project_id: str = "default"
     source_session_id: str = Field(
         ..., description="Session identifier from source (e.g., cursor-abc123)"
     )
@@ -216,6 +232,8 @@ class BackgroundSyncStatus(BaseModel):
     """
 
     id: UUID = Field(default_factory=uuid4)
+    tenant_id: str = "default"
+    project_id: str = "default"
     is_running: bool = Field(default=False, description="Whether sync is currently active")
     started_at: datetime | None = Field(default=None, description="When current/last sync started")
     completed_at: datetime | None = Field(default=None, description="When last sync completed")

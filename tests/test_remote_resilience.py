@@ -12,7 +12,12 @@ from agent_recall.storage.remote import RemoteStorage
 class TestRemoteResilience:
     @pytest.fixture
     def config(self):
-        return SharedStorageConfig(base_url="file:///tmp/shared.db", retry_attempts=3)
+        return SharedStorageConfig(
+            base_url="file:///tmp/shared.db",
+            retry_attempts=3,
+            tenant_id="test-tenant",
+            project_id="test-project",
+        )
 
     @pytest.fixture
     def local_path(self, tmp_path):
@@ -108,9 +113,7 @@ class TestRemoteResilience:
                 storage._delegate = MagicMock()
                 storage._local = MagicMock()
 
-                storage._delegate.some_method.side_effect = sqlite3.OperationalError(
-                    "primary fail"
-                )
+                storage._delegate.some_method.side_effect = sqlite3.OperationalError("primary fail")
                 storage._local.some_method.side_effect = Exception("local fail")
 
                 with pytest.raises(SharedBackendUnavailableError) as exc:
