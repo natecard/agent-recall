@@ -1,6 +1,15 @@
 - Notes: Completed AR-003 step 4 by wiring retrieval config (`backend`, `top_k`, `fusion_k`, `rerank_enabled`, `rerank_candidate_k`) into `start`, `context`, `refresh-context`, and `retrieve`; added CLI overrides for context/retrieve and retrieval wiring tests.
 - Next: Move to AR-004 and start with tracer-bullet indexing policy for decision/exploration labels.
 
+## 2026-02-13T10:32:00Z Iteration 5
+- Item: AR-012 - Add memory curation queue with approval workflow
+- Mode: feature
+- Agent exit code: 0
+- Validation: passed
+- Outcome: progressed
+- Notes: Added curation status field for log entries, defaulting to approved while marking extracted learnings as pending; SQLite schema/migration updated and storage reads filter to approved entries.
+- Next: Add approve/reject/edit operations and update compaction/retrieval to honor curation state.
+
 ## 2026-02-13T08:00:00Z Iteration 2
 - Item: AR-018 - Enforce CLI and TUI command parity from one command contract
 - Mode: feature

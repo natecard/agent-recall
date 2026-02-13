@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from agent_recall.storage.models import (
     AgentRecallConfig,
+    CurationStatus,
     LogEntry,
     LogSource,
     SemanticLabel,
@@ -23,6 +24,7 @@ def test_log_entry_defaults() -> None:
     assert entry.confidence == 1.0
     assert entry.tags == []
     assert entry.metadata == {}
+    assert entry.curation_status == CurationStatus.APPROVED
 
 
 def test_log_entry_is_frozen() -> None:

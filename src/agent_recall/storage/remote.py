@@ -22,6 +22,7 @@ from agent_recall.storage.models import (
     AuditEvent,
     BackgroundSyncStatus,
     Chunk,
+    CurationStatus,
     LogEntry,
     SemanticLabel,
     Session,
@@ -192,6 +193,7 @@ class _HTTPClient(Storage):
         params = {
             "labels": [label.value for label in labels],
             "limit": limit,
+            "curation_status": CurationStatus.APPROVED.value,
         }
         # httpx handles list params by repeating keys: labels=...&labels=...
         response = self._client.get("/entries", params=params)

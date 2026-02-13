@@ -35,6 +35,14 @@ class LogSource(StrEnum):
     MANUAL = "manual"
 
 
+class CurationStatus(StrEnum):
+    """Curation workflow status for extracted learnings."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class SessionStatus(StrEnum):
     ACTIVE = "active"
     COMPLETED = "completed"
@@ -55,6 +63,7 @@ class LogEntry(BaseModel):
     label: SemanticLabel
     tags: list[str] = Field(default_factory=list)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    curation_status: CurationStatus = CurationStatus.APPROVED
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict(frozen=True)

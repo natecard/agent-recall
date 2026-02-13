@@ -13,6 +13,7 @@ from agent_recall.storage.models import (
     BackgroundSyncStatus,
     Chunk,
     ChunkSource,
+    CurationStatus,
     LogEntry,
     LogSource,
     SemanticLabel,
@@ -72,6 +73,7 @@ CREATE TABLE IF NOT EXISTS log_entries (
     label TEXT NOT NULL,
     tags TEXT NOT NULL,
     confidence REAL DEFAULT 1.0,
+    curation_status TEXT NOT NULL DEFAULT 'approved',
     metadata TEXT NOT NULL
 );
 
@@ -204,6 +206,12 @@ class SQLiteStorage(Storage):
                         f"ALTER TABLE {table} ADD COLUMN project_id TEXT NOT NULL DEFAULT 'default'"
                     )
                     columns.append("project_id")
+                if table == "log_entries" and "curation_status" not in columns:
+                    conn.execute(
+                        "ALTER TABLE log_entries "
+                        "ADD COLUMN curation_status TEXT NOT NULL DEFAULT 'approved'"
+                    )
+                    columns.append("curation_status")
             self._ensure_scope_indexes(conn)
 
     def _validate_namespace(self) -> None:
@@ -321,10 +329,10 @@ class SQLiteStorage(Storage):
             conn.execute(
                 """INSERT INTO log_entries
                    (
-                       id, tenant_id, project_id, session_id, source, source_session_id, timestamp,
-                       content, label, tags, confidence, metadata
+                        id, tenant_id, project_id, session_id, source, source_session_id, timestamp,
+                        content, label, tags, confidence, curation_status, metadata
                    )
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     str(entry.id),
                     self.tenant_id,
@@ -337,6 +345,7 @@ class SQLiteStorage(Storage):
                     entry.label.value,
                     json.dumps(entry.tags),
                     entry.confidence,
+                    entry.curation_status.value,
                     json.dumps(entry.metadata),
                 ),
             )
@@ -371,10 +380,12 @@ class SQLiteStorage(Storage):
                 (
                     f"SELECT * FROM log_entries "
                     f"WHERE label IN ({placeholders}) "
+                    "AND curation_status = ? "
                     "AND tenant_id = ? AND project_id = ? "
                     "ORDER BY timestamp DESC LIMIT ?"
                 ),
-                [label.value for label in labels] + [self.tenant_id, self.project_id, limit],
+                [label.value for label in labels]
+                + [CurationStatus.APPROVED.value, self.tenant_id, self.project_id, limit],
             ).fetchall()
         return [self._row_to_entry(row) for row in rows]
 
@@ -387,6 +398,12 @@ class SQLiteStorage(Storage):
         return int(row["n"]) if row else 0
 
     def _row_to_entry(self, row: sqlite3.Row) -> LogEntry:
+        raw_status = row["curation_status"] if "curation_status" in row.keys() else None
+        status_value = str(raw_status) if raw_status else CurationStatus.APPROVED.value
+        try:
+            curation_status = CurationStatus(status_value)
+        except ValueError:
+            curation_status = CurationStatus.APPROVED
         return LogEntry(
             id=UUID(row["id"]),
             tenant_id=row["tenant_id"],
@@ -399,6 +416,7 @@ class SQLiteStorage(Storage):
             label=SemanticLabel(row["label"]),
             tags=json.loads(row["tags"]),
             confidence=row["confidence"],
+            curation_status=curation_status,
             metadata=json.loads(row["metadata"]),
         )
 

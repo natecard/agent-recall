@@ -211,5 +211,8 @@
 ## 2026-02-13T06:00:00Z Iteration 4 (AR-007)
 - Document shared storage with a compact config snippet plus a migration checklist for first-time enablement.
 
+## 2026-02-13T10:32:00Z Iteration 5 (AR-012)
+- When extending SQLite schemas, add migration logic and update row-to-model mapping in the same change.
+
 ## 2026-02-13T04:18:42Z Iteration 5 (AR-015)
 - Add CLI config commands as small helpers for reading/writing config sections so status and updates stay consistent across CLI/TUI.

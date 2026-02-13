@@ -8,7 +8,7 @@ from typing import Any
 
 from agent_recall.ingest.base import RawMessage, RawSession
 from agent_recall.llm.base import LLMProvider, Message
-from agent_recall.storage.models import LogEntry, LogSource, SemanticLabel
+from agent_recall.storage.models import CurationStatus, LogEntry, LogSource, SemanticLabel
 
 EXTRACTION_SYSTEM_PROMPT = """You are analyzing a development session transcript
 to extract learnings that will help future AI agents working on this codebase.
@@ -258,6 +258,7 @@ class TranscriptExtractor:
             label=label,
             tags=tags,
             confidence=confidence,
+            curation_status=CurationStatus.PENDING,
             metadata={
                 "evidence": evidence,
                 "source_tool": session.source,
@@ -302,8 +303,7 @@ class TranscriptExtractor:
     @staticmethod
     def _chunk_messages(messages: list[RawMessage], chunk_size: int) -> list[list[RawMessage]]:
         return [
-            messages[start : start + chunk_size]
-            for start in range(0, len(messages), chunk_size)
+            messages[start : start + chunk_size] for start in range(0, len(messages), chunk_size)
         ]
 
     @staticmethod
