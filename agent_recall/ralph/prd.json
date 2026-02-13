@@ -277,7 +277,7 @@
     {
       "id": "AR-011",
       "category": "functional",
-      "priority": 2,
+      "priority": 1,
       "title": "Add auth, RBAC, and audit trail for shared backend",
       "description": "Secure shared memory operations with role-based permissions and full mutation audit logs.",
       "user_story": "Allow team leads to control who can write or promote memory and review who changed what.",

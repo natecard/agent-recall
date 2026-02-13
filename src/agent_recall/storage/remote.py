@@ -70,6 +70,11 @@ class _HTTPClient(Storage):
 
         headers = {"Content-Type": "application/json"}
         api_key = os.environ.get(config.api_key_env)
+        if config.require_api_key and not api_key:
+            raise ValueError(
+                f"Shared storage backend requires {config.api_key_env} to be set when "
+                "require_api_key is enabled."
+            )
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 

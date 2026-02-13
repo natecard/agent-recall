@@ -35,5 +35,6 @@ storage:
   shared:
     base_url: null
     api_key_env: AGENT_RECALL_SHARED_API_KEY
+    require_api_key: false
     timeout_seconds: 10.0
     retry_attempts: 2

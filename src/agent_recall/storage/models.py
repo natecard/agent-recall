@@ -164,6 +164,10 @@ class SharedStorageConfig(BaseModel):
         min_length=1,
         description="Environment variable containing shared backend API token",
     )
+    require_api_key: bool = Field(
+        default=False,
+        description="Fail if api_key_env is unset/empty when using HTTP shared backend",
+    )
     timeout_seconds: float = Field(default=10.0, gt=0.0, description="HTTP timeout in seconds")
     retry_attempts: int = Field(
         default=2,

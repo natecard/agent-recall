@@ -30,6 +30,14 @@ def storage(http_config):
     return RemoteStorage(http_config)
 
 
+def test_http_requires_api_key_when_enforced(http_config, monkeypatch):
+    http_config.require_api_key = True
+    monkeypatch.delenv(http_config.api_key_env, raising=False)
+
+    with pytest.raises(ValueError, match=http_config.api_key_env):
+        RemoteStorage(http_config)
+
+
 @respx.mock
 def test_create_session(storage):
     session = Session(
@@ -155,3 +163,17 @@ def test_transport_error_retries_and_raises_unavailable(http_config):
 
     assert "failed after 2 attempts" in str(exc.value)
     assert route.call_count == 2
+
+
+def test_http_sets_authorization_header_when_api_key_set(http_config, monkeypatch):
+    monkeypatch.setenv(http_config.api_key_env, "test-token")
+    storage = RemoteStorage(http_config)
+
+    with respx.mock:
+        route = respx.get("http://test-server/stats").mock(
+            return_value=httpx.Response(200, json={"count": 0})
+        )
+        storage.get_stats()
+
+    assert route.called
+    assert route.calls.last.request.headers["Authorization"] == "Bearer test-token"
