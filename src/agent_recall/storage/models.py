@@ -258,6 +258,13 @@ class RalphLoopConfig(BaseModel):
     compact_mode: Literal["always", "on-failure", "off"] = "always"
 
 
+class AdapterConfig(BaseModel):
+    """Context adapter configuration."""
+
+    enabled: bool = False
+    output_dir: str = ".agent/context"
+
+
 class SessionCheckpoint(BaseModel):
     """Checkpoint for incremental session sync.
 
@@ -320,3 +327,4 @@ class AgentRecallConfig(BaseModel):
     storage: StorageConfig = Field(default_factory=StorageConfig)
     theme: ThemeConfig = Field(default_factory=ThemeConfig)
     ralph: RalphLoopConfig = Field(default_factory=RalphLoopConfig)
+    adapters: AdapterConfig = Field(default_factory=AdapterConfig)

@@ -408,6 +408,25 @@ def test_cli_refresh_context_writes_bundle_using_active_task() -> None:
         assert payload["refreshed_at"]
 
 
+def test_cli_refresh_context_writes_adapter_payloads() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        assert runner.invoke(cli_main.app, ["start", "adapter payload run"]).exit_code == 0
+
+        result = runner.invoke(cli_main.app, ["refresh-context", "--adapter-payloads"])
+        assert result.exit_code == 0
+        assert "Adapters:" in result.output
+
+        bundle_dir = Path(".agent") / "context"
+        adapter_payload = bundle_dir / "codex" / "context.json"
+        assert adapter_payload.exists()
+
+        payload = json.loads(adapter_payload.read_text())
+        assert payload["adapter"] == "codex"
+        assert payload["task"] == "adapter payload run"
+        assert payload["context"]
+
+
 def test_cli_refresh_context_retries_transient_failure(monkeypatch) -> None:
     attempts = {"count": 0}
 

@@ -218,6 +218,15 @@
 - Notes: Completed AR-009 retry/timeout/fallback slice. `RemoteStorage` now wraps delegate calls in a retry loop (catching `sqlite3.OperationalError`, `OSError`, etc.) and falls back to `local_db_path` if shared fails, ensuring local mode continuity. Added `SharedBackendUnavailableError` and resilience tests.
 - Next: Implement AR-009 HTTP service/client transport slice (final step for AR-009).
 
+## 2026-02-13T18:15:00Z Iteration 3
+- Item: AR-013 - Add automatic context injection adapters for supported agents
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Added adapter payload scaffolding via `refresh-context --adapter-payloads` to write per-agent `context.json` payloads under `.agent/context/<adapter>/`. Added adapter config defaults and CLI status output plus tests for Codex payload generation.
+- Next: Add token budget control and adapter opt-in config wiring for additional agents; add integration tests to prevent duplicate injection.
+
 ## 2026-02-13T02:30:00Z Iteration 6
 - Item: AR-009 - Ship shared backend tracer-bullet (single-tenant)
 - Mode: feature

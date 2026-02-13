@@ -197,7 +197,7 @@
     {
       "id": "AR-007",
       "category": "functional",
-      "priority": 2,
+      "priority": 3,
       "title": "Introduce optional shared team memory backend",
       "description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
       "user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
@@ -329,12 +329,12 @@
     {
       "id": "AR-013",
       "category": "functional",
-      "priority": 3,
+      "priority": 1,
       "title": "Add automatic context injection adapters for supported agents",
       "description": "Integrate generated memory context into Codex, Cursor, Claude Code, and OpenCode startup workflows automatically.",
       "user_story": "Allow developers to benefit from memory without manually running context commands each session.",
       "steps": [
-        "Define adapter hooks for each supported agent runtime with consistent context payload structure.",
+        "[done] Define adapter hooks for each supported agent runtime with consistent context payload structure.",
         "Implement context bundle generation with configurable token budgets per provider/model.",
         "Add opt-in/opt-out controls and clear status output for adapter behavior.",
         "Add integration tests validating that adapters inject current context without duplication."
@@ -355,7 +355,7 @@
     {
       "id": "AR-014",
       "category": "functional",
-      "priority": 4,
+      "priority": 2,
       "title": "Add backup, restore, and migration tooling for shared memory",
       "description": "Provide operational tooling for safe upgrades and disaster recovery of shared memory data.",
       "user_story": "Allow teams to upgrade backend schema and recover memory state without losing history.",

@@ -51,3 +51,7 @@ ralph:
   max_iterations: 10
   sleep_seconds: 2
   compact_mode: always
+
+adapters:
+  enabled: false
+  output_dir: .agent/context

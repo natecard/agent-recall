@@ -67,6 +67,9 @@ agent-recall context --task "add password reset"
 # Refresh persisted context bundles for active task/repo state
 agent-recall refresh-context
 
+# Generate adapter-ready context payloads for supported agents
+agent-recall refresh-context --adapter-payloads
+
 # Run compaction to update knowledge files
 agent-recall compact
 

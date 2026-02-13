@@ -276,6 +276,7 @@ def get_command_contract() -> list[CommandContract]:
             aliases=(),
             description="Refresh context bundle outputs",
             surfaces=("cli", "tui"),
+            notes="Optional adapter payloads can be generated for supported agents.",
         ),
         CommandContract(
             command="sync-background",

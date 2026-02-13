@@ -291,3 +291,6 @@
 
 ## 2026-02-13T12:30:00Z Iteration 2 (AR-012)
 - When validating curation workflows, assert rejected entries never reach chunk indexing while approved ones do.
+
+## 2026-02-13T18:15:00Z Iteration 3 (AR-013)
+- When adding adapter payloads, gate writes behind config defaults or explicit CLI flags to avoid breaking existing flows.

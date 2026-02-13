@@ -35,6 +35,7 @@ from agent_recall.cli.banner import print_banner
 from agent_recall.cli.command_contract import command_parity_report, get_command_contract
 from agent_recall.cli.textual_tui import get_palette_actions
 from agent_recall.cli.theme import DEFAULT_THEME, ThemeManager
+from agent_recall.core.adapters import get_default_adapters, write_adapter_payloads
 from agent_recall.core.background_sync import BackgroundSyncManager
 from agent_recall.core.compact import CompactionEngine
 from agent_recall.core.config import load_config
@@ -1051,6 +1052,11 @@ def refresh_context(
         "--output-dir",
         help="Directory where refreshed context bundle files are written",
     ),
+    adapter_payloads: bool | None = typer.Option(
+        None,
+        "--adapter-payloads/--no-adapter-payloads",
+        help="Write adapter-ready context payloads for supported agents",
+    ),
 ):
     """Refresh context bundle files for active task and repository state."""
     _get_theme_manager()
@@ -1072,6 +1078,9 @@ def refresh_context(
         retriever=retriever,
         retrieval_top_k=retrieval_cfg.top_k,
     )
+    adapter_cfg = load_config(AGENT_DIR).adapters
+    if adapter_payloads is None:
+        adapter_payloads = bool(adapter_cfg.enabled)
     markdown_path = output_dir / "context.md"
     json_path = output_dir / "context.json"
 
@@ -1086,14 +1095,26 @@ def refresh_context(
 
             output_dir.mkdir(parents=True, exist_ok=True)
             markdown_path.write_text(output)
+            refreshed_at = datetime.now(UTC)
+            repo_path = Path.cwd().resolve()
             payload = {
                 "task": resolved_task,
                 "active_session_id": str(active.id) if active else None,
-                "repo_path": str(Path.cwd().resolve()),
-                "refreshed_at": datetime.now(UTC).isoformat(),
+                "repo_path": str(repo_path),
+                "refreshed_at": refreshed_at.isoformat(),
                 "context": output,
             }
             json_path.write_text(json.dumps(payload, indent=2))
+            if adapter_payloads:
+                write_adapter_payloads(
+                    context=output,
+                    task=resolved_task,
+                    active_session_id=str(active.id) if active else None,
+                    repo_path=repo_path,
+                    refreshed_at=refreshed_at,
+                    output_dir=Path(adapter_cfg.output_dir),
+                    adapters=get_default_adapters(),
+                )
             break
         except Exception as exc:  # noqa: BLE001
             diagnostics.append(
@@ -1115,6 +1136,11 @@ def refresh_context(
         f"  Markdown: {markdown_path}",
         f"  JSON:     {json_path}",
     ]
+    if adapter_payloads:
+        adapter_names = ", ".join(adapter.name for adapter in get_default_adapters())
+        adapter_dir = Path(adapter_cfg.output_dir)
+        lines.append(f"  Adapters: {adapter_names}")
+        lines.append(f"  Adapter dir: {adapter_dir}")
     if diagnostics:
         lines.append(f"  Retries:  {len(diagnostics)}")
     if resolved_task:

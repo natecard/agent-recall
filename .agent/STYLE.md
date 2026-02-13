@@ -225,3 +225,6 @@
 
 ## 2026-02-13T12:30:00Z Iteration 2 (AR-012)
 - Add curation lifecycle assertions in storage-backed tests to cover pending -> rejected -> approved transitions.
+
+## 2026-02-13T18:15:00Z Iteration 3 (AR-013)
+- Add adapter payload outputs under the existing context bundle directory to keep CLI/TUI expectations aligned.
