@@ -146,6 +146,12 @@ class RetrievalConfig(BaseModel):
     embedding_dimensions: int = Field(default=64, ge=8, le=4096)
 
 
+class StorageConfig(BaseModel):
+    """Storage configuration."""
+
+    backend: Literal["local"] = "local"
+
+
 class ThemeConfig(BaseModel):
     """CLI theme configuration."""
 
@@ -207,4 +213,5 @@ class AgentRecallConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    storage: StorageConfig = Field(default_factory=StorageConfig)
     theme: ThemeConfig = Field(default_factory=ThemeConfig)

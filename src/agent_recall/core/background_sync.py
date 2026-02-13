@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Any
 
 from agent_recall.core.sync import AutoSync
+from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage
 from agent_recall.storage.models import BackgroundSyncStatus
-from agent_recall.storage.sqlite import SQLiteStorage
 
 
 @dataclass
@@ -143,7 +143,7 @@ class BackgroundSyncManager:
 
     def __init__(
         self,
-        storage: SQLiteStorage,
+        storage: Storage,
         files: FileStorage,
         auto_sync: AutoSync | None,
         lock_file: Path | None = None,

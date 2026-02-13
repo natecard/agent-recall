@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from agent_recall.core.retrieve import Retriever
+from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
-from agent_recall.storage.sqlite import SQLiteStorage
 
 
 class ContextAssembler:
     def __init__(
         self,
-        storage: SQLiteStorage,
+        storage: Storage,
         files: FileStorage,
         retriever: Retriever | None = None,
         retrieval_top_k: int = 5,
@@ -39,6 +39,6 @@ class ContextAssembler:
             chunks = retriever.search(task, top_k=self.retrieval_top_k)
             if chunks:
                 relevant = "\n".join(f"- {chunk.content}" for chunk in chunks)
-                parts.append(f"## Relevant to \"{task}\"\n\n{relevant}")
+                parts.append(f'## Relevant to "{task}"\n\n{relevant}')
 
         return "\n\n---\n\n".join(parts) if parts else "No context available yet."

@@ -164,7 +164,7 @@
 		{
 			"id": "AR-007",
 			"category": "functional",
-			"priority": 1,
+			"priority": 2,
 			"title": "Introduce optional shared team memory backend",
 			"description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
 			"user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
@@ -179,6 +179,138 @@
 				"Namespace boundaries prevent cross-project memory leakage.",
 				"Local-only mode remains default and behavior-compatible.",
 				"Shared backend failures degrade gracefully without data corruption."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-009",
+			"category": "functional",
+			"priority": 1,
+			"title": "Ship shared backend tracer-bullet (single-tenant)",
+			"description": "Deliver a minimal shared-memory backend path so multiple machines can read/write the same memory state.",
+			"user_story": "Allow a developer to enable shared memory in one config switch and use it from different workstations.",
+			"steps": [
+				"Define a storage interface contract that supports local and shared backends with the same core operations.",
+				"Implement a single-tenant shared backend service/client path for sessions, chunks, and tier files.",
+				"Add retry, timeout, and fallback behavior so local mode can continue if shared backend is unavailable.",
+				"Add end-to-end tests that run the same sync/retrieve/compact flow against both local and shared modes."
+			],
+			"acceptance": [
+				"Shared backend mode can ingest, compact, and retrieve memory from a second machine.",
+				"The same CLI commands work in local and shared modes without behavior regressions.",
+				"Transient backend failures produce clear errors and do not corrupt memory state.",
+				"Configuration clearly declares backend mode and connection details."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-010",
+			"category": "functional",
+			"priority": 3,
+			"title": "Add tenant isolation and namespace safety",
+			"description": "Enforce strict workspace/project boundaries in shared memory to prevent cross-project leakage.",
+			"user_story": "Allow teams to use shared memory confidently without accidental context bleed between projects.",
+			"steps": [
+				"Introduce tenant and project namespace keys across all shared-memory write/read paths.",
+				"Require namespace scope in retrieval/context assembly APIs and CLI command execution.",
+				"Add guardrails that reject writes missing namespace metadata.",
+				"Add cross-tenant and cross-project leakage tests with negative assertions."
+			],
+			"acceptance": [
+				"Memory from one project cannot be retrieved by another project unless explicitly allowed.",
+				"All persisted shared records include tenant and project scope metadata.",
+				"Namespace validation failures are explicit and actionable.",
+				"Leakage regression tests fail if any scope boundary is broken."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-011",
+			"category": "functional",
+			"priority": 4,
+			"title": "Add auth, RBAC, and audit trail for shared backend",
+			"description": "Secure shared memory operations with role-based permissions and full mutation audit logs.",
+			"user_story": "Allow team leads to control who can write or promote memory and review who changed what.",
+			"steps": [
+				"Implement token-based authentication for shared backend client operations.",
+				"Add role checks for read, write, promote, and delete operations.",
+				"Record immutable audit events for every shared-memory mutation.",
+				"Add permission and audit-log tests for allow/deny scenarios."
+			],
+			"acceptance": [
+				"Unauthorized operations are denied consistently with clear error messages.",
+				"Role policy can restrict write/promote actions while allowing read-only use.",
+				"Every shared-memory mutation produces an auditable event record.",
+				"Security tests cover successful and rejected flows."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-012",
+			"category": "functional",
+			"priority": 5,
+			"title": "Add memory curation queue with approval workflow",
+			"description": "Create a review path so extracted learnings can be approved, edited, or rejected before promotion.",
+			"user_story": "Allow maintainers to keep team memory high quality and prevent noisy or incorrect rules from persisting.",
+			"steps": [
+				"Add a pending-memory queue state for newly extracted learnings.",
+				"Implement approve/edit/reject operations and status transitions in storage and CLI.",
+				"Update compaction/retrieval to respect curation status filters.",
+				"Add tests covering queue lifecycle and promotion behavior."
+			],
+			"acceptance": [
+				"New learnings can be reviewed before they become durable guardrails/style context.",
+				"Rejected items never appear in retrieval or tier files.",
+				"Approved edits are preserved and traceable to reviewer action.",
+				"Curation workflow does not block existing local-only usage."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-013",
+			"category": "functional",
+			"priority": 6,
+			"title": "Add automatic context injection adapters for supported agents",
+			"description": "Integrate generated memory context into Codex, Cursor, Claude Code, and OpenCode startup workflows automatically.",
+			"user_story": "Allow developers to benefit from memory without manually running context commands each session.",
+			"steps": [
+				"Define adapter hooks for each supported agent runtime with consistent context payload structure.",
+				"Implement context bundle generation with configurable token budgets per provider/model.",
+				"Add opt-in/opt-out controls and clear status output for adapter behavior.",
+				"Add integration tests validating that adapters inject current context without duplication."
+			],
+			"acceptance": [
+				"Supported agents receive up-to-date context automatically when enabled.",
+				"Token budget controls prevent oversized prompt/context payloads.",
+				"Adapter failures are non-destructive and fallback to normal agent startup.",
+				"Developers can verify injection status from CLI output."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-014",
+			"category": "functional",
+			"priority": 7,
+			"title": "Add backup, restore, and migration tooling for shared memory",
+			"description": "Provide operational tooling for safe upgrades and disaster recovery of shared memory data.",
+			"user_story": "Allow teams to upgrade backend schema and recover memory state without losing history.",
+			"steps": [
+				"Implement export/import commands for full shared memory snapshots.",
+				"Add schema migration versioning with forward/backward safety checks.",
+				"Add restore verification command to validate data integrity after recovery.",
+				"Document operational runbooks for backup cadence and rollback procedures."
+			],
+			"acceptance": [
+				"Teams can create and restore full memory snapshots reliably.",
+				"Schema migrations are versioned, repeatable, and validated in CI.",
+				"Restore checks detect missing/corrupted data before normal operation resumes.",
+				"Operational docs are sufficient for on-call recovery execution."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
 			"passes": false

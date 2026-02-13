@@ -4,14 +4,14 @@ import json
 from pathlib import Path
 
 from agent_recall.core.log import LogWriter
+from agent_recall.storage.base import Storage
 from agent_recall.storage.models import LogSource, SemanticLabel
-from agent_recall.storage.sqlite import SQLiteStorage
 
 
 class TranscriptIngestor:
     """Ingest native session transcripts into raw immutable log entries."""
 
-    def __init__(self, storage: SQLiteStorage):
+    def __init__(self, storage: Storage):
         self.storage = storage
         self.log_writer = LogWriter(storage)
 

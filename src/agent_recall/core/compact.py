@@ -8,9 +8,9 @@ from typing import Any
 
 from agent_recall.core.embeddings import generate_embedding
 from agent_recall.llm.base import LLMProvider, Message
+from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.models import Chunk, ChunkSource, LogEntry, SemanticLabel, SessionStatus
-from agent_recall.storage.sqlite import SQLiteStorage
 
 GUARDRAILS_PROMPT = """You are synthesizing guardrails from development learnings.
 
@@ -92,7 +92,7 @@ _RECENT_RE = re.compile(r"^\s*\*\*(?P<date>\d{4}-\d{2}-\d{2})\*\*:\s*(?P<summary
 
 
 class CompactionEngine:
-    def __init__(self, storage: SQLiteStorage, files: FileStorage, llm: LLMProvider):
+    def __init__(self, storage: Storage, files: FileStorage, llm: LLMProvider):
         self.storage = storage
         self.files = files
         self.llm = llm

@@ -12,6 +12,7 @@ import textwrap
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -30,6 +31,7 @@ from agent_recall.cli.banner import print_banner
 from agent_recall.cli.theme import DEFAULT_THEME, ThemeManager
 from agent_recall.core.background_sync import BackgroundSyncManager
 from agent_recall.core.compact import CompactionEngine
+from agent_recall.core.config import load_config
 from agent_recall.core.context import ContextAssembler
 from agent_recall.core.ingest import TranscriptIngestor
 from agent_recall.core.log import LogWriter
@@ -60,6 +62,8 @@ from agent_recall.llm import (
     get_available_providers,
     validate_provider_config,
 )
+from agent_recall.storage import create_storage_backend
+from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.models import LLMConfig, RetrievalConfig, SemanticLabel
 from agent_recall.storage.sqlite import SQLiteStorage
@@ -217,9 +221,12 @@ def ensure_initialized() -> None:
     raise typer.Exit(1)
 
 
-def get_storage() -> SQLiteStorage:
+@lru_cache(maxsize=1)
+def get_storage() -> Storage:
+    """Get a database connection."""
     ensure_initialized()
-    return SQLiteStorage(DB_PATH)
+    config = load_config(AGENT_DIR)
+    return create_storage_backend(config, DB_PATH)
 
 
 def get_files() -> FileStorage:
@@ -264,7 +271,7 @@ def _normalize_retrieval_backend(value: str) -> str:
 
 
 def _build_retriever(
-    storage: SQLiteStorage,
+    storage: Storage,
     files: FileStorage,
     *,
     backend: str | None = None,
@@ -625,7 +632,7 @@ def init(
     (AGENT_DIR / "RECENT.md").write_text(INITIAL_RECENT)
     (AGENT_DIR / "config.yaml").write_text(INITIAL_CONFIG)
 
-    SQLiteStorage(DB_PATH)
+    get_storage()
 
     console.print(
         Panel.fit(

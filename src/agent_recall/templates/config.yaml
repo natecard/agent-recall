@@ -22,3 +22,6 @@ retrieval:
   rerank_candidate_k: 20
   embedding_enabled: false
   embedding_dimensions: 64
+
+storage:
+  backend: local

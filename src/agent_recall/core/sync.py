@@ -14,9 +14,9 @@ from agent_recall.ingest import SessionIngester, get_default_ingesters
 from agent_recall.ingest.base import RawSession
 from agent_recall.ingest.sources import normalize_source_name
 from agent_recall.llm.base import LLMProvider, LLMRateLimitError
+from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage
 from agent_recall.storage.models import SessionCheckpoint
-from agent_recall.storage.sqlite import SQLiteStorage
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,7 @@ class AutoSync:
 
     def __init__(
         self,
-        storage: SQLiteStorage,
+        storage: Storage,
         files: FileStorage,
         llm: LLMProvider | None,
         ingesters: list[SessionIngester] | None = None,

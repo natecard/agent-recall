@@ -4,8 +4,8 @@ import re
 from uuid import UUID
 
 from agent_recall.core.embeddings import cosine_similarity, generate_embedding
+from agent_recall.storage.base import Storage
 from agent_recall.storage.models import Chunk, SemanticLabel
-from agent_recall.storage.sqlite import SQLiteStorage
 
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 
@@ -13,7 +13,7 @@ _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 class Retriever:
     def __init__(
         self,
-        storage: SQLiteStorage,
+        storage: Storage,
         backend: str = "fts5",
         fusion_k: int = 60,
         rerank_enabled: bool = False,

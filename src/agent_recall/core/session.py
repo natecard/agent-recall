@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
+from agent_recall.storage.base import Storage
 from agent_recall.storage.models import Session, SessionStatus
-from agent_recall.storage.sqlite import SQLiteStorage
 
 
 def utcnow() -> datetime:
@@ -12,7 +12,7 @@ def utcnow() -> datetime:
 
 
 class SessionManager:
-    def __init__(self, storage: SQLiteStorage):
+    def __init__(self, storage: Storage):
         self.storage = storage
 
     def start(self, task: str) -> Session:

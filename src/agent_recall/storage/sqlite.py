@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from agent_recall.storage.base import Storage
 from agent_recall.storage.models import (
     BackgroundSyncStatus,
     Chunk,
@@ -119,7 +120,7 @@ CREATE TABLE IF NOT EXISTS background_sync_status (
 """
 
 
-class SQLiteStorage:
+class SQLiteStorage(Storage):
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
