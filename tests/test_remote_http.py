@@ -7,6 +7,8 @@ import respx
 
 from agent_recall.storage.base import PermissionDeniedError
 from agent_recall.storage.models import (
+    AuditAction,
+    AuditEvent,
     Chunk,
     ChunkSource,
     SemanticLabel,
@@ -51,6 +53,7 @@ def test_create_session(storage):
     )
 
     route = respx.post("http://test-server/sessions").mock(return_value=httpx.Response(201))
+    respx.post("http://test-server/audit/events").mock(return_value=httpx.Response(201))
 
     storage.create_session(session)
 
@@ -198,6 +201,7 @@ def test_writer_role_allows_write_operations(http_config):
 
     with respx.mock:
         respx.post("http://test-server/sessions").mock(return_value=httpx.Response(201))
+        respx.post("http://test-server/audit/events").mock(return_value=httpx.Response(201))
         storage.create_session(session)
 
 
@@ -224,4 +228,39 @@ def test_promote_gate_allows_chunk_store(http_config):
 
     with respx.mock:
         respx.post("http://test-server/chunks").mock(return_value=httpx.Response(201))
+        respx.post("http://test-server/audit/events").mock(return_value=httpx.Response(201))
         storage.store_chunk(chunk)
+
+
+@respx.mock
+def test_write_operations_emit_audit_events(http_config):
+    http_config.audit_enabled = True
+    http_config.audit_actor = "cli"
+    storage = RemoteStorage(http_config)
+    session = Session(task="audit task", status=SessionStatus.ACTIVE)
+    event_route = respx.post("http://test-server/audit/events").mock(
+        return_value=httpx.Response(201)
+    )
+    respx.post("http://test-server/sessions").mock(return_value=httpx.Response(201))
+
+    storage.create_session(session)
+
+    assert event_route.called
+    event_payload = AuditEvent.model_validate_json(event_route.calls.last.request.content)
+    assert event_payload.actor == "cli"
+    assert event_payload.action == AuditAction.CREATE
+    assert event_payload.resource_type == "session"
+    assert event_payload.resource_id == str(session.id)
+
+
+@respx.mock
+def test_audit_disabled_skips_audit_event_call(http_config):
+    http_config.audit_enabled = False
+    storage = RemoteStorage(http_config)
+    session = Session(task="audit disabled", status=SessionStatus.ACTIVE)
+    respx.post("http://test-server/sessions").mock(return_value=httpx.Response(201))
+
+    storage.create_session(session)
+
+    assert len(respx.calls) == 1
+    assert respx.calls.last.request.url.path == "/sessions"

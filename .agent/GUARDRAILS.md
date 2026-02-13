@@ -245,3 +245,6 @@
   - tests/test_codex_fixtures.py ..................... [ 28%]
 - Primary actionable signal: testpaths: tests
 - Runtime logs: agent_recall/ralph/.runtime/agent-1.log, agent_recall/ralph/.runtime/validate-1.log
+
+## 2026-02-13T05:12:08Z Iteration 3 (AR-011)
+- When emitting audit events, keep it best-effort and default-on with a config toggle so shared write flows remain consistent in tests.

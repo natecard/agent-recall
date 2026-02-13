@@ -18,6 +18,8 @@ from agent_recall.storage.base import (
     validate_shared_namespace,
 )
 from agent_recall.storage.models import (
+    AuditAction,
+    AuditEvent,
     BackgroundSyncStatus,
     Chunk,
     LogEntry,
@@ -88,6 +90,8 @@ class _HTTPClient(Storage):
         )
         self._role = config.role
         self._allow_promote = config.allow_promote
+        self._actor = config.audit_actor
+        self._audit_enabled = config.audit_enabled
 
     def _require_role(self, *allowed: str) -> None:
         if self._role not in allowed:
@@ -99,10 +103,41 @@ class _HTTPClient(Storage):
         if not self._allow_promote:
             raise PermissionDeniedError("Shared backend promotion actions are disabled.")
 
+    def _audit_event(
+        self,
+        action: AuditAction,
+        resource_type: str,
+        resource_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        if not self._audit_enabled:
+            return
+
+        event = AuditEvent(
+            tenant_id=self._client.headers.get("X-Tenant-ID", "default"),
+            project_id=self._client.headers.get("X-Project-ID", "default"),
+            actor=self._actor,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            metadata=metadata or {},
+        )
+        try:
+            response = self._client.post("/audit/events", content=event.model_dump_json())
+            response.raise_for_status()
+        except httpx.HTTPError:
+            return
+
     def create_session(self, session: Session) -> None:
         self._require_role("admin", "writer")
         response = self._client.post("/sessions", content=session.model_dump_json())
         response.raise_for_status()
+        self._audit_event(
+            AuditAction.CREATE,
+            "session",
+            resource_id=str(session.id),
+            metadata={"status": session.status.value},
+        )
 
     def get_session(self, session_id: UUID) -> Session | None:
         response = self._client.get(f"/sessions/{session_id}")
@@ -130,11 +165,23 @@ class _HTTPClient(Storage):
         self._require_role("admin", "writer")
         response = self._client.put(f"/sessions/{session.id}", content=session.model_dump_json())
         response.raise_for_status()
+        self._audit_event(
+            AuditAction.UPDATE,
+            "session",
+            resource_id=str(session.id),
+            metadata={"status": session.status.value},
+        )
 
     def append_entry(self, entry: LogEntry) -> None:
         self._require_role("admin", "writer")
         response = self._client.post("/entries", content=entry.model_dump_json())
         response.raise_for_status()
+        self._audit_event(
+            AuditAction.CREATE,
+            "log_entry",
+            resource_id=str(entry.id),
+            metadata={"label": entry.label.value},
+        )
 
     def get_entries(self, session_id: UUID) -> list[LogEntry]:
         response = self._client.get(f"/sessions/{session_id}/entries")
@@ -161,6 +208,12 @@ class _HTTPClient(Storage):
         self._require_promote()
         response = self._client.post("/chunks", content=chunk.model_dump_json())
         response.raise_for_status()
+        self._audit_event(
+            AuditAction.CREATE,
+            "chunk",
+            resource_id=str(chunk.id),
+            metadata={"label": chunk.label.value, "source": chunk.source.value},
+        )
 
     def has_chunk(self, content: str, label: SemanticLabel) -> bool:
         response = self._client.post(
@@ -201,6 +254,11 @@ class _HTTPClient(Storage):
             "/processed_sessions", json={"source_session_id": source_session_id}
         )
         response.raise_for_status()
+        self._audit_event(
+            AuditAction.CREATE,
+            "processed_session",
+            resource_id=source_session_id,
+        )
 
     def clear_processed_sessions(
         self,
@@ -215,6 +273,12 @@ class _HTTPClient(Storage):
             params["source_session_id"] = source_session_id
         response = self._client.delete("/processed_sessions", params=params)
         response.raise_for_status()
+        self._audit_event(
+            AuditAction.CLEAR,
+            "processed_session",
+            resource_id=source_session_id,
+            metadata={"source": source} if source else {},
+        )
         return response.json()["count"]
 
     def get_session_checkpoint(self, source_session_id: str) -> SessionCheckpoint | None:
@@ -228,6 +292,11 @@ class _HTTPClient(Storage):
         self._require_role("admin", "writer")
         response = self._client.put("/checkpoints", content=checkpoint.model_dump_json())
         response.raise_for_status()
+        self._audit_event(
+            AuditAction.UPDATE,
+            "checkpoint",
+            resource_id=checkpoint.source_session_id,
+        )
 
     def clear_session_checkpoints(
         self,
@@ -242,6 +311,12 @@ class _HTTPClient(Storage):
             params["source_session_id"] = source_session_id
         response = self._client.delete("/checkpoints", params=params)
         response.raise_for_status()
+        self._audit_event(
+            AuditAction.CLEAR,
+            "checkpoint",
+            resource_id=source_session_id,
+            metadata={"source": source} if source else {},
+        )
         return response.json()["count"]
 
     def get_stats(self) -> dict[str, int]:
@@ -271,11 +346,22 @@ class _HTTPClient(Storage):
         self._require_role("admin", "writer")
         response = self._client.put("/background-sync/status", content=status.model_dump_json())
         response.raise_for_status()
+        self._audit_event(
+            AuditAction.UPDATE,
+            "background_sync_status",
+            resource_id=str(status.id),
+            metadata={"is_running": status.is_running},
+        )
 
     def start_background_sync(self, pid: int) -> BackgroundSyncStatus:
         self._require_role("admin", "writer")
         response = self._client.post("/background-sync/start", json={"pid": pid})
         response.raise_for_status()
+        self._audit_event(
+            AuditAction.START,
+            "background_sync",
+            resource_id=str(pid),
+        )
         return BackgroundSyncStatus.model_validate(response.json())
 
     def complete_background_sync(
@@ -292,6 +378,15 @@ class _HTTPClient(Storage):
         }
         response = self._client.post("/background-sync/complete", json=payload)
         response.raise_for_status()
+        self._audit_event(
+            AuditAction.COMPLETE,
+            "background_sync",
+            metadata={
+                "sessions_processed": sessions_processed,
+                "learnings_extracted": learnings_extracted,
+                "error_message": error_message,
+            },
+        )
         return BackgroundSyncStatus.model_validate(response.json())
 
 

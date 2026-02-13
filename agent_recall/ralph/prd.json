@@ -197,7 +197,7 @@
     {
       "id": "AR-007",
       "category": "functional",
-      "priority": 3,
+      "priority": 2,
       "title": "Introduce optional shared team memory backend",
       "description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
       "user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
@@ -284,8 +284,8 @@
       "steps": [
         "[done] Implement token-based authentication for shared backend client operations.",
         "[done] Add role checks for read, write, promote, and delete operations.",
-        "Record immutable audit events for every shared-memory mutation.",
-        "Add permission and audit-log tests for allow/deny scenarios."
+        "[done] Record immutable audit events for every shared-memory mutation.",
+        "[done] Add permission and audit-log tests for allow/deny scenarios."
       ],
       "acceptance": [
         "Unauthorized operations are denied consistently with clear error messages.",
@@ -298,12 +298,12 @@
         "uv run ruff check .",
         "uv run ty check"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-012",
       "category": "functional",
-      "priority": 4,
+      "priority": 3,
       "title": "Add memory curation queue with approval workflow",
       "description": "Create a review path so extracted learnings can be approved, edited, or rejected before promotion.",
       "user_story": "Allow maintainers to keep team memory high quality and prevent noisy or incorrect rules from persisting.",
@@ -329,7 +329,7 @@
     {
       "id": "AR-013",
       "category": "functional",
-      "priority": 5,
+      "priority": 4,
       "title": "Add automatic context injection adapters for supported agents",
       "description": "Integrate generated memory context into Codex, Cursor, Claude Code, and OpenCode startup workflows automatically.",
       "user_story": "Allow developers to benefit from memory without manually running context commands each session.",
@@ -355,7 +355,7 @@
     {
       "id": "AR-014",
       "category": "functional",
-      "priority": 6,
+      "priority": 5,
       "title": "Add backup, restore, and migration tooling for shared memory",
       "description": "Provide operational tooling for safe upgrades and disaster recovery of shared memory data.",
       "user_story": "Allow teams to upgrade backend schema and recover memory state without losing history.",
@@ -381,7 +381,7 @@
     {
       "id": "AR-015",
       "category": "functional",
-      "priority": 2,
+      "priority": 6,
       "title": "Enable and manage Ralph loop from CLI and TUI",
       "description": "Expose first-class controls for the Ralph loop script lifecycle so users can configure, start, stop, and inspect loop runs without manual shell scripting.",
       "user_story": "Allow developers to run the Ralph loop from the Agent Recall CLI/TUI with clear status, safe defaults, and predictable behavior.",

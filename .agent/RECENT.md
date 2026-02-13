@@ -1,6 +1,15 @@
 - Notes: Completed AR-003 step 4 by wiring retrieval config (`backend`, `top_k`, `fusion_k`, `rerank_enabled`, `rerank_candidate_k`) into `start`, `context`, `refresh-context`, and `retrieve`; added CLI overrides for context/retrieve and retrieval wiring tests.
 - Next: Move to AR-004 and start with tracer-bullet indexing policy for decision/exploration labels.
 
+## 2026-02-13T05:12:08Z Iteration 3
+- Item: AR-011 - Add auth, RBAC, and audit trail for shared backend
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Added audit event emission for shared HTTP mutations via new AuditEvent/AuditAction models and config toggles (`audit_enabled`, `audit_actor`), plus HTTP client tests covering audit payloads and audit-disabled behavior.
+- Next: Run validation, then confirm AR-011 acceptance with tests green and update priorities for remaining items.
+
 ## 2026-02-12T21:25:25Z Iteration 1
 - Item: AR-004 - Expand indexing to decision and exploration learnings
 - Mode: feature

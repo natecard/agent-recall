@@ -134,6 +134,7 @@ def test_remote_http_client_create_session(tmp_path) -> None:
     )
     session = Session(task="test task")
     route = respx.post(f"{base_url}/sessions").mock(return_value=Response(201))
+    respx.post(f"{base_url}/audit/events").mock(return_value=Response(201))
 
     storage = create_storage_backend(config, tmp_path / "state.db")
     storage.create_session(session)

@@ -201,6 +201,15 @@ class SharedStorageConfig(BaseModel):
         default=True,
         description="Allow promote/dedup actions when role permits",
     )
+    audit_enabled: bool = Field(
+        default=True,
+        description="Emit audit events for shared backend mutations",
+    )
+    audit_actor: str = Field(
+        default="system",
+        min_length=1,
+        description="Actor name recorded in shared backend audit events",
+    )
     timeout_seconds: float = Field(default=10.0, gt=0.0, description="HTTP timeout in seconds")
     retry_attempts: int = Field(
         default=2,

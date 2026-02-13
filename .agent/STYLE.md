@@ -131,6 +131,9 @@
 - Keep RBAC checks as small HTTP client helpers (e.g. `_require_role`) rather than scattering conditional logic per call.
 - Add focused allow/deny tests alongside existing HTTP client tests to pin RBAC behavior.
 
+## 2026-02-13T05:12:08Z Iteration 3 (AR-011)
+- Model audit events as Pydantic payloads and reuse JSON serialization helpers for HTTP posts.
+
 ## 2026-02-13T02:02:56Z Iteration 4 (AR-010)
 - Prefer one logical change per commit.
 - Keep validation command green before committing: uv run pytest && uv run ruff check . && uv run ty check
