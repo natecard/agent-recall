@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -311,6 +312,103 @@ def ralph_disable() -> None:
     console.print(f"[warning]Ralph disabled (total iterations: {state.total_iterations})[/warning]")
     lines = render_ralph_status(config_dict)
     console.print(Panel.fit("\n".join(lines), title="Ralph Loop Updated"))
+
+
+@ralph_app.command("run")
+def ralph_run(
+    agent_cmd: str | None = typer.Option(
+        None,
+        "--agent-cmd",
+        "-a",
+        help="Agent command for bash loop mode",
+    ),
+    validate_cmd: str | None = typer.Option(
+        None,
+        "--validate-cmd",
+        "-v",
+        help="Validation command for bash loop mode",
+    ),
+    max_iterations: int = typer.Option(
+        10,
+        "--max-iterations",
+        "-n",
+        min=1,
+        help="Max iterations for bash loop mode",
+    ),
+    prd_file: Path | None = typer.Option(
+        None,
+        "--prd-file",
+        "-p",
+        help="Path to PRD JSON file (default: auto-detected)",
+    ),
+    compact_mode: str = typer.Option(
+        "always",
+        "--compact-mode",
+        help="Compact mode: always, on-failure, off",
+    ),
+    sleep_seconds: int = typer.Option(
+        2,
+        "--sleep-seconds",
+        min=0,
+        help="Sleep seconds between iterations",
+    ),
+) -> None:
+    """Run the Ralph loop (bash delegation only)."""
+    _get_theme_manager()
+    if agent_cmd is None:
+        console.print(
+            "[error]Python loop mode is not yet available. "
+            "Provide --agent-cmd to run the bash loop.[/error]"
+        )
+        raise typer.Exit(1)
+
+    compact_mode = compact_mode.strip().lower()
+    if compact_mode not in {"always", "on-failure", "off"}:
+        console.print("[error]Invalid compact mode. Use always, on-failure, or off.[/error]")
+        raise typer.Exit(1)
+
+    script_path = get_default_script_path()
+    if not script_path.exists():
+        console.print(f"[error]Ralph loop script not found: {script_path}[/error]")
+        raise typer.Exit(1)
+
+    prd_path = prd_file or get_default_prd_path()
+    if not prd_path.exists():
+        console.print(f"[error]PRD file not found: {prd_path}[/error]")
+        raise typer.Exit(1)
+
+    console.print(f"[dim]PRD: {prd_path}[/dim]")
+    console.print(f"[dim]Max iterations: {max_iterations}[/dim]")
+
+    cmd = [
+        str(script_path),
+        "--agent-cmd",
+        agent_cmd,
+        "--max-iterations",
+        str(max_iterations),
+        "--prd-file",
+        str(prd_path),
+        "--compact-mode",
+        compact_mode,
+        "--sleep-seconds",
+        str(sleep_seconds),
+    ]
+    if validate_cmd:
+        cmd.extend(["--validate-cmd", validate_cmd])
+
+    try:
+        result = subprocess.run(cmd, cwd=Path.cwd(), check=False)
+    except KeyboardInterrupt:
+        console.print("[warning]Ralph loop interrupted.[/warning]")
+        raise typer.Exit(130) from None
+
+    if result.returncode == 0:
+        console.print("[success]✓ Ralph loop completed successfully.[/success]")
+    elif result.returncode == 2:
+        console.print("[warning]Ralph loop reached max iterations.[/warning]")
+    else:
+        console.print(f"[error]Ralph loop failed (exit {result.returncode}).[/error]")
+    raise typer.Exit(result.returncode)
 
 
 @ralph_app.command("select")

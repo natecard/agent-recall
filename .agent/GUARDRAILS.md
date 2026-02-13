@@ -119,6 +119,9 @@
 - Implement fallback logic silently if the goal is continuity, but ensure errors are raised if fallback also fails or isn't configured.
 - Pass local DB paths to shared storage backends during initialization so they can self-configure fallback behavior.
 
+## 2026-02-13T00:20:00Z Iteration 7 (AR-303)
+- Keep Ralph run CLI scoped to bash delegation until the Python loop implementation exists; exit with a clear error when --agent-cmd is omitted.
+
 ## 2026-02-13T23:30:00Z Iteration 4 (AR-603)
 - When compaction rewrites tier files, preserve Ralph blocks verbatim by extracting raw_content and appending after compacted bullets.
 

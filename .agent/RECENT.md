@@ -1,6 +1,15 @@
 - Notes: Completed AR-003 step 4 by wiring retrieval config (`backend`, `top_k`, `fusion_k`, `rerank_enabled`, `rerank_candidate_k`) into `start`, `context`, `refresh-context`, and `retrieve`; added CLI overrides for context/retrieve and retrieval wiring tests.
 - Next: Move to AR-004 and start with tracer-bullet indexing policy for decision/exploration labels.
 
+## 2026-02-13T00:20:00Z Iteration 7
+- Item: AR-303 - Implement Ralph run command with dual-mode execution
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Added Ralph run CLI in bash delegation mode with script/prd validation, subprocess execution, and exit messaging; Python mode remains TODO when --agent-cmd omitted. Updated command contract and TUI suggestions coverage.
+- Next: Implement Python loop Mode A (async loop + progress callback) and then AR-302 status dual-mode.
+
 ## 2026-02-13T23:59:00Z Iteration 1
 - Item: AR-501 - Implement tier format core detection layer
 - Mode: feature

@@ -119,6 +119,9 @@
 - Use `unittest.mock.patch` context managers for mocking dependencies in tests to ensure clean teardown.
 - Avoid broad `except Exception` blocks in production code unless specifically implementing a "last resort" fallback.
 
+## 2026-02-13T00:20:00Z Iteration 7 (AR-303)
+- For bash-delegated CLI commands, surface script/prd resolution errors before running subprocess and always return the subprocess exit code.
+
 ## 2026-02-13T23:30:00Z Iteration 4 (AR-603)
 - Use parse helpers (parse_tier_content) to preserve multi-line Ralph blocks in compaction rewrite paths.
 

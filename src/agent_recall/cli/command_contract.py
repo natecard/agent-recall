@@ -278,6 +278,12 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("cli", "tui"),
         ),
         CommandContract(
+            command="ralph run",
+            aliases=(),
+            description="Run Ralph loop (bash delegation)",
+            surfaces=("cli",),
+        ),
+        CommandContract(
             command="ralph select",
             aliases=(),
             description="Choose which PRD items to include in the Ralph loop",
