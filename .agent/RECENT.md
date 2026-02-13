@@ -19,6 +19,15 @@
 - Notes: Documented shared storage opt-in and migration steps in README, including shared backend config snippet.
 - Next: Add shared storage details to CLI reference or docs as needed, then continue AR-007.
 
+## 2026-02-13T04:18:42Z Iteration 5
+- Item: AR-015 - Enable and manage Ralph loop from CLI and TUI
+- Mode: feature
+- Agent exit code: 0
+- Validation: passed
+- Outcome: progressed
+- Notes: Added Ralph loop CLI command (status/enable/disable), TUI slash handling + help entry, status panel integration, and config defaults/tests for ralph settings.
+- Next: Consider exposing loop status in TUI overview panel or wire start/stop actions.
+
 ## 2026-02-12T21:25:25Z Iteration 1
 - Item: AR-004 - Expand indexing to decision and exploration learnings
 - Mode: feature

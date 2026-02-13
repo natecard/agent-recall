@@ -240,6 +240,15 @@ class ThemeConfig(BaseModel):
     name: str = "dark+"
 
 
+class RalphLoopConfig(BaseModel):
+    """Configuration for Ralph loop control and defaults."""
+
+    enabled: bool = False
+    max_iterations: int = Field(default=10, ge=1)
+    sleep_seconds: int = Field(default=2, ge=0)
+    compact_mode: Literal["always", "on-failure", "off"] = "always"
+
+
 class SessionCheckpoint(BaseModel):
     """Checkpoint for incremental session sync.
 
@@ -301,3 +310,4 @@ class AgentRecallConfig(BaseModel):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     theme: ThemeConfig = Field(default_factory=ThemeConfig)
+    ralph: RalphLoopConfig = Field(default_factory=RalphLoopConfig)

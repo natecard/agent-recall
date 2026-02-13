@@ -251,3 +251,19 @@
 
 ## 2026-02-13T06:00:00Z Iteration 4 (AR-007)
 - Keep shared-storage docs explicit about opting in via `storage.backend: shared` and shared namespace keys (tenant/project).
+
+## 2026-02-13T04:18:42Z Iteration 5 (AR-015)
+- When adding CLI config features, update model defaults, config templates, and init-time defaults together to avoid drift.
+
+## 2026-02-13T04:24:01Z HARD FAILURE Iteration 5 (AR-007)
+- Item: Introduce optional shared team memory backend
+- Validation command: uv run pytest && uv run ruff check . && uv run ty check
+- Top validation errors:
+  - Traceback (most recent call last):
+  - File "/Users/natecard/OnHere/Repos/self-docs/.venv/bin/pytest", line 10, in <module>
+  - sys.exit(console_main())
+  - ~~~~~~~~~~~~^^
+  - File "/Users/natecard/OnHere/Repos/self-docs/.venv/lib/python3.14/site-packages/_pytest/config/__init__.py", line 223, in console_main
+  - code = main()
+- Primary actionable signal: Traceback (most recent call last):
+- Runtime logs: agent_recall/ralph/.runtime/agent-5.log, agent_recall/ralph/.runtime/validate-5.log

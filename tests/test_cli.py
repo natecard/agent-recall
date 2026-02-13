@@ -188,12 +188,8 @@ def test_cli_context_reads_shared_tier_files_when_shared_backend_enabled() -> No
         }
         files.write_config(config)
 
-        (Path(".agent") / "GUARDRAILS.md").write_text(
-            "# Guardrails\n\nLOCAL_ONLY_GUARDRAIL\n"
-        )
-        (shared_dir / "GUARDRAILS.md").write_text(
-            "# Guardrails\n\nSHARED_TEAM_GUARDRAIL\n"
-        )
+        (Path(".agent") / "GUARDRAILS.md").write_text("# Guardrails\n\nLOCAL_ONLY_GUARDRAIL\n")
+        (shared_dir / "GUARDRAILS.md").write_text("# Guardrails\n\nSHARED_TEAM_GUARDRAIL\n")
 
         result = runner.invoke(cli_main.app, ["context"])
 
@@ -724,8 +720,7 @@ def test_cli_sources(monkeypatch) -> None:
 
 def test_cli_sources_conversation_table_responsive_columns(monkeypatch) -> None:
     long_title = (
-        "Downloads view progress and season grouping now includes "
-        "expanded metadata visibility"
+        "Downloads view progress and season grouping now includes expanded metadata visibility"
     )
 
     class LongTitleIngester(FakeIngester):
@@ -836,11 +831,7 @@ def test_cli_test_llm(monkeypatch) -> None:
 
 
 def test_cli_sync_cursor_override_wiring(monkeypatch) -> None:
-    captured = {
-        "cursor_db_path": None,
-        "workspace_storage_dir": None,
-        "cursor_all_workspaces": None,
-    }
+    captured: dict[str, object] = {}
 
     class FakeAutoSync:
         def __init__(self, *_args, **_kwargs):
@@ -1365,7 +1356,7 @@ def test_conversation_table_mode_thresholds() -> None:
 
 
 def test_tui_slash_config_setup_uses_direct_flow(monkeypatch) -> None:
-    captured = {"force": None, "quick": None}
+    captured: dict[str, object] = {}
 
     def fake_setup(force: bool, quick: bool) -> None:
         captured["force"] = force
@@ -1391,3 +1382,31 @@ def test_tui_palette_command_catalog_includes_cli_commands() -> None:
     assert "status" in commands
     assert "config setup" in commands
     assert "config model" in commands
+    assert "ralph" in commands
+
+
+def test_cli_ralph_status_uses_defaults() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["ralph", "status"])
+        assert result.exit_code == 0
+        assert "Ralph Loop" in result.output
+        assert "Status: disabled" in result.output
+
+
+def test_cli_ralph_enable_updates_config() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(
+            cli_main.app,
+            ["ralph", "enable", "--max-iterations", "12", "--sleep-seconds", "3"],
+        )
+        assert result.exit_code == 0
+        assert "Status: enabled" in result.output
+        assert "Max iterations: 12" in result.output
+        assert "Sleep seconds:  3" in result.output
+        config = FileStorage(Path(".agent")).read_config()
+        ralph_config = config.get("ralph", {})
+        assert ralph_config.get("enabled") is True
+        assert ralph_config.get("max_iterations") == 12
+        assert ralph_config.get("sleep_seconds") == 3

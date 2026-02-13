@@ -120,6 +120,8 @@ def _main_callback(
     if version_flag:
         _print_version_and_maybe_update()
         raise typer.Exit()
+
+
 config_app = typer.Typer(help="Manage onboarding and model configuration")
 _ansi_escape_pattern = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 _box_drawing_chars = set("│┃─━┄┅┆┇┈┉┊┋┌┍┎┏┐┑┒┓└┕┖┗┘┙┚┛├┝┞┟┠┡┢┣┤┥┦┧┨┩┪┫┬┭┮┯┰┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿")
@@ -261,6 +263,12 @@ storage:
 
 theme:
   name: dark+
+
+ralph:
+  enabled: false
+  max_iterations: 10
+  sleep_seconds: 2
+  compact_mode: always
 """
 
 
@@ -448,6 +456,7 @@ def _tui_help_lines() -> list[str]:
         "[dim]/view overview|sources|llm|knowledge|settings|console|all[/dim] - switch TUI view",
         "[dim]/status[/dim] - Show stats and source availability",
         "[dim]/sync --no-compact[/dim] - Sync sessions quickly",
+        "[dim]/ralph status|enable|disable[/dim] - Manage Ralph loop config",
         "[dim]/compact[/dim] - Run knowledge synthesis now",
         "[dim]/compact-tiers[/dim] - Compact tier files (dedupe, normalize, apply budgets)",
         "[dim]/run[/dim] - Alias for /sync (includes synthesis by default)",
@@ -515,6 +524,24 @@ def _read_tui_command(timeout_seconds: float) -> str | None:
     return line.rstrip("\n")
 
 
+def _read_ralph_config(files: FileStorage) -> dict[str, Any]:
+    config_dict = files.read_config()
+    ralph_config = config_dict.get("ralph", {}) if isinstance(config_dict, dict) else {}
+    return ralph_config if isinstance(ralph_config, dict) else {}
+
+
+def _write_ralph_config(files: FileStorage, updates: dict[str, object]) -> dict[str, object]:
+    config_dict = files.read_config()
+    if "ralph" not in config_dict or not isinstance(config_dict.get("ralph"), dict):
+        config_dict["ralph"] = {}
+    ralph_config = config_dict["ralph"]
+    if isinstance(ralph_config, dict):
+        ralph_config.update(updates)
+    config_dict["ralph"] = ralph_config
+    files.write_config(config_dict)
+    return config_dict
+
+
 def _normalize_tui_output_line(line: str) -> str:
     without_ansi = _ansi_escape_pattern.sub("", line)
     without_box_chars = without_ansi.translate(_box_drawing_translation)
@@ -576,6 +603,30 @@ def _execute_tui_slash_command(
         quick = "--quick" in parts
         _run_onboarding_setup(force=force, quick=quick)
         return False, ["[success]✓ Setup flow completed[/success]"]
+
+    if (
+        command_name == "ralph"
+        and len(parts) >= 2
+        and parts[1].lower()
+        in {
+            "enable",
+            "disable",
+            "status",
+        }
+    ):
+        command = ["ralph", *parts[1:]]
+        result = _slash_runner.invoke(app, command)
+        lines = []
+        if result.exit_code == 0:
+            lines.append(f"[success]✓ /{escape(' '.join(parts))}[/success]")
+        else:
+            lines.append(f"[error]✗ /{escape(' '.join(parts))} (exit {result.exit_code})[/error]")
+        output = result.output.strip()
+        if output:
+            for line in output.splitlines():
+                if line.strip():
+                    lines.append(f"[dim]{escape(line.strip())}[/dim]")
+        return False, lines
 
     if command_name in {"tui", "open"}:
         return False, ["[warning]/open is already running.[/warning]"]
@@ -1809,7 +1860,42 @@ def status():
     if bg_status.error_message:
         lines.append(f"  [error]Last error: {bg_status.error_message}[/error]")
 
+    config_dict = files.read_config()
+    lines.extend(_render_ralph_status(config_dict))
+
     console.print(Panel.fit("\n".join(lines), title="Agent Recall Status"))
+
+
+def _render_ralph_status(_config_dict: dict[str, object]) -> list[str]:
+    ralph_config = _read_ralph_config(FileStorage(AGENT_DIR))
+
+    enabled_value = ralph_config.get("enabled")
+    enabled = bool(enabled_value) if isinstance(enabled_value, bool) else False
+
+    max_iterations_value = ralph_config.get("max_iterations")
+    max_iterations = (
+        int(max_iterations_value) if isinstance(max_iterations_value, int | float) else 10
+    )
+
+    sleep_seconds_value = ralph_config.get("sleep_seconds")
+    sleep_seconds = int(sleep_seconds_value) if isinstance(sleep_seconds_value, int | float) else 2
+
+    compact_mode_value = ralph_config.get("compact_mode")
+    compact_mode = (
+        compact_mode_value
+        if isinstance(compact_mode_value, str) and compact_mode_value
+        else "always"
+    )
+
+    state = "enabled" if enabled else "disabled"
+    return [
+        "[bold]Ralph Loop:[/bold]",
+        f"  Status: {state}",
+        f"  Max iterations: {max_iterations}",
+        f"  Sleep seconds:  {sleep_seconds}",
+        f"  Compact mode:   {compact_mode}",
+        "",
+    ]
 
 
 def _fetch_latest_version() -> str | None:
@@ -2740,6 +2826,62 @@ def providers():
         "  agent-recall config model --provider openai-compatible --base-url "
         "http://localhost:8080/v1 --model my-model"
     )
+
+
+@app.command("ralph")
+def ralph(
+    action: str = typer.Argument(..., help="Action: status, enable, disable"),
+    max_iterations: int | None = typer.Option(
+        None,
+        "--max-iterations",
+        min=1,
+        help="Max iterations for Ralph loop config",
+    ),
+    sleep_seconds: int | None = typer.Option(
+        None,
+        "--sleep-seconds",
+        min=0,
+        help="Sleep seconds between iterations",
+    ),
+    compact_mode: str | None = typer.Option(
+        None,
+        "--compact-mode",
+        help="Compact mode: always, on-failure, off",
+    ),
+):
+    """Manage Ralph loop configuration."""
+    _get_theme_manager()
+    ensure_initialized()
+    files = get_files()
+
+    normalized = action.strip().lower()
+    if normalized not in {"status", "enable", "disable"}:
+        console.print("[error]Action must be one of: status, enable, disable[/error]")
+        raise typer.Exit(1)
+
+    if compact_mode is not None:
+        compact_mode = compact_mode.strip().lower()
+        if compact_mode not in {"always", "on-failure", "off"}:
+            console.print("[error]Invalid compact mode. Use always, on-failure, or off.[/error]")
+            raise typer.Exit(1)
+
+    if normalized == "status":
+        config_dict = files.read_config()
+        lines = _render_ralph_status(config_dict)
+        console.print(Panel.fit("\n".join(lines), title="Ralph Loop"))
+        return
+
+    updates: dict[str, object] = {"enabled": normalized == "enable"}
+    if max_iterations is not None:
+        updates["max_iterations"] = max_iterations
+    if sleep_seconds is not None:
+        updates["sleep_seconds"] = sleep_seconds
+    if compact_mode is not None:
+        updates["compact_mode"] = compact_mode
+
+    config_dict = _write_ralph_config(files, updates)
+    lines = _render_ralph_status(config_dict)
+    console.print(Panel.fit("\n".join(lines), title="Ralph Loop Updated"))
 
 
 @app.command()

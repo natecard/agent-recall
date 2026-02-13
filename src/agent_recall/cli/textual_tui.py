@@ -120,6 +120,7 @@ def _is_palette_cli_command_redundant(command: str) -> bool:
     # Distinct subcommands that provide unique value in palette UX.
     distinct_subcommands = {
         "theme show",
+        "ralph status",
     }
     if normalized in distinct_subcommands:
         return False
@@ -145,6 +146,7 @@ def _is_palette_cli_command_redundant(command: str) -> bool:
         "view ",
         "menu ",
         "theme ",
+        "ralph ",
         "config setup",
         "config model",
         "config settings",
@@ -629,9 +631,9 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
             provider = str(provider_value)
 
         input_model = _clean_optional_text(self.query_one("#model_name", Input).value)
-        base_url_value = _clean_optional_text(
-            self.query_one("#model_base_url", Input).value
-        ) or None
+        base_url_value = (
+            _clean_optional_text(self.query_one("#model_base_url", Input).value) or None
+        )
         base_url = base_url_value or _PROVIDER_BASE_URL_DEFAULTS.get(provider)
 
         env_var = API_KEY_ENV_BY_PROVIDER.get(provider)
@@ -966,10 +968,7 @@ class SessionRunModal(ModalScreen[dict[str, Any] | None]):
         started = str(session.get("started") or "-")
         message_count = int(session.get("message_count", 0))
         processed = "processed" if bool(session.get("processed")) else "new"
-        return (
-            f"{marker} {title} "
-            f"[dim]({started} · {message_count} msg · {processed})[/dim]"
-        )
+        return f"{marker} {title} [dim]({started} · {message_count} msg · {processed})[/dim]"
 
 
 class AgentRecallTextualApp(App[None]):
