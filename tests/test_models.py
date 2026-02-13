@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from agent_recall.storage.models import (
+    AgentRecallConfig,
     LogEntry,
     LogSource,
     SemanticLabel,
@@ -50,3 +51,25 @@ def test_log_entry_validation_errors() -> None:
             content="",
             label=SemanticLabel.NARRATIVE,
         )
+
+
+def test_storage_config_supports_shared_backend() -> None:
+    config = AgentRecallConfig.model_validate(
+        {
+            "storage": {
+                "backend": "shared",
+                "shared": {
+                    "base_url": "https://memory.example.com",
+                    "api_key_env": "TEAM_MEMORY_API_KEY",
+                    "timeout_seconds": 6.5,
+                    "retry_attempts": 4,
+                },
+            }
+        }
+    )
+
+    assert config.storage.backend == "shared"
+    assert config.storage.shared.base_url == "https://memory.example.com"
+    assert config.storage.shared.api_key_env == "TEAM_MEMORY_API_KEY"
+    assert config.storage.shared.timeout_seconds == 6.5
+    assert config.storage.shared.retry_attempts == 4

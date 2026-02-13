@@ -14,9 +14,11 @@ def create_storage_backend(config: AgentRecallConfig, db_path: Path) -> Storage:
         from agent_recall.storage.sqlite import SQLiteStorage
 
         return SQLiteStorage(db_path)
-    # This is where a remote storage implementation would go
-    # elif config.storage.backend == "remote":
-    #     from agent_recall.storage.remote import RemoteStorage
-    #     return RemoteStorage()
+
+    if config.storage.backend == "shared":
+        from agent_recall.storage.remote import RemoteStorage
+
+        return RemoteStorage(config.storage.shared)
+
     else:
         raise ValueError(f"Unsupported storage backend: {config.storage.backend}")

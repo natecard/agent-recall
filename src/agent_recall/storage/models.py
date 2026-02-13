@@ -146,10 +146,32 @@ class RetrievalConfig(BaseModel):
     embedding_dimensions: int = Field(default=64, ge=8, le=4096)
 
 
-class StorageConfig(BaseModel):
-    """Storage configuration."""
+class SharedStorageConfig(BaseModel):
+    """Connection settings for the shared storage backend."""
 
-    backend: Literal["local"] = "local"
+    base_url: str | None = Field(
+        default=None,
+        description="Shared backend base URL (e.g., https://memory.example.com)",
+    )
+    api_key_env: str = Field(
+        default="AGENT_RECALL_SHARED_API_KEY",
+        min_length=1,
+        description="Environment variable containing shared backend API token",
+    )
+    timeout_seconds: float = Field(default=10.0, gt=0.0, description="HTTP timeout in seconds")
+    retry_attempts: int = Field(
+        default=2,
+        ge=0,
+        le=10,
+        description="Retry attempts for transient shared backend failures",
+    )
+
+
+class StorageConfig(BaseModel):
+    """Storage backend selection and connection settings."""
+
+    backend: Literal["local", "shared"] = "local"
+    shared: SharedStorageConfig = Field(default_factory=SharedStorageConfig)
 
 
 class ThemeConfig(BaseModel):

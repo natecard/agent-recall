@@ -66,7 +66,6 @@ from agent_recall.storage import create_storage_backend
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.models import LLMConfig, RetrievalConfig, SemanticLabel
-from agent_recall.storage.sqlite import SQLiteStorage
 
 app = typer.Typer(help="Agent Memory System - Persistent knowledge for AI coding agents")
 _slash_runner = CliRunner()
@@ -192,6 +191,14 @@ retrieval:
   rerank_candidate_k: 20
   embedding_enabled: false
   embedding_dimensions: 64
+
+storage:
+  backend: local
+  shared:
+    base_url: null
+    api_key_env: AGENT_RECALL_SHARED_API_KEY
+    timeout_seconds: 10.0
+    retry_attempts: 2
 
 theme:
   name: dark+
@@ -632,6 +639,8 @@ def init(
     (AGENT_DIR / "RECENT.md").write_text(INITIAL_RECENT)
     (AGENT_DIR / "config.yaml").write_text(INITIAL_CONFIG)
 
+    # Ensure storage points at the newly initialized repository path.
+    get_storage.cache_clear()
     get_storage()
 
     console.print(

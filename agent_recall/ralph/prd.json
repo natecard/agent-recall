@@ -164,7 +164,7 @@
 		{
 			"id": "AR-007",
 			"category": "functional",
-			"priority": 2,
+			"priority": 4,
 			"title": "Introduce optional shared team memory backend",
 			"description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
 			"user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
@@ -191,7 +191,7 @@
 			"description": "Deliver a minimal shared-memory backend path so multiple machines can read/write the same memory state.",
 			"user_story": "Allow a developer to enable shared memory in one config switch and use it from different workstations.",
 			"steps": [
-				"Define a storage interface contract that supports local and shared backends with the same core operations.",
+				"[done] Define a storage interface contract that supports local and shared backends with the same core operations.",
 				"Implement a single-tenant shared backend service/client path for sessions, chunks, and tier files.",
 				"Add retry, timeout, and fallback behavior so local mode can continue if shared backend is unavailable.",
 				"Add end-to-end tests that run the same sync/retrieve/compact flow against both local and shared modes."
@@ -208,7 +208,7 @@
 		{
 			"id": "AR-010",
 			"category": "functional",
-			"priority": 3,
+			"priority": 2,
 			"title": "Add tenant isolation and namespace safety",
 			"description": "Enforce strict workspace/project boundaries in shared memory to prevent cross-project leakage.",
 			"user_story": "Allow teams to use shared memory confidently without accidental context bleed between projects.",
@@ -230,7 +230,7 @@
 		{
 			"id": "AR-011",
 			"category": "functional",
-			"priority": 4,
+			"priority": 3,
 			"title": "Add auth, RBAC, and audit trail for shared backend",
 			"description": "Secure shared memory operations with role-based permissions and full mutation audit logs.",
 			"user_story": "Allow team leads to control who can write or promote memory and review who changed what.",
