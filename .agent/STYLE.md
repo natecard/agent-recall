@@ -235,3 +235,6 @@
 
 ## 2026-02-13T20:55:00Z Iteration 6 (AR-013)
 - When testing adapter payload behavior, assert on the payload file count and avoid relying on file mtimes for idempotency checks.
+
+## 2026-02-13T21:20:00Z Iteration 1 (AR-201)
+- Use dataclasses for archive record models and keep datetime serialization ISO-8601 with UTC normalization.

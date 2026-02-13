@@ -301,3 +301,6 @@
 
 ## 2026-02-13T20:55:00Z Iteration 6 (AR-013)
 - Add CLI adapter-payload tests that assert opt-out does not create files and repeated runs do not create duplicate payload artifacts.
+
+## 2026-02-13T21:20:00Z Iteration 1 (AR-201)
+- When adding JSON archive persistence, treat missing or corrupt archive files as empty and continue without raising.

@@ -1,6 +1,15 @@
 - Notes: Completed AR-003 step 4 by wiring retrieval config (`backend`, `top_k`, `fusion_k`, `rerank_enabled`, `rerank_candidate_k`) into `start`, `context`, `refresh-context`, and `retrieve`; added CLI overrides for context/retrieve and retrieval wiring tests.
 - Next: Move to AR-004 and start with tracer-bullet indexing policy for decision/exploration labels.
 
+## 2026-02-13T21:20:00Z Iteration 1
+- Item: AR-201 - Implement PRD archive data model and persistence
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Added `src/agent_recall/ralph/prd_archive.py` with `ArchivedPRDItem` dataclass, JSON archive load/save helpers, and archive/list lookup methods. Missing/corrupt archive files now return empty data safely.
+- Next: Run validation; if green, mark AR-201 passed and proceed to AR-203 context refresh hook.
+
 ## 2026-02-13T20:55:00Z Iteration 6
 - Item: AR-013 - Add automatic context injection adapters for supported agents
 - Mode: feature

@@ -1,488 +1,1000 @@
 {
-  "project": "Agent Recall Super Ralph",
-  "version": 2,
-  "selection_policy": {
-    "agent_decides_priority": true,
-    "priority_scale": "1 = highest priority",
-    "order_of_operations": [
-      "critical bugfixes",
-      "tracer-bullet feature slices",
-      "polish and quick wins",
-      "refactors"
-    ]
-  },
-  "items": [
-    {
-      "id": "AR-001",
-      "category": "functional",
-      "priority": 1,
-      "title": "Add support for OpenAI Codex",
-      "description": "Add support for the new OpenAI Codex App",
-      "user_story": "Allow users to select OpenAI Codex as one of the agents they can use for the Agent Recall package.",
-      "steps": [
-        "[done] Find the path for the OpenAI Codex App session files.",
-        "[done] Verify this works across path variations by exploring filesystem path logic.",
-        "[done] Add structured outputs to extract conversations for Agent Recall.",
-        "[done] Harden parsing against different conversation styles (including custom_tool_call/custom_tool_call_output)."
-      ],
-      "acceptance": [
-        "Conversation extraction works.",
-        "Conversations are compacted correctly.",
-        "Usage in other repositories works.",
-        "Changes do not break existing behavior."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-002",
-      "category": "functional",
-      "priority": 1,
-      "title": "Add incremental sync for evolving sessions",
-      "description": "Implement delta-based ingestion so active source sessions can be re-synced without duplicate learnings.",
-      "user_story": "Allow developers to run sync repeatedly during long-running conversations and only capture new context.",
-      "steps": [
-        "[done] Persist per-session checkpoints (timestamp/index/hash) for each source.",
-        "[done] Update ingestion flow to process only events newer than the checkpoint.",
-        "[done] Prevent duplicate log/chunk insertion when session content is unchanged.",
-        "[done] Add reset options for checkpoint-only and full reprocess behavior."
-      ],
-      "acceptance": [
-        "Re-running sync on an active session ingests only new content.",
-        "No duplicate log entries or chunks are created for unchanged content.",
-        "Existing reset-sync workflows still allow full reprocessing.",
-        "Behavior is verified across Cursor, Claude Code, OpenCode, and Codex sources."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-005",
-      "category": "functional",
-      "priority": 2,
-      "title": "Harden Codex source support end-to-end",
-      "description": "Complete production hardening for Codex ingestion with robust parsing, fixtures, and source-specific documentation.",
-      "user_story": "Allow developers using OpenAI Codex to reliably ingest conversations without manual format fixes.",
-      "steps": [
-        "[done] Create fixture corpus for Codex JSON/JSONL variants and malformed edge cases.",
-        "[done] Harden parser behavior for missing fields, tool-output ordering, and partial lines.",
-        "[done] Add source-specific sync/session tests for Codex discovery and extraction quality.",
-        "[done] Update README/CLI reference/onboarding docs to list Codex where sources are enumerated."
-      ],
-      "acceptance": [
-        "Codex sessions are discoverable and parseable across supported file variants.",
-        "Malformed or partial events do not crash sync and produce clear diagnostics.",
-        "Codex source appears consistently in docs and source-selection UX.",
-        "Codex integration does not regress other source ingesters."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-008",
-      "category": "functional",
-      "priority": 3,
-      "title": "Prepare package for production developer adoption",
-      "description": "Close release-readiness gaps across metadata, docs, and cross-environment validation.",
-      "user_story": "Allow developers to install and trust Agent Recall as a stable tool in real projects.",
-      "steps": [
-        "[done] Finalize package metadata (author, versioning policy, release notes).",
-        "[done] Add explicit compatibility matrix for sources/platforms/Python versions.",
-        "[done] Expand CI to run lint/type/test on supported Python versions and clean env installs.",
-        "[done] Add smoke tests for init/onboarding/sync/context flows in fresh repositories."
-      ],
-      "acceptance": [
-        "Package metadata and docs are complete and publication-ready.",
-        "CI enforces supported runtime matrix with passing checks.",
-        "Fresh install-to-first-sync workflow is validated end-to-end.",
-        "Developer-facing docs match actual implemented feature set."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-006",
-      "category": "functional",
-      "priority": 1,
-      "title": "Add automatic background sync and context refresh",
-      "description": "Introduce automation so memory capture and context generation happen without repeated manual CLI steps.",
-      "user_story": "Allow developers to benefit from Agent Recall during normal coding flow with minimal manual intervention.",
-      "steps": [
-        "[done] Add a background/scheduled sync mode with safe locking.",
-        "[done] Add command to refresh context bundles for active task/repo state.",
-        "[done] Persist and display last successful sync/refresh status.",
-        "[done] Provide fail-safe retries and clear failure diagnostics."
-      ],
-      "acceptance": [
-        "Developers can enable unattended sync without duplicate processing races.",
-        "Context refresh can run automatically and produce current memory output.",
-        "Status command shows last run time and failure state.",
-        "Manual sync/compact commands remain fully supported."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-003",
-      "category": "functional",
-      "priority": 1,
-      "title": "Upgrade retrieval quality beyond basic FTS",
-      "description": "Add hybrid retrieval so context assembly returns more relevant results than keyword-only lookup.",
-      "user_story": "Allow developers to get higher-signal context when querying past learnings with varied wording.",
-      "steps": [
-        "[done] Add optional embedding generation/storage for indexed chunks.",
-        "[done] Implement hybrid retrieval (FTS + vector similarity) with deterministic tie-breaking.",
-        "[done] Add optional reranking of top candidates before final output.",
-        "[done] Expose retrieval backend/tuning options in config and CLI."
-      ],
-      "acceptance": [
-        "Queries with semantic paraphrases return relevant chunks even when keywords differ.",
-        "Legacy FTS-only mode remains available and stable.",
-        "Context and retrieve commands honor configured retrieval mode/settings.",
-        "Retrieval behavior is covered by deterministic tests."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-004",
-      "category": "functional",
-      "priority": 1,
-      "title": "Expand indexing to decision and exploration learnings",
-      "description": "Index additional semantic labels so retrieval reflects architecture decisions and experiment outcomes, not only guardrail/style patterns.",
-      "user_story": "Allow developers to recover why prior decisions were made and what alternatives failed.",
-      "steps": [
-        "[done] Define indexing policy for decision, exploration, and narrative labels.",
-        "[done] Add configurable thresholds to avoid noisy chunk promotion.",
-        "[done] Update compaction/indexing flow to include selected non-style labels.",
-        "[done] Add tests covering indexing and retrieval of decision-oriented entries."
-      ],
-      "acceptance": [
-        "Decision and exploration entries can be retrieved through context/retrieve commands.",
-        "Chunk growth stays bounded by configured thresholds.",
-        "Existing guardrails/style indexing behavior is preserved.",
-        "Indexing output is deterministic under repeated compaction runs."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-007",
-      "category": "functional",
-      "priority": 1,
-      "title": "Introduce optional shared team memory backend",
-      "description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
-      "user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
-      "steps": [
-        "[done] Define storage abstraction boundary between local and shared backends.",
-        "[done] Implement first shared backend with auth and namespace isolation.",
-        "[done] Add sync/merge strategy for shared chunks and tier updates.",
-        "[done] Document migration path and opt-in configuration for teams."
-      ],
-      "acceptance": [
-        "Team mode supports read/write memory across multiple machines.",
-        "Namespace boundaries prevent cross-project memory leakage.",
-        "Local-only mode remains default and behavior-compatible.",
-        "Shared backend failures degrade gracefully without data corruption."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": false
-    },
-    {
-      "id": "AR-009",
-      "category": "functional",
-      "priority": 1,
-      "title": "Ship shared backend tracer-bullet (single-tenant)",
-      "description": "Deliver a minimal shared-memory backend path so multiple machines can read/write the same memory state.",
-      "user_story": "Allow a developer to enable shared memory in one config switch and use it from different workstations.",
-      "steps": [
-        "[done] Define a storage interface contract that supports local and shared backends with the same core operations.",
-        "[done] Implement a single-tenant shared backend client path for sessions/chunks/checkpoints via shared filesystem URLs (`file://` and `sqlite://`).",
-        "[done] Add shared tier-file synchronization for filesystem shared backends (`file://` and `sqlite://`).",
-        "[done] Extend shared backend to HTTP service/client transport.",
-        "[done] Add retry, timeout, and fallback behavior so local mode can continue if shared backend is unavailable.",
-        "[done] Add end-to-end tests that run the same sync/retrieve/compact flow against both local and shared modes."
-      ],
-      "acceptance": [
-        "Shared backend mode can ingest, compact, and retrieve memory from a second machine.",
-        "The same CLI commands work in local and shared modes without behavior regressions.",
-        "Transient backend failures produce clear errors and do not corrupt memory state.",
-        "Configuration clearly declares backend mode and connection details."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-010",
-      "category": "functional",
-      "priority": 1,
-      "title": "Add tenant isolation and namespace safety",
-      "description": "Enforce strict workspace/project boundaries in shared memory to prevent cross-project leakage.",
-      "user_story": "Allow teams to use shared memory confidently without accidental context bleed between projects.",
-      "steps": [
-        "[done] Introduce tenant and project namespace keys across all shared-memory write/read paths.",
-        "[done] Require namespace scope in retrieval/context assembly APIs and CLI command execution.",
-        "[done] Add guardrails that reject writes missing namespace metadata.",
-        "[done] Add cross-tenant and cross-project leakage tests with negative assertions."
-      ],
-      "acceptance": [
-        "Memory from one project cannot be retrieved by another project unless explicitly allowed.",
-        "All persisted shared records include tenant and project scope metadata.",
-        "Namespace validation failures are explicit and actionable.",
-        "Leakage regression tests fail if any scope boundary is broken."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-011",
-      "category": "functional",
-      "priority": 1,
-      "title": "Add auth, RBAC, and audit trail for shared backend",
-      "description": "Secure shared memory operations with role-based permissions and full mutation audit logs.",
-      "user_story": "Allow team leads to control who can write or promote memory and review who changed what.",
-      "steps": [
-        "[done] Implement token-based authentication for shared backend client operations.",
-        "[done] Add role checks for read, write, promote, and delete operations.",
-        "[done] Record immutable audit events for every shared-memory mutation.",
-        "[done] Add permission and audit-log tests for allow/deny scenarios."
-      ],
-      "acceptance": [
-        "Unauthorized operations are denied consistently with clear error messages.",
-        "Role policy can restrict write/promote actions while allowing read-only use.",
-        "Every shared-memory mutation produces an auditable event record.",
-        "Security tests cover successful and rejected flows."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-012",
-      "category": "functional",
-      "priority": 1,
-      "title": "Add memory curation queue with approval workflow",
-      "description": "Create a review path so extracted learnings can be approved, edited, or rejected before promotion.",
-      "user_story": "Allow maintainers to keep team memory high quality and prevent noisy or incorrect rules from persisting.",
-      "steps": [
-        "[done] Add a pending-memory queue state for newly extracted learnings.",
-        "[done] Implement approve/edit/reject operations and status transitions in storage and CLI.",
-        "[done] Update compaction/retrieval to respect curation status filters.",
-        "[done] Add tests covering queue lifecycle and promotion behavior."
-      ],
-      "acceptance": [
-        "New learnings can be reviewed before they become durable guardrails/style context.",
-        "Rejected items never appear in retrieval or tier files.",
-        "Approved edits are preserved and traceable to reviewer action.",
-        "Curation workflow does not block existing local-only usage."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-013",
-      "category": "functional",
-      "priority": 1,
-      "title": "Add automatic context injection adapters for supported agents",
-      "description": "Integrate generated memory context into Codex, Cursor, Claude Code, and OpenCode startup workflows automatically.",
-      "user_story": "Allow developers to benefit from memory without manually running context commands each session.",
-      "steps": [
-        "[done] Define adapter hooks for each supported agent runtime with consistent context payload structure.",
-        "[done] Implement context bundle generation with configurable token budgets per provider/model.",
-        "[done] Add opt-in/opt-out controls and clear status output for adapter behavior.",
-        "[done] Add integration tests validating that adapters inject current context without duplication."
-      ],
-      "acceptance": [
-        "Supported agents receive up-to-date context automatically when enabled.",
-        "Token budget controls prevent oversized prompt/context payloads.",
-        "Adapter failures are non-destructive and fallback to normal agent startup.",
-        "Developers can verify injection status from CLI output."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-014",
-      "category": "functional",
-      "priority": 2,
-      "title": "Add backup, restore, and migration tooling for shared memory",
-      "description": "Provide operational tooling for safe upgrades and disaster recovery of shared memory data.",
-      "user_story": "Allow teams to upgrade backend schema and recover memory state without losing history.",
-      "steps": [
-        "Implement export/import commands for full shared memory snapshots.",
-        "Add schema migration versioning with forward/backward safety checks.",
-        "Add restore verification command to validate data integrity after recovery.",
-        "Document operational runbooks for backup cadence and rollback procedures."
-      ],
-      "acceptance": [
-        "Teams can create and restore full memory snapshots reliably.",
-        "Schema migrations are versioned, repeatable, and validated in CI.",
-        "Restore checks detect missing/corrupted data before normal operation resumes.",
-        "Operational docs are sufficient for on-call recovery execution."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": false
-    },
-    {
-      "id": "AR-015",
-      "category": "functional",
-      "priority": 1,
-      "title": "Enable and manage Ralph loop from CLI and TUI",
-      "description": "Expose first-class controls for the Ralph loop script lifecycle so users can configure, start, stop, and inspect loop runs without manual shell scripting.",
-      "user_story": "Allow developers to run the Ralph loop from the Agent Recall CLI/TUI with clear status, safe defaults, and predictable behavior.",
-      "steps": [
-        "[done] Add CLI commands to enable/disable Ralph loop execution and configure loop mode/settings.",
-        "[done] Add TUI controls for starting/stopping the loop and viewing current loop status/last run outcome.",
-        "[done] Persist loop configuration in project config and ensure behavior is explicit across restarts.",
-        "[done] Add tests covering CLI/TUI wiring, state persistence, and failure diagnostics."
-      ],
-      "acceptance": [
-        "Users can enable or disable Ralph loop behavior directly from CLI and TUI.",
-        "Loop state and last run status are visible without inspecting script logs manually.",
-        "Loop control behavior is deterministic and does not break non-loop workflows.",
-        "Failures are surfaced with actionable messages and safe recovery steps."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-016",
-      "category": "functional",
-      "priority": 1,
-      "title": "Standardize tier-file write policy and in-loop hygiene",
-      "description": "Define and enforce structured write policies for GUARDRAILS/STYLE/RECENT so loop-time updates remain scoped, deterministic, and low-noise before compaction.",
-      "user_story": "Allow agents to write useful iteration learnings without creating duplicated or contradictory tier-file content.",
-      "steps": [
-        "[done] Decide and document ownership boundaries between Ralph-loop writes and post-loop compaction responsibilities.",
-        "[done] Define canonical schemas and write policies for `.agent/GUARDRAILS.md`, `.agent/STYLE.md`, and `.agent/RECENT.md`.",
-        "[done] Implement lightweight in-loop write hygiene (section-targeted updates, duplicate guards, and bounded append behavior).",
-        "[done] Add explicit write modes for loop-time updates (append and replace-section) and require policy-aware writes.",
-        "[done] Add validation and lint checks that detect malformed sections, duplication, and low-signal noise before persisting."
-      ],
-      "acceptance": [
-        "Tier files preserve explicit, non-duplicated teachings with predictable structure.",
-        "Loop-time writes are section-scoped and deterministic across repeated iterations.",
-        "Agents can safely update tier files each iteration without clobbering high-value historical guidance.",
-        "Validation rejects malformed or policy-violating writes before file persistence."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-017",
-      "category": "functional",
-      "priority": 1,
-      "title": "Add post-loop tier compaction hook with manual TUI/CLI trigger",
-      "description": "Implement a post-loop compaction hook that normalizes GUARDRAILS/STYLE/RECENT and can also be run manually from TUI and CLI on demand.",
-      "user_story": "Allow developers to keep tier files concise and high-signal automatically after each iteration, while retaining manual control when they need immediate cleanup.",
-      "steps": [
-        "[done] Implement a post-loop hook that compacts tier files (normalize, deduplicate, summarize, and apply size budgets).",
-        "[done] Add configuration toggles for auto-run behavior, budgets, and compaction strictness.",
-        "[done] Add a CLI command to run tier compaction manually and show a concise before/after summary.",
-        "[done] Add a TUI action to run the same hook manually from the interface with visible status/outcome.",
-        "[done] Add regression tests proving parity between auto-hook output and manual TUI/CLI runs."
-      ],
-      "acceptance": [
-        "Post-loop compaction runs automatically when enabled and keeps tier-file growth bounded.",
-        "Users can manually trigger the exact same compaction behavior from both CLI and TUI.",
-        "Manual and automatic compaction paths produce the same canonical output format.",
-        "Failures are surfaced clearly without corrupting existing tier-file content."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-018",
-      "category": "functional",
-      "priority": 1,
-      "title": "Enforce CLI and TUI command parity from one command contract",
-      "description": "Define and enforce a single command contract so the TUI and CLI mirror each other with no hidden drift.",
-      "user_story": "Allow developers to use either CLI or TUI interchangeably and get the same capabilities with consistent naming and behavior.",
-      "steps": [
-        "[done] Build a generated inventory of CLI commands, TUI slash commands, and palette actions.",
-        "[done] Define a canonical command contract (name, aliases, arguments, expected behavior) shared by both interfaces.",
-        "[done] Refactor help text and palette suggestions to read from the shared command contract.",
-        "[done] Add parity tests that fail if command exposure or behavior diverges between CLI and TUI."
-      ],
-      "acceptance": [
-        "A command parity report can be generated and shows no untracked CLI/TUI drift.",
-        "TUI and CLI command naming/aliases are consistent for mirrored operations.",
-        "Command help output and palette suggestions are generated from a shared source of truth.",
-        "Parity checks fail in CI when new commands are added in only one surface without explicit mapping."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    }
-  ]
+	"project": "Agent Recall Super Ralph",
+	"version": 2,
+	"selection_policy": {
+		"agent_decides_priority": true,
+		"priority_scale": "1 = highest priority",
+		"order_of_operations": ["critical bugfixes", "tracer-bullet feature slices", "polish and quick wins", "refactors"]
+	},
+	"items": [
+		{
+			"id": "AR-001",
+			"category": "functional",
+			"priority": 1,
+			"title": "Add support for OpenAI Codex",
+			"description": "Add support for the new OpenAI Codex App",
+			"user_story": "Allow users to select OpenAI Codex as one of the agents they can use for the Agent Recall package.",
+			"steps": [
+				"[done] Find the path for the OpenAI Codex App session files.",
+				"[done] Verify this works across path variations by exploring filesystem path logic.",
+				"[done] Add structured outputs to extract conversations for Agent Recall.",
+				"[done] Harden parsing against different conversation styles (including custom_tool_call/custom_tool_call_output)."
+			],
+			"acceptance": [
+				"Conversation extraction works.",
+				"Conversations are compacted correctly.",
+				"Usage in other repositories works.",
+				"Changes do not break existing behavior."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-002",
+			"category": "functional",
+			"priority": 1,
+			"title": "Add incremental sync for evolving sessions",
+			"description": "Implement delta-based ingestion so active source sessions can be re-synced without duplicate learnings.",
+			"user_story": "Allow developers to run sync repeatedly during long-running conversations and only capture new context.",
+			"steps": [
+				"[done] Persist per-session checkpoints (timestamp/index/hash) for each source.",
+				"[done] Update ingestion flow to process only events newer than the checkpoint.",
+				"[done] Prevent duplicate log/chunk insertion when session content is unchanged.",
+				"[done] Add reset options for checkpoint-only and full reprocess behavior."
+			],
+			"acceptance": [
+				"Re-running sync on an active session ingests only new content.",
+				"No duplicate log entries or chunks are created for unchanged content.",
+				"Existing reset-sync workflows still allow full reprocessing.",
+				"Behavior is verified across Cursor, Claude Code, OpenCode, and Codex sources."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-005",
+			"category": "functional",
+			"priority": 2,
+			"title": "Harden Codex source support end-to-end",
+			"description": "Complete production hardening for Codex ingestion with robust parsing, fixtures, and source-specific documentation.",
+			"user_story": "Allow developers using OpenAI Codex to reliably ingest conversations without manual format fixes.",
+			"steps": [
+				"[done] Create fixture corpus for Codex JSON/JSONL variants and malformed edge cases.",
+				"[done] Harden parser behavior for missing fields, tool-output ordering, and partial lines.",
+				"[done] Add source-specific sync/session tests for Codex discovery and extraction quality.",
+				"[done] Update README/CLI reference/onboarding docs to list Codex where sources are enumerated."
+			],
+			"acceptance": [
+				"Codex sessions are discoverable and parseable across supported file variants.",
+				"Malformed or partial events do not crash sync and produce clear diagnostics.",
+				"Codex source appears consistently in docs and source-selection UX.",
+				"Codex integration does not regress other source ingesters."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-008",
+			"category": "functional",
+			"priority": 3,
+			"title": "Prepare package for production developer adoption",
+			"description": "Close release-readiness gaps across metadata, docs, and cross-environment validation.",
+			"user_story": "Allow developers to install and trust Agent Recall as a stable tool in real projects.",
+			"steps": [
+				"[done] Finalize package metadata (author, versioning policy, release notes).",
+				"[done] Add explicit compatibility matrix for sources/platforms/Python versions.",
+				"[done] Expand CI to run lint/type/test on supported Python versions and clean env installs.",
+				"[done] Add smoke tests for init/onboarding/sync/context flows in fresh repositories."
+			],
+			"acceptance": [
+				"Package metadata and docs are complete and publication-ready.",
+				"CI enforces supported runtime matrix with passing checks.",
+				"Fresh install-to-first-sync workflow is validated end-to-end.",
+				"Developer-facing docs match actual implemented feature set."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-006",
+			"category": "functional",
+			"priority": 1,
+			"title": "Add automatic background sync and context refresh",
+			"description": "Introduce automation so memory capture and context generation happen without repeated manual CLI steps.",
+			"user_story": "Allow developers to benefit from Agent Recall during normal coding flow with minimal manual intervention.",
+			"steps": [
+				"[done] Add a background/scheduled sync mode with safe locking.",
+				"[done] Add command to refresh context bundles for active task/repo state.",
+				"[done] Persist and display last successful sync/refresh status.",
+				"[done] Provide fail-safe retries and clear failure diagnostics."
+			],
+			"acceptance": [
+				"Developers can enable unattended sync without duplicate processing races.",
+				"Context refresh can run automatically and produce current memory output.",
+				"Status command shows last run time and failure state.",
+				"Manual sync/compact commands remain fully supported."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-003",
+			"category": "functional",
+			"priority": 1,
+			"title": "Upgrade retrieval quality beyond basic FTS",
+			"description": "Add hybrid retrieval so context assembly returns more relevant results than keyword-only lookup.",
+			"user_story": "Allow developers to get higher-signal context when querying past learnings with varied wording.",
+			"steps": [
+				"[done] Add optional embedding generation/storage for indexed chunks.",
+				"[done] Implement hybrid retrieval (FTS + vector similarity) with deterministic tie-breaking.",
+				"[done] Add optional reranking of top candidates before final output.",
+				"[done] Expose retrieval backend/tuning options in config and CLI."
+			],
+			"acceptance": [
+				"Queries with semantic paraphrases return relevant chunks even when keywords differ.",
+				"Legacy FTS-only mode remains available and stable.",
+				"Context and retrieve commands honor configured retrieval mode/settings.",
+				"Retrieval behavior is covered by deterministic tests."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-004",
+			"category": "functional",
+			"priority": 1,
+			"title": "Expand indexing to decision and exploration learnings",
+			"description": "Index additional semantic labels so retrieval reflects architecture decisions and experiment outcomes, not only guardrail/style patterns.",
+			"user_story": "Allow developers to recover why prior decisions were made and what alternatives failed.",
+			"steps": [
+				"[done] Define indexing policy for decision, exploration, and narrative labels.",
+				"[done] Add configurable thresholds to avoid noisy chunk promotion.",
+				"[done] Update compaction/indexing flow to include selected non-style labels.",
+				"[done] Add tests covering indexing and retrieval of decision-oriented entries."
+			],
+			"acceptance": [
+				"Decision and exploration entries can be retrieved through context/retrieve commands.",
+				"Chunk growth stays bounded by configured thresholds.",
+				"Existing guardrails/style indexing behavior is preserved.",
+				"Indexing output is deterministic under repeated compaction runs."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-007",
+			"category": "functional",
+			"priority": 3,
+			"title": "Introduce optional shared team memory backend",
+			"description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
+			"user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
+			"steps": [
+				"[done] Define storage abstraction boundary between local and shared backends.",
+				"[done] Implement first shared backend with auth and namespace isolation.",
+				"[done] Add sync/merge strategy for shared chunks and tier updates.",
+				"[done] Document migration path and opt-in configuration for teams."
+			],
+			"acceptance": [
+				"Team mode supports read/write memory across multiple machines.",
+				"Namespace boundaries prevent cross-project memory leakage.",
+				"Local-only mode remains default and behavior-compatible.",
+				"Shared backend failures degrade gracefully without data corruption."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-009",
+			"category": "functional",
+			"priority": 1,
+			"title": "Ship shared backend tracer-bullet (single-tenant)",
+			"description": "Deliver a minimal shared-memory backend path so multiple machines can read/write the same memory state.",
+			"user_story": "Allow a developer to enable shared memory in one config switch and use it from different workstations.",
+			"steps": [
+				"[done] Define a storage interface contract that supports local and shared backends with the same core operations.",
+				"[done] Implement a single-tenant shared backend client path for sessions/chunks/checkpoints via shared filesystem URLs (`file://` and `sqlite://`).",
+				"[done] Add shared tier-file synchronization for filesystem shared backends (`file://` and `sqlite://`).",
+				"[done] Extend shared backend to HTTP service/client transport.",
+				"[done] Add retry, timeout, and fallback behavior so local mode can continue if shared backend is unavailable.",
+				"[done] Add end-to-end tests that run the same sync/retrieve/compact flow against both local and shared modes."
+			],
+			"acceptance": [
+				"Shared backend mode can ingest, compact, and retrieve memory from a second machine.",
+				"The same CLI commands work in local and shared modes without behavior regressions.",
+				"Transient backend failures produce clear errors and do not corrupt memory state.",
+				"Configuration clearly declares backend mode and connection details."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-010",
+			"category": "functional",
+			"priority": 1,
+			"title": "Add tenant isolation and namespace safety",
+			"description": "Enforce strict workspace/project boundaries in shared memory to prevent cross-project leakage.",
+			"user_story": "Allow teams to use shared memory confidently without accidental context bleed between projects.",
+			"steps": [
+				"[done] Introduce tenant and project namespace keys across all shared-memory write/read paths.",
+				"[done] Require namespace scope in retrieval/context assembly APIs and CLI command execution.",
+				"[done] Add guardrails that reject writes missing namespace metadata.",
+				"[done] Add cross-tenant and cross-project leakage tests with negative assertions."
+			],
+			"acceptance": [
+				"Memory from one project cannot be retrieved by another project unless explicitly allowed.",
+				"All persisted shared records include tenant and project scope metadata.",
+				"Namespace validation failures are explicit and actionable.",
+				"Leakage regression tests fail if any scope boundary is broken."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-011",
+			"category": "functional",
+			"priority": 1,
+			"title": "Add auth, RBAC, and audit trail for shared backend",
+			"description": "Secure shared memory operations with role-based permissions and full mutation audit logs.",
+			"user_story": "Allow team leads to control who can write or promote memory and review who changed what.",
+			"steps": [
+				"[done] Implement token-based authentication for shared backend client operations.",
+				"[done] Add role checks for read, write, promote, and delete operations.",
+				"[done] Record immutable audit events for every shared-memory mutation.",
+				"[done] Add permission and audit-log tests for allow/deny scenarios."
+			],
+			"acceptance": [
+				"Unauthorized operations are denied consistently with clear error messages.",
+				"Role policy can restrict write/promote actions while allowing read-only use.",
+				"Every shared-memory mutation produces an auditable event record.",
+				"Security tests cover successful and rejected flows."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-012",
+			"category": "functional",
+			"priority": 1,
+			"title": "Add memory curation queue with approval workflow",
+			"description": "Create a review path so extracted learnings can be approved, edited, or rejected before promotion.",
+			"user_story": "Allow maintainers to keep team memory high quality and prevent noisy or incorrect rules from persisting.",
+			"steps": [
+				"[done] Add a pending-memory queue state for newly extracted learnings.",
+				"[done] Implement approve/edit/reject operations and status transitions in storage and CLI.",
+				"[done] Update compaction/retrieval to respect curation status filters.",
+				"[done] Add tests covering queue lifecycle and promotion behavior."
+			],
+			"acceptance": [
+				"New learnings can be reviewed before they become durable guardrails/style context.",
+				"Rejected items never appear in retrieval or tier files.",
+				"Approved edits are preserved and traceable to reviewer action.",
+				"Curation workflow does not block existing local-only usage."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-013",
+			"category": "functional",
+			"priority": 1,
+			"title": "Add automatic context injection adapters for supported agents",
+			"description": "Integrate generated memory context into Codex, Cursor, Claude Code, and OpenCode startup workflows automatically.",
+			"user_story": "Allow developers to benefit from memory without manually running context commands each session.",
+			"steps": [
+				"[done] Define adapter hooks for each supported agent runtime with consistent context payload structure.",
+				"[done] Implement context bundle generation with configurable token budgets per provider/model.",
+				"[done] Add opt-in/opt-out controls and clear status output for adapter behavior.",
+				"[done] Add integration tests validating that adapters inject current context without duplication."
+			],
+			"acceptance": [
+				"Supported agents receive up-to-date context automatically when enabled.",
+				"Token budget controls prevent oversized prompt/context payloads.",
+				"Adapter failures are non-destructive and fallback to normal agent startup.",
+				"Developers can verify injection status from CLI output."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-014",
+			"category": "functional",
+			"priority": 2,
+			"title": "Add backup, restore, and migration tooling for shared memory",
+			"description": "Provide operational tooling for safe upgrades and disaster recovery of shared memory data.",
+			"user_story": "Allow teams to upgrade backend schema and recover memory state without losing history.",
+			"steps": [
+				"Implement export/import commands for full shared memory snapshots.",
+				"Add schema migration versioning with forward/backward safety checks.",
+				"Add restore verification command to validate data integrity after recovery.",
+				"Document operational runbooks for backup cadence and rollback procedures."
+			],
+			"acceptance": [
+				"Teams can create and restore full memory snapshots reliably.",
+				"Schema migrations are versioned, repeatable, and validated in CI.",
+				"Restore checks detect missing/corrupted data before normal operation resumes.",
+				"Operational docs are sufficient for on-call recovery execution."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-015",
+			"category": "functional",
+			"priority": 1,
+			"title": "Enable and manage Ralph loop from CLI and TUI",
+			"description": "Expose first-class controls for the Ralph loop script lifecycle so users can configure, start, stop, and inspect loop runs without manual shell scripting.",
+			"user_story": "Allow developers to run the Ralph loop from the Agent Recall CLI/TUI with clear status, safe defaults, and predictable behavior.",
+			"steps": [
+				"[done] Add CLI commands to enable/disable Ralph loop execution and configure loop mode/settings.",
+				"[done] Add TUI controls for starting/stopping the loop and viewing current loop status/last run outcome.",
+				"[done] Persist loop configuration in project config and ensure behavior is explicit across restarts.",
+				"[done] Add tests covering CLI/TUI wiring, state persistence, and failure diagnostics."
+			],
+			"acceptance": [
+				"Users can enable or disable Ralph loop behavior directly from CLI and TUI.",
+				"Loop state and last run status are visible without inspecting script logs manually.",
+				"Loop control behavior is deterministic and does not break non-loop workflows.",
+				"Failures are surfaced with actionable messages and safe recovery steps."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-016",
+			"category": "functional",
+			"priority": 1,
+			"title": "Standardize tier-file write policy and in-loop hygiene",
+			"description": "Define and enforce structured write policies for GUARDRAILS/STYLE/RECENT so loop-time updates remain scoped, deterministic, and low-noise before compaction.",
+			"user_story": "Allow agents to write useful iteration learnings without creating duplicated or contradictory tier-file content.",
+			"steps": [
+				"[done] Decide and document ownership boundaries between Ralph-loop writes and post-loop compaction responsibilities.",
+				"[done] Define canonical schemas and write policies for `.agent/GUARDRAILS.md`, `.agent/STYLE.md`, and `.agent/RECENT.md`.",
+				"[done] Implement lightweight in-loop write hygiene (section-targeted updates, duplicate guards, and bounded append behavior).",
+				"[done] Add explicit write modes for loop-time updates (append and replace-section) and require policy-aware writes.",
+				"[done] Add validation and lint checks that detect malformed sections, duplication, and low-signal noise before persisting."
+			],
+			"acceptance": [
+				"Tier files preserve explicit, non-duplicated teachings with predictable structure.",
+				"Loop-time writes are section-scoped and deterministic across repeated iterations.",
+				"Agents can safely update tier files each iteration without clobbering high-value historical guidance.",
+				"Validation rejects malformed or policy-violating writes before file persistence."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-017",
+			"category": "functional",
+			"priority": 1,
+			"title": "Add post-loop tier compaction hook with manual TUI/CLI trigger",
+			"description": "Implement a post-loop compaction hook that normalizes GUARDRAILS/STYLE/RECENT and can also be run manually from TUI and CLI on demand.",
+			"user_story": "Allow developers to keep tier files concise and high-signal automatically after each iteration, while retaining manual control when they need immediate cleanup.",
+			"steps": [
+				"[done] Implement a post-loop hook that compacts tier files (normalize, deduplicate, summarize, and apply size budgets).",
+				"[done] Add configuration toggles for auto-run behavior, budgets, and compaction strictness.",
+				"[done] Add a CLI command to run tier compaction manually and show a concise before/after summary.",
+				"[done] Add a TUI action to run the same hook manually from the interface with visible status/outcome.",
+				"[done] Add regression tests proving parity between auto-hook output and manual TUI/CLI runs."
+			],
+			"acceptance": [
+				"Post-loop compaction runs automatically when enabled and keeps tier-file growth bounded.",
+				"Users can manually trigger the exact same compaction behavior from both CLI and TUI.",
+				"Manual and automatic compaction paths produce the same canonical output format.",
+				"Failures are surfaced clearly without corrupting existing tier-file content."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-018",
+			"category": "functional",
+			"priority": 1,
+			"title": "Enforce CLI and TUI command parity from one command contract",
+			"description": "Define and enforce a single command contract so the TUI and CLI mirror each other with no hidden drift.",
+			"user_story": "Allow developers to use either CLI or TUI interchangeably and get the same capabilities with consistent naming and behavior.",
+			"steps": [
+				"[done] Build a generated inventory of CLI commands, TUI slash commands, and palette actions.",
+				"[done] Define a canonical command contract (name, aliases, arguments, expected behavior) shared by both interfaces.",
+				"[done] Refactor help text and palette suggestions to read from the shared command contract.",
+				"[done] Add parity tests that fail if command exposure or behavior diverges between CLI and TUI."
+			],
+			"acceptance": [
+				"A command parity report can be generated and shows no untracked CLI/TUI drift.",
+				"TUI and CLI command naming/aliases are consistent for mirrored operations.",
+				"Command help output and palette suggestions are generated from a shared source of truth.",
+				"Parity checks fail in CI when new commands are added in only one surface without explicit mapping."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-201",
+			"category": "functional",
+			"priority": 1,
+			"title": "Implement PRD archive data model and persistence",
+			"description": "Create src/agent_recall/ralph/prd_archive.py with the ArchivedPRDItem dataclass and PRDArchive class providing JSON-based persistence for completed PRD items. This preserves completed work for future reference, preventing loss of context on past decisions.",
+			"user_story": "As a developer, I need completed PRD items to be archived with their acceptance criteria, decisions, and outcomes so that past work is never lost and can be referenced in future development.",
+			"steps": [
+				"Create src/agent_recall/ralph/prd_archive.py.",
+				"Implement ArchivedPRDItem dataclass with fields: id, archive_id (uuid4), title, description, user_story, steps, acceptance_criteria, validation_commands, completed_at, completion_iteration, key_decisions, lessons_learned, related_files, commit_hashes, metadata.",
+				"Implement ArchivedPRDItem.to_dict() with datetime ISO formatting and full field serialization.",
+				"Implement ArchivedPRDItem.from_dict() class method with graceful handling of missing fields and optional alias support (e.g., 'acceptance' or 'acceptance_criteria').",
+				"Implement ArchivedPRDItem.to_searchable_text() that generates a concatenated text block of PRD Item ID, Title, Description, User Story, Steps, Acceptance, Decisions, and Lessons for embedding and FTS.",
+				"Implement PRDArchive.__init__ taking agent_dir and optional Storage, setting archive_path to .agent/ralph/prd_archive.json.",
+				"Implement PRDArchive._load_archive() to read and deserialize prd_archive.json, returning empty list on missing or corrupt file.",
+				"Implement PRDArchive._save_archive() to serialize items list to prd_archive.json with version and updated_at metadata.",
+				"Implement PRDArchive.archive_item() to create an ArchivedPRDItem from a PRD item dict, replace any existing item with same ID, save to disk, and optionally index for retrieval.",
+				"Implement PRDArchive.archive_completed_from_prd() to parse a PRD JSON file, find items where passes=true that are not already archived, and archive each one.",
+				"Implement PRDArchive.get_by_id() to retrieve a specific archived item by ID.",
+				"Implement PRDArchive.list_all() to return all archived items."
+			],
+			"acceptance": [
+				"ArchivedPRDItem round-trips through to_dict()/from_dict() without data loss.",
+				"to_searchable_text() produces a multi-line string containing all key fields.",
+				"archive_item() writes to .agent/ralph/prd_archive.json with version metadata.",
+				"archive_item() replaces an existing item with the same ID rather than duplicating.",
+				"archive_completed_from_prd() correctly identifies items with passes=true.",
+				"archive_completed_from_prd() skips items already present in the archive.",
+				"_load_archive() returns empty list for missing file without error.",
+				"_load_archive() returns empty list for corrupt JSON without error.",
+				"get_by_id() returns the correct ArchivedPRDItem or None.",
+				"list_all() returns all archived items in order."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-202",
+			"category": "functional",
+			"priority": 4,
+			"title": "Implement PRD archive semantic search and knowledge indexing",
+			"description": "Extend PRDArchive in prd_archive.py with semantic search capabilities: embedding generation for archived items, cosine similarity search, chunk indexing into the Storage backend, and knowledge-to-PRD matching. This enables developers to connect current work to past PRD items.",
+			"user_story": "As a developer, I need to semantically search archived PRD items and trace where guardrails or patterns originated, so I can understand the history behind project decisions.",
+			"steps": [
+				"Import generate_embedding and cosine_similarity from agent_recall.core.embeddings.",
+				"Import Chunk, ChunkSource, and SemanticLabel from agent_recall.storage.models.",
+				"Implement PRDArchive._index_archived_item() to generate an embedding from to_searchable_text(), create a Chunk with source=IMPORT, label=DECISION_RATIONALE, tags=['prd', 'archived', item.id.lower()], and store it via self.storage.store_chunk().",
+				"Ensure archive_item() calls _index_archived_item() when self.storage is not None.",
+				"Implement PRDArchive.search() taking query string and top_k parameter, generating query embedding, computing cosine similarity against all archived items' searchable text embeddings, and returning sorted (ArchivedPRDItem, score) tuples.",
+				"Implement optional item_ids filter parameter on search() to restrict results to specific IDs.",
+				"Implement PRDArchive.match_knowledge_to_prd() as a convenience wrapper around search() for tracing knowledge content back to originating PRD items."
+			],
+			"acceptance": [
+				"_index_archived_item() creates a Chunk with DECISION_RATIONALE label and 'prd' tag.",
+				"_index_archived_item() generates a 64-dimension embedding from searchable text.",
+				"_index_archived_item() is called automatically during archive_item() when storage is provided.",
+				"_index_archived_item() is skipped gracefully when storage is None.",
+				"search() returns up to top_k results sorted by descending similarity score.",
+				"search() returns empty list when no items are archived.",
+				"search() with item_ids filter only returns matching items.",
+				"match_knowledge_to_prd() returns related PRD items for a given knowledge string.",
+				"Semantic search produces relevant results (e.g., searching 'authentication' matches an auth PRD item)."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-203",
+			"category": "functional",
+			"priority": 2,
+			"title": "Implement standalone context refresh hook module",
+			"description": "Create src/agent_recall/ralph/context_refresh.py with the ContextRefreshHook class that provides a clean, callable interface for refreshing context and adapter payloads. This module is used both by the Ralph loop orchestrator and as a standalone CLI command callable from the bash loop script.",
+			"user_story": "As a developer running the Ralph loop (either Python or bash), I need a reusable hook that rebuilds context and regenerates adapter payloads between iterations so each agent invocation receives the latest accumulated knowledge.",
+			"steps": [
+				"Create src/agent_recall/ralph/context_refresh.py.",
+				"Implement ContextRefreshHook.__init__ taking agent_dir (Path), storage (Storage), and files (FileStorage), instantiating a ContextAssembler internally.",
+				"Implement ContextRefreshHook.refresh() accepting optional task, item_id, iteration, and token_budget parameters.",
+				"In refresh(), build a task description string incorporating item_id and iteration context when provided (format: '[Ralph Iteration N] ITEM-ID: task').",
+				"In refresh(), call self.assembler.assemble() with include_retrieval=True to build the full context.",
+				"In refresh(), call write_adapter_payloads() with the assembled context, task description, active_session_id formatted as 'ralph-iteration-{iteration}', repo_path as agent_dir.parent, current UTC timestamp, output_dir as agent_dir, and optional token_budget.",
+				"Return a summary dict with context_length, adapters_written (list of adapter names), refreshed_at (ISO format), and task string.",
+				"Implement ContextRefreshHook.refresh_for_prd_item() as a convenience method that extracts id, title, and description from a PRD item dict and delegates to refresh()."
+			],
+			"acceptance": [
+				"ContextRefreshHook instantiates with agent_dir, storage, and files parameters.",
+				"refresh() calls ContextAssembler.assemble() with the constructed task string.",
+				"refresh() calls write_adapter_payloads() with all required parameters.",
+				"refresh() returns a dict containing context_length, adapters_written, refreshed_at, and task.",
+				"When item_id and iteration are provided, task description includes '[Ralph Iteration N] ITEM-ID: task'.",
+				"When only item_id is provided, task description includes 'ITEM-ID: task'.",
+				"When neither is provided, task description is passed through as-is.",
+				"refresh_for_prd_item() correctly extracts item fields and delegates to refresh().",
+				"token_budget parameter is forwarded to write_adapter_payloads().",
+				"Module can be imported and used independently of the Ralph loop orchestrator."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-204",
+			"category": "functional",
+			"priority": 5,
+			"title": "Implement archive-completed and search-archive CLI commands",
+			"description": "Add two new CLI commands to the Ralph Typer sub-application: 'archive-completed' for archiving completed PRD items from a JSON PRD file, and 'search-archive' for semantically searching archived items. These commands enable lifecycle management of PRD knowledge.",
+			"user_story": "As a developer, I want CLI commands to archive completed PRD items and search the archive so I can preserve and retrieve past development decisions from the terminal.",
+			"steps": [
+				"Add 'archive-completed' command to src/agent_recall/cli/ralph.py.",
+				"Implement --prd-file/-p option (optional Path, defaults to get_default_prd_path()).",
+				"Implement --iteration/-n option (int, default 0) for recording the completion iteration.",
+				"Instantiate PRDArchive with agent_dir and optional SQLiteStorage.",
+				"Call archive.archive_completed_from_prd(prd_path, iteration).",
+				"Display count of archived items and list each with bullet format (• ID: Title).",
+				"Display 'No new items to archive' when no items qualify.",
+				"Add 'search-archive' command to src/agent_recall/cli/ralph.py.",
+				"Implement query as a required positional argument.",
+				"Implement --top/-k option (int, default 5) for number of results.",
+				"Instantiate PRDArchive with agent_dir.",
+				"Call archive.search(query, top_k) and display results in a Rich Table with columns: ID, Title, Score (3 decimal places).",
+				"Display 'No matching archived items found' when results are empty."
+			],
+			"acceptance": [
+				"'agent-recall ralph archive-completed' archives items from default PRD path.",
+				"'agent-recall ralph archive-completed --prd-file ./custom.json' uses custom path.",
+				"'agent-recall ralph archive-completed --iteration 5' records iteration number.",
+				"Command displays count and list of newly archived items.",
+				"Command displays 'No new items to archive' when all items are already archived or none pass.",
+				"Command exits with code 1 and error message when PRD file not found.",
+				"'agent-recall ralph search-archive \"authentication\"' returns relevant results.",
+				"'agent-recall ralph search-archive \"auth\" --top 3' limits to 3 results.",
+				"Search results are displayed in a Rich Table with ID, Title, and Score columns.",
+				"'No matching archived items found' is shown for queries with no results."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-205",
+			"category": "functional",
+			"priority": 6,
+			"title": "Implement refresh-context CLI command",
+			"description": "Add a 'refresh-context' command to the Ralph Typer sub-application that exposes the ContextRefreshHook as a standalone CLI invocation. This command is designed to be called by the bash Ralph loop script between iterations to ensure adapter payloads are current.",
+			"user_story": "As a developer using the bash Ralph loop script, I need a CLI command that refreshes context and adapter payloads between iterations so the agent receives up-to-date knowledge without requiring the Python loop orchestrator.",
+			"steps": [
+				"Add 'refresh-context' command to src/agent_recall/cli/ralph.py.",
+				"Implement --task/-t option (optional str) for task description.",
+				"Implement --item/-i option (optional str) for PRD item ID.",
+				"Implement --iteration/-n option (optional int) for iteration number.",
+				"Check that .agent directory exists; print error and exit with code 1 if not.",
+				"Instantiate SQLiteStorage and FileStorage from .agent directory.",
+				"Instantiate ContextRefreshHook with agent_dir, storage, and files.",
+				"Call hook.refresh(task=task, item_id=item_id, iteration=iteration).",
+				"Display success message with context length in chars and list of adapter names.",
+				"Handle and display errors gracefully if context assembly fails."
+			],
+			"acceptance": [
+				"'agent-recall ralph refresh-context' refreshes context with no task context.",
+				"'agent-recall ralph refresh-context --task \"Implement JWT auth\"' includes task in context.",
+				"'agent-recall ralph refresh-context --item AUTH-001 --iteration 3' formats task as '[Ralph Iteration 3] AUTH-001: Continue work'.",
+				"Command displays '✓ Context refreshed' with context length and adapter names.",
+				"Command exits with code 1 and error message when .agent directory is missing.",
+				"Adapter payload files are regenerated in .agent/{codex,cursor,claude-code,opencode}/ directories.",
+				"Command completes without error when tier files are empty.",
+				"Command can be called by the bash loop script via 'uv run agent-recall ralph refresh-context'."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-206",
+			"category": "integration",
+			"priority": 7,
+			"title": "Add context refresh and archival hooks to bash Ralph loop script",
+			"description": "Update the bash Ralph loop script (ralph-agent-recall-loop.sh) to call the context refresh CLI command between iterations and the archive-completed CLI command when all PRD items pass. This bridges the bash-based loop with the Python-based knowledge system.",
+			"user_story": "As a developer using the bash Ralph loop, I need context to be automatically refreshed between iterations and completed items to be archived when the loop finishes, so the bash workflow has feature parity with the Python orchestrator.",
+			"steps": [
+				"Locate the iteration loop section in ralph-agent-recall-loop.sh after memory file updates and before sleep.",
+				"Add a context refresh call: 'uv run agent-recall ralph refresh-context --task \"${ITEM_TITLE:-}\" --item \"${ITEM_ID:-}\" --iteration \"$i\"'.",
+				"Wrap the context refresh call in a 'command -v uv' guard to handle environments without uv.",
+				"Capture refresh output and log warnings on failure without stopping the loop ('|| true').",
+				"Locate the all_done check in ralph-agent-recall-loop.sh where all items have passed.",
+				"Add an archival call: 'uv run agent-recall ralph archive-completed --prd-file \"$PRD_FILE\" --iteration \"$i\"'.",
+				"Wrap the archival call in a 'command -v uv' guard.",
+				"Capture archival output and log warnings on failure without stopping the loop ('|| true').",
+				"Ensure both hooks are placed at the correct points in the iteration lifecycle."
+			],
+			"acceptance": [
+				"Context refresh is called after each iteration's memory file updates.",
+				"Context refresh passes the current item title, item ID, and iteration number.",
+				"Context refresh failure does not halt the bash loop.",
+				"Archival is called when all PRD items have passed validation.",
+				"Archival passes the PRD file path and current iteration number.",
+				"Archival failure does not halt the bash loop.",
+				"Both hooks are guarded by 'command -v uv' availability check.",
+				"The bash loop continues to function correctly in environments without uv installed.",
+				"Adapter payloads are verifiably regenerated between iterations when hooks are active."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-207",
+			"category": "functional",
+			"priority": 8,
+			"title": "Implement get_default_prd_path and get_default_script_path CLI helpers",
+			"description": "Implement the get_default_prd_path() and get_default_script_path() helper functions in ralph.py that search a prioritized list of candidate paths for PRD JSON files and the bash loop script respectively, supporting multiple project layout conventions.",
+			"user_story": "As a developer, I want the Ralph CLI commands to automatically find my PRD file and loop script without requiring explicit path arguments every time, supporting both .agent/ralph/ and agent_recall/ralph/ project layouts.",
+			"steps": [
+				"Implement get_default_prd_path() that searches candidates in order: .agent/ralph/prd.json, agent_recall/ralph/prd.json, prd.json.",
+				"Return the first candidate that exists, or the first candidate path as fallback.",
+				"Implement get_default_script_path() that searches candidates in order: agent_recall/scripts/ralph-agent-recall-loop.sh, scripts/ralph-agent-recall-loop.sh.",
+				"Return the first candidate that exists, or the first candidate path as fallback.",
+				"Use these helpers as defaults in all CLI commands that accept --prd-file or require the script path."
+			],
+			"acceptance": [
+				"get_default_prd_path() returns .agent/ralph/prd.json when it exists.",
+				"get_default_prd_path() falls back to agent_recall/ralph/prd.json when primary doesn't exist.",
+				"get_default_prd_path() falls back to prd.json when neither primary nor secondary exist.",
+				"get_default_prd_path() returns the first candidate path when no candidates exist.",
+				"get_default_script_path() returns agent_recall/scripts/ralph-agent-recall-loop.sh when it exists.",
+				"get_default_script_path() falls back to scripts/ralph-agent-recall-loop.sh.",
+				"get_default_script_path() returns the first candidate when none exist.",
+				"CLI commands use these helpers consistently for default path resolution."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-208",
+			"category": "testing",
+			"priority": 9,
+			"title": "Implement comprehensive test suite for PRD archive, context refresh, and new CLI commands",
+			"description": "Create unit and integration tests covering all new components from this specification: PRD archive data model and persistence, semantic search and indexing, context refresh hook, archive-completed CLI, search-archive CLI, refresh-context CLI, bash loop integration hooks, and path helper functions.",
+			"user_story": "As a developer contributing to agent-recall, I need comprehensive tests for the PRD archive system, context refresh hook, and new CLI commands to catch regressions and verify end-to-end correctness.",
+			"steps": [
+				"Write unit tests for ArchivedPRDItem: to_dict() and from_dict() round-trip, to_searchable_text() content, field alias handling (acceptance vs acceptance_criteria), default values for missing fields.",
+				"Write unit tests for PRDArchive persistence: _load_archive() with missing file, _load_archive() with corrupt JSON, _save_archive() with version metadata, archive_item() deduplication by ID.",
+				"Write unit tests for PRDArchive.archive_completed_from_prd(): valid PRD JSON with mixed pass/fail items, empty PRD, PRD with no passing items, items already archived.",
+				"Write unit tests for PRDArchive.search(): semantic similarity ordering, top_k limit, item_ids filter, empty archive, no matching results.",
+				"Write unit tests for PRDArchive._index_archived_item(): Chunk creation with correct source, label, and tags; skipped when storage is None.",
+				"Write unit tests for PRDArchive.match_knowledge_to_prd() convenience wrapper.",
+				"Write unit tests for ContextRefreshHook.refresh(): task string formatting for all parameter combinations, return dict structure.",
+				"Write unit tests for ContextRefreshHook.refresh_for_prd_item(): field extraction and delegation.",
+				"Write integration tests for 'agent-recall ralph archive-completed': with valid PRD, missing PRD, no passing items.",
+				"Write integration tests for 'agent-recall ralph search-archive': with populated archive, empty archive.",
+				"Write integration tests for 'agent-recall ralph refresh-context': with and without .agent directory, with and without parameters.",
+				"Write unit tests for get_default_prd_path() and get_default_script_path() with various file existence scenarios."
+			],
+			"acceptance": [
+				"ArchivedPRDItem round-trip serialization — tested and passing.",
+				"PRDArchive persistence with missing/corrupt files — tested and passing.",
+				"PRDArchive.archive_completed_from_prd() with mixed items — tested and passing.",
+				"PRDArchive.search() returns correctly ordered results — tested and passing.",
+				"PRDArchive._index_archived_item() creates correct Chunk — tested and passing.",
+				"ContextRefreshHook.refresh() formats task strings correctly — tested and passing.",
+				"ContextRefreshHook.refresh_for_prd_item() extracts and delegates — tested and passing.",
+				"'agent-recall ralph archive-completed' CLI — tested and passing.",
+				"'agent-recall ralph search-archive' CLI — tested and passing.",
+				"'agent-recall ralph refresh-context' CLI — tested and passing.",
+				"Path helpers resolve correctly in all scenarios — tested and passing.",
+				"All tests pass with uv run pytest."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-301",
+			"category": "functional",
+			"priority": 10,
+			"title": "Create Ralph CLI scaffolding with enable and disable commands",
+			"description": "Create src/agent_recall/cli/ralph.py as a Typer sub-application with shared helpers (get_agent_dir, get_ralph_components) and the enable and disable commands. These commands are identical across both specifications and form the foundation that status and run build upon.",
+			"user_story": "As a developer, I want to enable and disable the Ralph loop from the CLI so I can control when automated PRD-driven development is active for my repository.",
+			"steps": [
+				"Create src/agent_recall/cli/ralph.py with a Typer sub-application named 'ralph'.",
+				"Implement get_agent_dir() helper to resolve the .agent directory from cwd.",
+				"Implement get_ralph_components() helper to instantiate SQLiteStorage and FileStorage, printing an error and exiting with code 1 if .agent directory does not exist.",
+				"Implement 'enable' command with optional --prd/-p flag (Path type).",
+				"In 'enable' without --prd: call loop.enable() and print '✓ Ralph enabled' with status.",
+				"In 'enable' with --prd: verify file exists (exit 1 if not), call loop.initialize_from_prd(prd), print item count.",
+				"Implement 'disable' command that calls loop.disable() and prints 'Ralph disabled' with total_iterations count.",
+				"Ensure both commands instantiate RalphLoop with agent_dir, storage, and files from get_ralph_components()."
+			],
+			"acceptance": [
+				"'agent-recall ralph enable' creates ralph_state.json with status ENABLED.",
+				"'agent-recall ralph enable --prd ./PRD.md' parses items and shows item count.",
+				"'agent-recall ralph enable --prd ./nonexistent.md' shows error and exits with code 1.",
+				"'agent-recall ralph disable' sets status to DISABLED and shows total iterations.",
+				"Running without 'agent-recall init' shows 'Not initialized' error and exits with code 1.",
+				"get_agent_dir() returns Path.cwd() / '.agent'.",
+				"get_ralph_components() returns (agent_dir, SQLiteStorage, FileStorage) tuple.",
+				"Rich Console is used for all output formatting."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-302",
+			"category": "functional",
+			"priority": 11,
+			"title": "Implement Ralph status command with dual-mode display",
+			"description": "Implement the 'status' command in ralph.py supporting two display modes. Mode A (from spec 1): reads RalphStateManager state and displays a Rich Panel with status, iteration counts, last run time, last outcome, and PRD path, plus a Rich Table of state-tracked PRD items with color-coded statuses. Mode B (from spec 2): reads a JSON PRD file and displays project name, version, total/completed/remaining counts, plus a Rich Table sorted by priority showing '✓ Passed' or 'Pending' status. Auto-detection selects Mode B when JSON PRD exists, falling back to Mode A.",
+			"user_story": "As a developer, I want the status command to show me the most relevant view of Ralph progress — either the live loop state when running the Python orchestrator, or the PRD completion status when using the bash loop — so I always have an accurate picture regardless of which execution mode I'm using.",
+			"steps": [
+				"Implement get_default_prd_path() helper that searches candidates in order: .agent/ralph/prd.json, agent_recall/ralph/prd.json, prd.json, returning the first that exists or the first candidate as fallback.",
+				"Implement 'status' command auto-detection: check if get_default_prd_path() points to an existing JSON file (→ Mode B), else check if RalphStateManager state file exists (→ Mode A), else exit with code 1 and message.",
+				"Implement Mode A: instantiate RalphStateManager, call load(), build Rich Panel with status (color-coded by RalphStatus), current_iteration, total_iterations, successful_iterations, failed_iterations, last_run_at (ISO format), last_outcome, and prd_path.",
+				"Implement Mode A Rich Table titled 'PRD Items' with columns: ID (cyan), Title (truncated to 40 chars), Status (color-coded: pending=dim, in_progress=yellow, completed=green, blocked=red, skipped=dim), Iterations.",
+				"Implement Mode B: read and parse JSON PRD file, extract project name, version, items list.",
+				"Implement Mode B counts: total = len(items), passed = count where passes=true, remaining = total - passed.",
+				"Implement Mode B Rich Panel with PRD path, Project name, Version, Total items, Completed (green), Remaining (yellow).",
+				"Implement Mode B Rich Table titled 'PRD Items' with columns: ID (cyan), Priority, Title (truncated to 50 chars), Status ('✓ Passed' in green or 'Pending' in yellow based on passes field), sorted by priority ascending.",
+				"Handle json.JSONDecodeError with error message and exit code 1 in Mode B."
+			],
+			"acceptance": [
+				"'agent-recall ralph status' shows Mode B panel when JSON PRD file exists at default path.",
+				"'agent-recall ralph status' shows Mode A panel when only state file exists and no JSON PRD.",
+				"'agent-recall ralph status' exits with code 1 and message when neither state file nor PRD JSON exists.",
+				"Mode A Panel displays all state fields: status, current_iteration, total_iterations, successful_iterations, failed_iterations.",
+				"Mode A Panel conditionally displays last_run_at and last_outcome only when present.",
+				"Mode A Table shows PRD items with color-coded statuses matching the status_style mapping.",
+				"Mode B Panel displays project name, version, total/completed/remaining counts.",
+				"Mode B Table sorts items by priority (ascending) and truncates titles to 50 characters.",
+				"Mode B Table shows '✓ Passed' (green) for items with passes=true and 'Pending' (yellow) otherwise.",
+				"Invalid JSON PRD file shows error message and exits with code 1."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-303",
+			"category": "functional",
+			"priority": 12,
+			"title": "Implement Ralph run command with dual-mode execution",
+			"description": "Implement the 'run' command in ralph.py supporting two execution modes. Mode A (from spec 1): Python orchestrator via asyncio.run(loop.run_loop()) with --max/-m and --item/-i flags, progress_callback for real-time console output, and a summary panel. Mode B (from spec 2): bash script delegation via subprocess.run() with --agent-cmd/-a (required), --validate-cmd/-v, --max-iterations/-n, --prd-file/-p, --compact-mode, --sleep-seconds flags, and exit code handling. Mode selection is determined by whether --agent-cmd is provided (Mode B) or not (Mode A).",
+			"user_story": "As a developer, I want the run command to support both the Python loop orchestrator (for full integration with state management and progress callbacks) and bash script delegation (for simpler CLI-driven workflows), so I can choose the execution mode that fits my needs.",
+			"steps": [
+				"Implement get_default_script_path() helper that searches candidates: agent_recall/scripts/ralph-agent-recall-loop.sh, scripts/ralph-agent-recall-loop.sh, returning first existing or first candidate.",
+				"Implement 'run' command with Mode A parameters: --max/-m (Optional[int], default None), --item/-i (Optional[str], default None).",
+				"Implement 'run' command with Mode B parameters: --agent-cmd/-a (Optional[str], default None), --validate-cmd/-v (Optional[str], default None), --max-iterations/-n (int, default 10), --prd-file/-p (Optional[Path], default None), --compact-mode (str, default 'always'), --sleep-seconds (int, default 2).",
+				"Implement mode detection: if --agent-cmd is provided → Mode B, else → Mode A.",
+				"Implement Mode A: load RalphConfig from files.read_config().get('ralph', {}), check state is not DISABLED (exit 1 if so), create progress_callback function, instantiate RalphLoop, call asyncio.run(loop.run_loop(max_iterations=max_iterations)).",
+				"Implement Mode A progress_callback handling events: iteration_started (cyan with iteration number and item_id), agent_complete (green/red based on exit_code), validation_complete (green ✓ or red with hint truncated to 80 chars), iteration_complete (dim with duration and outcome).",
+				"Implement Mode A summary Rich Panel showing total iterations, passed count (green), failed count (red).",
+				"Implement Mode B: resolve script_path via get_default_script_path() (exit 1 if not found), resolve prd_path via --prd-file or get_default_prd_path() (exit 1 if not found).",
+				"Implement Mode B command array construction: [script_path, '--agent-cmd', agent_cmd, '--max-iterations', str(max_iterations), '--prd-file', str(prd_path), '--compact-mode', compact_mode, '--sleep-seconds', str(sleep_seconds)] plus optional '--validate-cmd'.",
+				"Implement Mode B execution via subprocess.run(cmd, cwd=Path.cwd(), check=False).",
+				"Implement Mode B exit code handling: 0 = green success message, 2 = yellow max iterations message, 130 = yellow keyboard interrupt (via except KeyboardInterrupt), other = red with code.",
+				"Implement Mode B pre-run console output showing PRD path and max iterations."
+			],
+			"acceptance": [
+				"'agent-recall ralph run --max 3' executes Mode A Python orchestrator limited to 3 iterations.",
+				"'agent-recall ralph run' without --agent-cmd executes Mode A with no iteration limit.",
+				"'agent-recall ralph run' Mode A shows error and exits 1 when Ralph is DISABLED.",
+				"'agent-recall ralph run' Mode A progress_callback displays all four event types correctly.",
+				"'agent-recall ralph run' Mode A summary panel shows correct passed/failed counts.",
+				"'agent-recall ralph run --agent-cmd \"claude --print {prompt_file}\"' executes Mode B bash delegation.",
+				"'agent-recall ralph run --agent-cmd \"claude\" --max-iterations 20' passes --max-iterations 20 to bash script.",
+				"'agent-recall ralph run --agent-cmd \"claude\" --validate-cmd \"make test\"' passes custom validation command.",
+				"'agent-recall ralph run --agent-cmd \"claude\" --compact-mode on-failure --sleep-seconds 5' passes all parameters.",
+				"Mode B returns exit code 0 for success with green message.",
+				"Mode B returns exit code 2 for max iterations with yellow message.",
+				"Mode B catches KeyboardInterrupt and exits with code 130.",
+				"Mode B shows error and exits 1 when bash script not found.",
+				"Mode B shows error and exits 1 when PRD file not found."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-501",
+			"category": "functional",
+			"priority": 13,
+			"title": "Implement tier format core detection layer",
+			"description": "Create src/agent_recall/core/tier_format.py with the EntryFormat enum (including PREAMBLE value from spec 2), all three regex patterns with named capture groups, the canonical detection function detect_line_format(), and the boolean helper functions is_ralph_entry_start() and is_bullet_entry(). This layer provides the foundation that both the structured parsing layer and compact.py depend on.",
+			"user_story": "As a developer working on agent-recall internals, I need a single source of truth for detecting whether a tier file line belongs to the bullet format, Ralph format, recent-bullet format, or preamble, so that all downstream consumers classify lines consistently.",
+			"steps": [
+				"Create src/agent_recall/core/tier_format.py with module docstring explaining dual-flow format awareness.",
+				"Import re and StrEnum.",
+				"Implement EntryFormat StrEnum with values: BULLET = 'bullet', RALPH = 'ralph', RECENT_BULLET = 'recent_bullet', PREAMBLE = 'preamble', UNKNOWN = 'unknown'.",
+				"Define BULLET_RE: re.compile(r'^\\s*-\\s*\\[(?P<kind>[A-Z_]+)\\]\\s*(?P<text>.+?)\\s*$') with named groups 'kind' and 'text'.",
+				"Define RALPH_ENTRY_RE: re.compile(r'^##\\s+(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z)\\s+(?:HARD FAILURE\\s+)?Iteration\\s+(\\d+)\\s+\\(([^)]+)\\)') with positional groups for timestamp, iteration number, and item_id.",
+				"Define RECENT_BULLET_RE: re.compile(r'^\\s*\\*\\*(?P<date>\\d{4}-\\d{2}-\\d{2})\\*\\*:\\s*(?P<summary>.+)\\s*$') with named groups 'date' and 'summary'.",
+				"Implement detect_line_format(line: str) -> EntryFormat that strips trailing whitespace and checks RALPH_ENTRY_RE first, then BULLET_RE, then RECENT_BULLET_RE, returning UNKNOWN if none match.",
+				"Implement is_ralph_entry_start(line: str) -> bool using RALPH_ENTRY_RE.match().",
+				"Implement is_bullet_entry(line: str) -> bool using BULLET_RE.match().",
+				"Add backward-compatible aliases: detect_entry_format = detect_line_format, is_ralph_entry_line = is_ralph_entry_start, is_bullet_entry_line = is_bullet_entry."
+			],
+			"acceptance": [
+				"EntryFormat enum contains exactly five values: BULLET, RALPH, RECENT_BULLET, PREAMBLE, UNKNOWN.",
+				"BULLET_RE matches '- [FAILURE] some error description' and captures kind='FAILURE', text='some error description'.",
+				"BULLET_RE matches '  - [PATTERN] indented entry' with leading whitespace.",
+				"BULLET_RE does not match '- plain text without brackets'.",
+				"RALPH_ENTRY_RE matches '## 2024-01-15T10:30:00Z Iteration 3 (AUTH-001)' capturing timestamp, iteration=3, item_id='AUTH-001'.",
+				"RALPH_ENTRY_RE matches '## 2024-01-15T10:30:00Z HARD FAILURE Iteration 3 (AUTH-001)' with optional HARD FAILURE prefix.",
+				"RALPH_ENTRY_RE does not match '## Some Other Heading'.",
+				"RECENT_BULLET_RE matches '**2024-01-15**: Implemented JWT auth' capturing date='2024-01-15', summary='Implemented JWT auth'.",
+				"detect_line_format() returns RALPH for Ralph headers, BULLET for bullet entries, RECENT_BULLET for date-prefixed entries, UNKNOWN for other lines.",
+				"detect_line_format() checks RALPH_ENTRY_RE before BULLET_RE to avoid misclassification.",
+				"is_ralph_entry_start() returns True for Ralph headers and False for all other lines.",
+				"is_bullet_entry() returns True for bullet entries and False for all other lines.",
+				"Aliases detect_entry_format, is_ralph_entry_line, is_bullet_entry_line are callable and return identical results to their canonical counterparts."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-502",
+			"category": "functional",
+			"priority": 14,
+			"title": "Implement tier format structured parsing layer",
+			"description": "Extend src/agent_recall/core/tier_format.py with the ParsedEntry and TierContent dataclasses, the parse_ralph_header() and parse_bullet_entry() extraction functions, and the full parse_tier_content() function that parses a complete tier file into a structured TierContent object. This includes multi-line Ralph block tracking where consecutive non-header lines following a Ralph header are grouped into a single ParsedEntry.",
+			"user_story": "As a developer, I need to parse tier files into structured typed objects so I can programmatically query, filter, and manipulate entries by format type, iteration number, item ID, or entry kind without brittle string manipulation.",
+			"steps": [
+				"Implement ParsedEntry dataclass with fields: format (EntryFormat), raw_content (str), timestamp (str | None, default None), iteration (int | None, default None), item_id (str | None, default None), kind (str | None, default None), text (str | None, default None).",
+				"Implement TierContent dataclass with fields: preamble (list[str]), bullet_entries (list[ParsedEntry]), ralph_entries (list[ParsedEntry]), unknown_lines (list[str]).",
+				"Implement parse_ralph_header(line: str) -> tuple[str, int, str] | None that applies RALPH_ENTRY_RE, returning (timestamp_str, int(iteration), item_id) on match or None.",
+				"Implement parse_bullet_entry(line: str) -> tuple[str, str] | None that applies BULLET_RE, returning (kind, text) on match or None.",
+				"Implement parse_tier_content(content: str) -> TierContent with the following logic:",
+				"Initialize: preamble list, bullet_entries list, ralph_entries list, unknown_lines list, in_ralph_block=False, current_ralph_lines=[], current_ralph_header=None, found_first_entry=False.",
+				"For each line in content.split('\\n'): check is_ralph_entry_start() first.",
+				"On Ralph header: save previous ralph block if exists (append ParsedEntry with RALPH format, joined raw_content, header fields), start new block, set found_first_entry=True.",
+				"Inside ralph block: check for block termination (line starts with '## ' OR line is empty AND previous line was empty). On termination: save block, reset tracking, then classify the terminating line.",
+				"Inside ralph block without termination: append line to current_ralph_lines.",
+				"Outside ralph block: check is_bullet_entry() → create ParsedEntry with BULLET format and parsed kind/text, set found_first_entry=True.",
+				"Check RECENT_BULLET_RE → create ParsedEntry with RECENT_BULLET format, parsed date as timestamp and summary as text, append to bullet_entries, set found_first_entry=True.",
+				"Remaining lines: if not found_first_entry → append to preamble, else if line.strip() → append to unknown_lines.",
+				"After loop: save final ralph block if current_ralph_lines is non-empty.",
+				"Return TierContent with all four lists."
+			],
+			"acceptance": [
+				"ParsedEntry stores all fields correctly for BULLET format: format=BULLET, raw_content=original line, kind='FAILURE', text='description'.",
+				"ParsedEntry stores all fields correctly for RALPH format: format=RALPH, raw_content=joined block, timestamp='2024-01-15T10:30:00Z', iteration=3, item_id='AUTH-001'.",
+				"ParsedEntry stores all fields correctly for RECENT_BULLET format: format=RECENT_BULLET, raw_content=original line, timestamp='2024-01-15', text='summary'.",
+				"TierContent separates content into exactly four categories: preamble, bullet_entries, ralph_entries, unknown_lines.",
+				"parse_ralph_header() returns ('2024-01-15T10:30:00Z', 3, 'AUTH-001') for '## 2024-01-15T10:30:00Z Iteration 3 (AUTH-001)'.",
+				"parse_ralph_header() returns None for '## Some Other Heading' and for bullet lines.",
+				"parse_bullet_entry() returns ('FAILURE', 'some error') for '- [FAILURE] some error'.",
+				"parse_bullet_entry() returns None for Ralph headers and plain text.",
+				"parse_tier_content() groups multi-line Ralph blocks: a header followed by '- Error detail\\n- Another error' becomes one ParsedEntry with 3-line raw_content.",
+				"parse_tier_content() correctly identifies preamble lines appearing before the first entry of any type.",
+				"parse_tier_content() correctly places unknown non-empty lines after first entry into unknown_lines.",
+				"parse_tier_content() handles empty content string returning empty TierContent.",
+				"parse_tier_content() handles content with only preamble (no entries) correctly.",
+				"parse_tier_content() terminates Ralph blocks on consecutive empty lines.",
+				"parse_tier_content() terminates Ralph blocks on new '## ' header that is not a Ralph entry.",
+				"RECENT_BULLET entries are placed into bullet_entries list (not a separate list)."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-503",
+			"category": "functional",
+			"priority": 15,
+			"title": "Implement tier format merge, round-trip, and backward-compatible split",
+			"description": "Extend src/agent_recall/core/tier_format.py with merge_tier_content() accepting a TierContent object with optional preserve_order parameter, and a backward-compatible split_tier_by_format() wrapper that returns (preamble, bullet_raw, ralph_raw) tuples from parse_tier_content(). Ensure that content round-trips through parse_tier_content() → merge_tier_content() without entry loss.",
+			"user_story": "As a developer, I need to reassemble tier files from their parsed components in the correct order (preamble → bullets → Ralph entries) and I need the old split_tier_by_format API to keep working for existing callers, so that both old and new code paths produce correct tier files.",
+			"steps": [
+				"Implement merge_tier_content(content: TierContent, preserve_order: bool = True) -> str.",
+				"Merge preamble: join content.preamble with newlines, strip, add to parts if non-empty.",
+				"Merge bullet entries: collect raw_content from each entry in content.bullet_entries, join with newlines, add to parts if non-empty.",
+				"Merge Ralph entries: collect raw_content from each entry in content.ralph_entries (already in reverse chronological order), join with newlines, add to parts if non-empty.",
+				"Join parts with double-newline separator ('\\n\\n') and append trailing newline.",
+				"Implement backward-compatible split_tier_by_format(content: str) -> tuple[list[str], list[str], list[str]].",
+				"In split_tier_by_format: call parse_tier_content(content), then extract preamble_lines from tier_content.preamble, bullet_strings from [e.raw_content for e in tier_content.bullet_entries], ralph_strings from [e.raw_content for e in tier_content.ralph_entries].",
+				"Return (preamble_lines, bullet_strings, ralph_strings) tuple.",
+				"Add round-trip test helper: for any input content, parse_tier_content(content) followed by merge_tier_content() must preserve all entries (bullet count, ralph count, preamble content).",
+				"Verify that merge_tier_content with empty TierContent returns a single newline."
+			],
+			"acceptance": [
+				"merge_tier_content() produces output with preamble first, then bullet entries, then Ralph entries.",
+				"merge_tier_content() separates sections with double-newline ('\\n\\n').",
+				"merge_tier_content() appends a trailing newline to the output.",
+				"merge_tier_content() with empty TierContent (all empty lists) returns '\\n'.",
+				"merge_tier_content() with only preamble returns preamble text + '\\n'.",
+				"merge_tier_content() with only bullet entries returns bullet lines + '\\n'.",
+				"merge_tier_content() with only Ralph entries returns Ralph blocks + '\\n'.",
+				"merge_tier_content() accepts preserve_order parameter without error.",
+				"split_tier_by_format() returns a 3-tuple of (list[str], list[str], list[str]).",
+				"split_tier_by_format() preamble list matches parse_tier_content().preamble.",
+				"split_tier_by_format() bullet list contains raw_content strings from bullet ParsedEntries.",
+				"split_tier_by_format() ralph list contains raw_content strings from ralph ParsedEntries.",
+				"Round-trip test: parsing then merging a mixed-format file preserves all bullet entry count.",
+				"Round-trip test: parsing then merging a mixed-format file preserves all Ralph entry count.",
+				"Round-trip test: parsing then merging preserves preamble content.",
+				"Round-trip test: no entries are duplicated or lost during round-trip."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-601",
+			"category": "functional",
+			"priority": 16,
+			"title": "Update compact.py imports to canonical tier_format API",
+			"description": "Update all imports in src/agent_recall/core/compact.py to use the canonical function names from the extended tier_format module: is_ralph_entry_start (not is_ralph_entry_line), is_bullet_entry (not is_bullet_entry_line). Optionally import parse_tier_content and TierContent for richer format-aware processing in downstream sub-PRDs. Verify no deprecated alias names appear anywhere in compact.py.",
+			"user_story": "As a developer maintaining compact.py, I need imports to reference the canonical tier_format API so that when deprecated aliases are eventually removed, compact.py continues to work without modification.",
+			"steps": [
+				"Add import statement: from agent_recall.core.tier_format import is_ralph_entry_start to compact.py.",
+				"Add import statement: from agent_recall.core.tier_format import is_bullet_entry to compact.py (if needed by existing detection logic).",
+				"Optionally add import: from agent_recall.core.tier_format import parse_tier_content, TierContent for AR-603 usage.",
+				"Remove or replace any existing references to is_ralph_entry_line in compact.py.",
+				"Remove or replace any existing references to is_bullet_entry_line in compact.py.",
+				"Remove or replace any existing references to split_tier_by_format in compact.py (if using parse_tier_content instead).",
+				"Run ruff check to verify no unused imports and no import errors.",
+				"Run ty check to verify type correctness of all import references."
+			],
+			"acceptance": [
+				"compact.py imports is_ralph_entry_start from agent_recall.core.tier_format.",
+				"compact.py does not contain the string 'is_ralph_entry_line' anywhere (neither import nor usage).",
+				"compact.py does not contain the string 'is_bullet_entry_line' anywhere (neither import nor usage).",
+				"All imports resolve without ImportError when compact.py is loaded.",
+				"ruff check reports no unused imports in compact.py.",
+				"ty check reports no type errors related to tier_format imports.",
+				"All existing compact.py tests continue to pass (no functional changes yet)."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-602",
+			"category": "functional",
+			"priority": 17,
+			"title": "Update _split_preamble_and_lines to skip Ralph entry blocks",
+			"description": "Update the _split_preamble_and_lines() static method in compact.py to detect and skip Ralph entry blocks using is_ralph_entry_start(). Implement in_ralph_block tracking with correct block termination logic: a Ralph block ends when a new '## ' header is encountered OR when two consecutive empty lines appear. Lines within Ralph blocks are excluded from both the preamble and extracted lists.",
+			"user_story": "As a developer running 'agent-recall run' (compaction), I need the bullet-entry extraction logic to completely skip over Ralph-format entry blocks so that compaction only processes bullet entries and leaves Ralph entries untouched.",
+			"steps": [
+				"Locate the _split_preamble_and_lines() static method in compact.py.",
+				"Add in_ralph_block: bool = False tracking variable before the line iteration loop.",
+				"Add current_ralph_empty_count: int = 0 to track consecutive empty lines within Ralph blocks.",
+				"At the start of each loop iteration, check if is_ralph_entry_start(line) is True: if so, set in_ralph_block = True, reset current_ralph_empty_count = 0, and continue (skip this line).",
+				"If in_ralph_block is True: check for block termination conditions.",
+				"Termination condition 1: line.startswith('## ') but is NOT a Ralph entry start → set in_ralph_block = False, fall through to normal processing.",
+				"Termination condition 2: line.strip() == '' → increment current_ralph_empty_count; if current_ralph_empty_count >= 2, set in_ralph_block = False and continue.",
+				"Termination condition 3 (non-terminating): line has content → reset current_ralph_empty_count = 0 and continue (still in Ralph block).",
+				"If in_ralph_block is True and not terminated, continue to next line.",
+				"Remaining logic (matcher.match, preamble collection) is unchanged for non-Ralph lines."
+			],
+			"acceptance": [
+				"A Ralph entry header line is skipped and does not appear in preamble or extracted lists.",
+				"Lines following a Ralph header (e.g., '- Error: something' within a Ralph block) are skipped.",
+				"A Ralph block with 5 detail lines is entirely skipped (0 lines in extracted).",
+				"A Ralph block terminated by a new '## Other Heading' correctly ends the block.",
+				"A Ralph block terminated by two consecutive empty lines correctly ends the block.",
+				"A single empty line within a Ralph block does not terminate the block.",
+				"Bullet entries appearing after a Ralph block are correctly extracted.",
+				"Preamble lines appearing before any entry (including Ralph entries) are correctly collected.",
+				"A tier file with interleaved Ralph and bullet entries extracts only bullet entries.",
+				"A tier file with only Ralph entries returns empty extracted list and correct preamble."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "AR-603",
+			"category": "functional",
+			"priority": 18,
+			"title": "Ensure Ralph blocks are preserved on compact.py rewrite with integration tests",
+			"description": "Ensure that when compact.py rewrites a tier file after compaction, all Ralph entry blocks that were skipped during extraction are preserved verbatim in the output. Add comprehensive integration tests covering mixed-format files (GUARDRAILS.md, STYLE.md, RECENT.md), Ralph-only files, bullet-only files, and round-trip preservation. Verify that no deprecated tier_format alias names exist in compact.py.",
+			"user_story": "As a developer, I need absolute certainty that running compaction never destroys Ralph loop entries in my tier files, regardless of the mix of entry formats present, so I can safely run 'agent-recall run' at any time.",
+			"steps": [
+				"Review the tier file rewrite path in compact.py to identify where compacted bullet entries are written back to disk.",
+				"Before rewrite: use parse_tier_content() (or is_ralph_entry_start() line-by-line scan) on the original file content to extract all Ralph blocks as a list of raw strings.",
+				"After computing compacted bullet entries: reconstruct file content as: preamble + compacted bullet entries + preserved Ralph blocks (in original order).",
+				"Ensure double-newline separation between sections in the reconstructed content.",
+				"Write integration test: GUARDRAILS.md with 3 bullet entries and 2 Ralph blocks → compact → verify 2 Ralph blocks preserved verbatim, bullet entries compacted.",
+				"Write integration test: STYLE.md with only Ralph entries → compact → verify file is unchanged.",
+				"Write integration test: RECENT.md with only bullet entries → compact → verify normal compaction, no errors.",
+				"Write integration test: Mixed file with Ralph block between two groups of bullet entries → compact → verify Ralph block position and content preserved.",
+				"Write integration test: File with preamble header, bullet entries, and Ralph entries → compact → verify preamble preserved.",
+				"Write verification test: grep compact.py source for deprecated names (is_ralph_entry_line, is_bullet_entry_line) → assert zero matches.",
+				"Write round-trip test: original file → compact → parse_tier_content() on result → verify ralph_entries count matches original."
+			],
+			"acceptance": [
+				"Compaction of GUARDRAILS.md preserves all Ralph-format entries verbatim (byte-for-byte).",
+				"Compaction of STYLE.md preserves all Ralph-format entries verbatim.",
+				"Compaction of RECENT.md preserves all Ralph-format entries verbatim.",
+				"A tier file with only Ralph entries is not modified by compaction.",
+				"A tier file with only bullet entries compacts normally without errors.",
+				"A tier file with both formats round-trips correctly: Ralph entry count is preserved.",
+				"Preamble content is preserved when both Ralph and bullet entries exist.",
+				"Ralph blocks maintain their internal line structure (detail lines, empty lines within block).",
+				"No references to deprecated tier_format function names exist anywhere in compact.py.",
+				"All integration tests pass with uv run pytest.",
+				"ruff check reports no issues in compact.py.",
+				"ty check reports no type errors in compact.py."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		}
+	]
 }
