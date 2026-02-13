@@ -85,128 +85,128 @@ LOCK_ACQUIRED=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --agent-cmd)
-      AGENT_CMD="$2"
-      shift 2
-      ;;
-    --validate-cmd)
-      VALIDATE_CMD="$2"
-      shift 2
-      ;;
-    --agent-output-mode)
-      AGENT_OUTPUT_MODE="$2"
-      shift 2
-      ;;
-    --agent-timeout-seconds)
-      AGENT_TIMEOUT_SECONDS="$2"
-      shift 2
-      ;;
-    --prd-file)
-      PRD_FILE="$2"
-      shift 2
-      ;;
-    --progress-file)
-      PROGRESS_FILE="$2"
-      shift 2
-      ;;
-    --prompt-template)
-      PROMPT_TEMPLATE="$2"
-      shift 2
-      ;;
-    --max-iterations)
-      MAX_ITERATIONS="$2"
-      shift 2
-      ;;
-    --sleep-seconds)
-      SLEEP_SECONDS="$2"
-      shift 2
-      ;;
-    --complete-marker)
-      COMPLETE_MARKER="$2"
-      shift 2
-      ;;
-    --alt-complete-marker)
-      ALT_COMPLETE_MARKER="$2"
-      shift 2
-      ;;
-    --abort-marker)
-      ABORT_MARKER="$2"
-      shift 2
-      ;;
-    --recent-commit-count)
-      RECENT_COMMIT_COUNT="$2"
-      shift 2
-      ;;
-    --recent-commit-grep)
-      RECENT_COMMIT_GREP="$2"
-      shift 2
-      ;;
-    --progress-tail-lines)
-      PROGRESS_TAIL_LINES="$2"
-      shift 2
-      ;;
-    --memory-tail-lines)
-      MEMORY_TAIL_LINES="$2"
-      shift 2
-      ;;
-    --memory-dir)
-      MEMORY_DIR="$2"
-      GUARDRAILS_FILE="$MEMORY_DIR/GUARDRAILS.md"
-      STYLE_FILE="$MEMORY_DIR/STYLE.md"
-      RECENT_FILE="$MEMORY_DIR/RECENT.md"
-      shift 2
-      ;;
-    --guardrails-file)
-      GUARDRAILS_FILE="$2"
-      shift 2
-      ;;
-    --style-file)
-      STYLE_FILE="$2"
-      shift 2
-      ;;
-    --recent-file)
-      RECENT_FILE="$2"
-      shift 2
-      ;;
-    --compact-cmd)
-      COMPACT_CMD="$2"
-      shift 2
-      ;;
-    --compact-mode)
-      COMPACT_MODE="$2"
-      shift 2
-      ;;
-    --pre-iteration-cmd)
-      PRE_ITERATION_CMD="$2"
-      shift 2
-      ;;
-    --notify-cmd)
-      NOTIFY_CMD="$2"
-      shift 2
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "Unknown argument: $1" >&2
-      usage
-      exit 1
-      ;;
+  --agent-cmd)
+    AGENT_CMD="$2"
+    shift 2
+    ;;
+  --validate-cmd)
+    VALIDATE_CMD="$2"
+    shift 2
+    ;;
+  --agent-output-mode)
+    AGENT_OUTPUT_MODE="$2"
+    shift 2
+    ;;
+  --agent-timeout-seconds)
+    AGENT_TIMEOUT_SECONDS="$2"
+    shift 2
+    ;;
+  --prd-file)
+    PRD_FILE="$2"
+    shift 2
+    ;;
+  --progress-file)
+    PROGRESS_FILE="$2"
+    shift 2
+    ;;
+  --prompt-template)
+    PROMPT_TEMPLATE="$2"
+    shift 2
+    ;;
+  --max-iterations)
+    MAX_ITERATIONS="$2"
+    shift 2
+    ;;
+  --sleep-seconds)
+    SLEEP_SECONDS="$2"
+    shift 2
+    ;;
+  --complete-marker)
+    COMPLETE_MARKER="$2"
+    shift 2
+    ;;
+  --alt-complete-marker)
+    ALT_COMPLETE_MARKER="$2"
+    shift 2
+    ;;
+  --abort-marker)
+    ABORT_MARKER="$2"
+    shift 2
+    ;;
+  --recent-commit-count)
+    RECENT_COMMIT_COUNT="$2"
+    shift 2
+    ;;
+  --recent-commit-grep)
+    RECENT_COMMIT_GREP="$2"
+    shift 2
+    ;;
+  --progress-tail-lines)
+    PROGRESS_TAIL_LINES="$2"
+    shift 2
+    ;;
+  --memory-tail-lines)
+    MEMORY_TAIL_LINES="$2"
+    shift 2
+    ;;
+  --memory-dir)
+    MEMORY_DIR="$2"
+    GUARDRAILS_FILE="$MEMORY_DIR/GUARDRAILS.md"
+    STYLE_FILE="$MEMORY_DIR/STYLE.md"
+    RECENT_FILE="$MEMORY_DIR/RECENT.md"
+    shift 2
+    ;;
+  --guardrails-file)
+    GUARDRAILS_FILE="$2"
+    shift 2
+    ;;
+  --style-file)
+    STYLE_FILE="$2"
+    shift 2
+    ;;
+  --recent-file)
+    RECENT_FILE="$2"
+    shift 2
+    ;;
+  --compact-cmd)
+    COMPACT_CMD="$2"
+    shift 2
+    ;;
+  --compact-mode)
+    COMPACT_MODE="$2"
+    shift 2
+    ;;
+  --pre-iteration-cmd)
+    PRE_ITERATION_CMD="$2"
+    shift 2
+    ;;
+  --notify-cmd)
+    NOTIFY_CMD="$2"
+    shift 2
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "Unknown argument: $1" >&2
+    usage
+    exit 1
+    ;;
   esac
 done
 
 is_positive_int() {
-  [[ "$1" =~ ^[1-9][0-9]*$ ]]
+  [[ $1 =~ ^[1-9][0-9]*$ ]]
 }
 
 is_non_negative_int() {
-  [[ "$1" =~ ^[0-9]+$ ]]
+  [[ $1 =~ ^[0-9]+$ ]]
 }
 
 file_hash() {
   local file="$1"
-  if [[ ! -f "$file" ]]; then
+  if [[ ! -f $file ]]; then
     printf 'missing\n'
     return 0
   fi
@@ -224,24 +224,24 @@ ensure_memory_files() {
   mkdir -p "$(dirname "$STYLE_FILE")"
   mkdir -p "$(dirname "$RECENT_FILE")"
 
-  if [[ ! -f "$GUARDRAILS_FILE" ]]; then
-    cat > "$GUARDRAILS_FILE" <<'EOF_G'
+  if [[ ! -f $GUARDRAILS_FILE ]]; then
+    cat >"$GUARDRAILS_FILE" <<'EOF_G'
 # Guardrails
 
 Rules and warnings learned during Ralph iterations.
 EOF_G
   fi
 
-  if [[ ! -f "$STYLE_FILE" ]]; then
-    cat > "$STYLE_FILE" <<'EOF_S'
+  if [[ ! -f $STYLE_FILE ]]; then
+    cat >"$STYLE_FILE" <<'EOF_S'
 # Style
 
 Patterns and preferences learned during Ralph iterations.
 EOF_S
   fi
 
-  if [[ ! -f "$RECENT_FILE" ]]; then
-    cat > "$RECENT_FILE" <<'EOF_R'
+  if [[ ! -f $RECENT_FILE ]]; then
+    cat >"$RECENT_FILE" <<'EOF_R'
 # Recent
 
 Recent Ralph iteration summaries.
@@ -249,7 +249,7 @@ EOF_R
   fi
 }
 
-if [[ -z "$AGENT_CMD" ]]; then
+if [[ -z $AGENT_CMD ]]; then
   echo "Error: --agent-cmd (or RALPH_AGENT_CMD) is required." >&2
   exit 1
 fi
@@ -259,7 +259,7 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -f "$PRD_FILE" ]]; then
+if [[ ! -f $PRD_FILE ]]; then
   echo "Error: PRD file not found: $PRD_FILE" >&2
   exit 1
 fi
@@ -269,7 +269,7 @@ if ! jq -e '.items | type == "array"' "$PRD_FILE" >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -f "$PROMPT_TEMPLATE" ]]; then
+if [[ ! -f $PROMPT_TEMPLATE ]]; then
   echo "Error: prompt template not found: $PROMPT_TEMPLATE" >&2
   exit 1
 fi
@@ -304,18 +304,18 @@ if ! is_non_negative_int "$AGENT_TIMEOUT_SECONDS"; then
   exit 1
 fi
 
-if [[ "$AGENT_OUTPUT_MODE" != "plain" && "$AGENT_OUTPUT_MODE" != "stream-json" ]]; then
+if [[ $AGENT_OUTPUT_MODE != "plain" && $AGENT_OUTPUT_MODE != "stream-json" ]]; then
   echo "Error: --agent-output-mode must be plain or stream-json." >&2
   exit 1
 fi
 
-if [[ "$COMPACT_MODE" != "always" && "$COMPACT_MODE" != "on-failure" && "$COMPACT_MODE" != "off" ]]; then
+if [[ $COMPACT_MODE != "always" && $COMPACT_MODE != "on-failure" && $COMPACT_MODE != "off" ]]; then
   echo "Error: --compact-mode must be always, on-failure, or off." >&2
   exit 1
 fi
 
 detect_timeout_backend() {
-  if [[ "$AGENT_TIMEOUT_SECONDS" -eq 0 ]]; then
+  if [[ $AGENT_TIMEOUT_SECONDS -eq 0 ]]; then
     AGENT_TIMEOUT_BACKEND="none"
     return 0
   fi
@@ -340,17 +340,17 @@ detect_timeout_backend() {
 }
 
 release_lock() {
-  if [[ "${LOCK_ACQUIRED:-0}" -ne 1 ]]; then
+  if [[ ${LOCK_ACQUIRED:-0} -ne 1 ]]; then
     return 0
   fi
 
-  if [[ ! -f "$LOCK_FILE" ]]; then
+  if [[ ! -f $LOCK_FILE ]]; then
     return 0
   fi
 
   local holder
   holder="$(cat "$LOCK_FILE" 2>/dev/null || true)"
-  if [[ "$holder" == "$$" ]]; then
+  if [[ $holder == "$$" ]]; then
     rm -f "$LOCK_FILE"
   fi
 }
@@ -358,10 +358,10 @@ release_lock() {
 acquire_lock() {
   mkdir -p "$(dirname "$LOCK_FILE")"
 
-  if [[ -f "$LOCK_FILE" ]]; then
+  if [[ -f $LOCK_FILE ]]; then
     local holder
     holder="$(cat "$LOCK_FILE" 2>/dev/null || true)"
-    if [[ -n "$holder" && "$holder" =~ ^[0-9]+$ ]] && kill -0 "$holder" 2>/dev/null; then
+    if [[ -n $holder && $holder =~ ^[0-9]+$ ]] && kill -0 "$holder" 2>/dev/null; then
       echo "Another Agent Recall Ralph loop is already running (pid $holder)." >&2
       echo "Lock file: $LOCK_FILE" >&2
       exit 1
@@ -369,7 +369,10 @@ acquire_lock() {
     rm -f "$LOCK_FILE"
   fi
 
-  if ( set -o noclobber; echo "$$" > "$LOCK_FILE" ) 2>/dev/null; then
+  if (
+    set -o noclobber
+    echo "$$" >"$LOCK_FILE"
+  ) 2>/dev/null; then
     LOCK_ACQUIRED=1
     trap release_lock EXIT INT TERM
     return 0
@@ -426,7 +429,7 @@ derive_changed_item_json() {
 recent_commits() {
   local commits
   commits="$(git log --grep="$RECENT_COMMIT_GREP" -n "$RECENT_COMMIT_COUNT" --format='%H%n%ad%n%B---' --date=short 2>/dev/null || true)"
-  if [[ -z "$commits" ]]; then
+  if [[ -z $commits ]]; then
     printf 'No commits matching pattern "%s".\n' "$RECENT_COMMIT_GREP"
   else
     printf '%s\n' "$commits"
@@ -439,33 +442,33 @@ run_agent() {
   local cmd="$AGENT_CMD"
   local -a timeout_prefix=()
 
-  if [[ "$AGENT_TIMEOUT_SECONDS" -gt 0 ]]; then
+  if [[ $AGENT_TIMEOUT_SECONDS -gt 0 ]]; then
     case "$AGENT_TIMEOUT_BACKEND" in
-      timeout)
-        timeout_prefix=(timeout "$AGENT_TIMEOUT_SECONDS")
-        ;;
-      gtimeout)
-        timeout_prefix=(gtimeout "$AGENT_TIMEOUT_SECONDS")
-        ;;
-      perl)
-        timeout_prefix=(perl -e 'alarm shift; exec @ARGV' "$AGENT_TIMEOUT_SECONDS")
-        ;;
+    timeout)
+      timeout_prefix=(timeout "$AGENT_TIMEOUT_SECONDS")
+      ;;
+    gtimeout)
+      timeout_prefix=(gtimeout "$AGENT_TIMEOUT_SECONDS")
+      ;;
+    perl)
+      timeout_prefix=(perl -e 'alarm shift; exec @ARGV' "$AGENT_TIMEOUT_SECONDS")
+      ;;
     esac
   fi
 
-  if [[ "$AGENT_TIMEOUT_SECONDS" -gt 0 ]]; then
-    if [[ "$cmd" == *"{prompt_file}"* ]]; then
+  if [[ $AGENT_TIMEOUT_SECONDS -gt 0 ]]; then
+    if [[ $cmd == *"{prompt_file}"* ]]; then
       cmd="${cmd//\{prompt_file\}/$prompt_file}"
       "${timeout_prefix[@]}" bash -lc "$cmd" 2>&1 | tee "$log_file"
     else
-      "${timeout_prefix[@]}" bash -lc "$cmd" < "$prompt_file" 2>&1 | tee "$log_file"
+      "${timeout_prefix[@]}" bash -lc "$cmd" <"$prompt_file" 2>&1 | tee "$log_file"
     fi
   else
-    if [[ "$cmd" == *"{prompt_file}"* ]]; then
+    if [[ $cmd == *"{prompt_file}"* ]]; then
       cmd="${cmd//\{prompt_file\}/$prompt_file}"
       bash -lc "$cmd" 2>&1 | tee "$log_file"
     else
-      bash -lc "$cmd" < "$prompt_file" 2>&1 | tee "$log_file"
+      bash -lc "$cmd" <"$prompt_file" 2>&1 | tee "$log_file"
     fi
   fi
 }
@@ -473,20 +476,20 @@ run_agent() {
 agent_timed_out_exit() {
   local exit_code="$1"
 
-  if [[ "$AGENT_TIMEOUT_SECONDS" -eq 0 ]]; then
+  if [[ $AGENT_TIMEOUT_SECONDS -eq 0 ]]; then
     return 1
   fi
 
   case "$AGENT_TIMEOUT_BACKEND" in
-    timeout|gtimeout)
-      [[ "$exit_code" -eq 124 ]]
-      ;;
-    perl)
-      [[ "$exit_code" -eq 142 || "$exit_code" -eq 124 ]]
-      ;;
-    *)
-      return 1
-      ;;
+  timeout | gtimeout)
+    [[ $exit_code -eq 124 ]]
+    ;;
+  perl)
+    [[ $exit_code -eq 142 || $exit_code -eq 124 ]]
+    ;;
+  *)
+    return 1
+    ;;
   esac
 }
 
@@ -497,7 +500,7 @@ extract_from_stream_json() {
   local parsed
 
   json_lines="$(sed -n '/^{/p' "$log_file")"
-  if [[ -z "$json_lines" ]]; then
+  if [[ -z $json_lines ]]; then
     return 0
   fi
 
@@ -506,7 +509,7 @@ extract_from_stream_json() {
   local status=$?
   set -e
 
-  if [[ $status -eq 0 && -n "$parsed" ]]; then
+  if [[ $status -eq 0 && -n $parsed ]]; then
     printf '%s\n' "$parsed"
   fi
 }
@@ -517,7 +520,7 @@ LAST_VALIDATE_OUTPUT=""
 run_validation() {
   local iteration_label="$1"
 
-  if [[ -z "$VALIDATE_CMD" ]]; then
+  if [[ -z $VALIDATE_CMD ]]; then
     LAST_VALIDATE_EXIT=0
     LAST_VALIDATE_OUTPUT=""
     return 0
@@ -529,7 +532,7 @@ run_validation() {
   local exit_code=$?
   set -e
 
-  printf '%s\n' "$output" > "$RUNTIME_DIR/validate-${iteration_label}.log"
+  printf '%s\n' "$output" >"$RUNTIME_DIR/validate-${iteration_label}.log"
   LAST_VALIDATE_EXIT=$exit_code
   LAST_VALIDATE_OUTPUT="$output"
 
@@ -547,7 +550,7 @@ log_has_marker() {
   local log_file="$1"
   local marker="$2"
 
-  if [[ -z "$marker" || ! -f "$log_file" ]]; then
+  if [[ -z $marker || ! -f $log_file ]]; then
     return 1
   fi
 
@@ -558,7 +561,7 @@ log_has_exact_marker_line() {
   local log_file="$1"
   local marker="$2"
 
-  if [[ -z "$marker" || ! -f "$log_file" ]]; then
+  if [[ -z $marker || ! -f $log_file ]]; then
     return 1
   fi
 
@@ -569,7 +572,7 @@ run_notify() {
   local status="$1"
   local iteration="$2"
 
-  if [[ -z "$NOTIFY_CMD" ]]; then
+  if [[ -z $NOTIFY_CMD ]]; then
     return 0
   fi
 
@@ -603,7 +606,7 @@ extract_actionable_validation_lines() {
   local log_file
   log_file="$(validation_log_path "$iteration")"
 
-  if [[ ! -s "$log_file" ]]; then
+  if [[ ! -s $log_file ]]; then
     return 0
   fi
 
@@ -616,7 +619,7 @@ extract_actionable_validation_lines() {
       | head -n "$max_lines" || true
   )"
 
-  if [[ -n "$filtered" ]]; then
+  if [[ -n $filtered ]]; then
     printf '%s\n' "$filtered"
     return 0
   fi
@@ -639,7 +642,7 @@ append_guardrail_note() {
   timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
   local failure_hint=""
-  if [[ -n "$LAST_VALIDATE_OUTPUT" ]]; then
+  if [[ -n $LAST_VALIDATE_OUTPUT ]]; then
     failure_hint="$(printf '%s\n' "$LAST_VALIDATE_OUTPUT" | sed -n '1,3p' | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')"
   fi
 
@@ -647,23 +650,23 @@ append_guardrail_note() {
     echo ""
     echo "## ${timestamp} Iteration ${iteration} (${item_id})"
     echo "- Scope item: ${item_title}"
-    if [[ "$reason" == "validation_failed" ]]; then
+    if [[ $reason == "validation_failed" ]]; then
       echo "- Do not move to a new PRD item while validation is red."
-      if [[ -n "$failure_hint" ]]; then
+      if [[ -n $failure_hint ]]; then
         echo "- Failure clue: ${failure_hint}"
       fi
-    elif [[ "$reason" == "agent_timeout" ]]; then
+    elif [[ $reason == "agent_timeout" ]]; then
       echo "- Agent exceeded iteration timeout; reduce scope and keep commits smaller."
-    elif [[ "$reason" == "abort" ]]; then
+    elif [[ $reason == "abort" ]]; then
       echo "- Abort means scope exceeded safety; reduce change size next iteration."
     else
       echo "- Keep changes isolated and verifiable before commit."
     fi
-    if [[ -n "$validation_hint" ]]; then
+    if [[ -n $validation_hint ]]; then
       echo "- Runtime validation signal: $(normalize_runtime_line "$validation_hint")"
     fi
     echo "- Runtime logs: $(agent_log_path "$iteration"), $(validation_log_path "$iteration")"
-  } >> "$GUARDRAILS_FILE"
+  } >>"$GUARDRAILS_FILE"
 }
 
 append_hard_failure_guardrail() {
@@ -680,7 +683,7 @@ append_hard_failure_guardrail() {
 
   local top_errors
   top_errors="$(extract_actionable_validation_lines "$iteration" 6)"
-  if [[ -z "$top_errors" ]]; then
+  if [[ -z $top_errors ]]; then
     top_errors="$(printf '%s\n' "$LAST_VALIDATE_OUTPUT" | sed '/^[[:space:]]*$/d' | sed -n '1,6p')"
   fi
 
@@ -688,22 +691,22 @@ append_hard_failure_guardrail() {
     echo ""
     echo "## ${timestamp} HARD FAILURE Iteration ${iteration} (${item_id})"
     echo "- Item: ${item_title}"
-    if [[ -n "$VALIDATE_CMD" ]]; then
+    if [[ -n $VALIDATE_CMD ]]; then
       echo "- Validation command: ${VALIDATE_CMD}"
     fi
-    if [[ -n "$top_errors" ]]; then
+    if [[ -n $top_errors ]]; then
       echo "- Top validation errors:"
       while IFS= read -r line; do
         echo "  - ${line}"
-      done <<< "$top_errors"
+      done <<<"$top_errors"
     else
       echo "- Validation failed without captured output."
     fi
-    if [[ -n "$validation_hint" ]]; then
+    if [[ -n $validation_hint ]]; then
       echo "- Primary actionable signal: $(normalize_runtime_line "$validation_hint")"
     fi
     echo "- Runtime logs: $(agent_log_path "$iteration"), $(validation_log_path "$iteration")"
-  } >> "$GUARDRAILS_FILE"
+  } >>"$GUARDRAILS_FILE"
 }
 
 append_style_note() {
@@ -717,18 +720,18 @@ append_style_note() {
     echo ""
     echo "## ${timestamp} Iteration ${iteration} (${item_id})"
     echo "- Prefer one logical change per commit."
-    if [[ -n "$VALIDATE_CMD" ]]; then
+    if [[ -n $VALIDATE_CMD ]]; then
       echo "- Keep validation command green before committing: ${VALIDATE_CMD}"
     else
       echo "- Run local checks before commit when available."
     fi
-    if [[ -n "$validation_hint" ]]; then
+    if [[ -n $validation_hint ]]; then
       echo "- Start debugging from the first actionable validation line: $(normalize_runtime_line "$validation_hint")"
     else
       echo "- Keep runtime validate logs concise so the first actionable line is obvious."
     fi
     echo "- Runtime logs: $(agent_log_path "$iteration"), $(validation_log_path "$iteration")"
-  } >> "$STYLE_FILE"
+  } >>"$STYLE_FILE"
 }
 
 append_recent_note() {
@@ -744,7 +747,7 @@ append_recent_note() {
   timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
   local validate_status="passed"
-  if [[ "$validate_exit" -ne 0 ]]; then
+  if [[ $validate_exit -ne 0 ]]; then
     validate_status="failed"
   fi
 
@@ -756,11 +759,11 @@ append_recent_note() {
     echo "- Agent exit code: ${agent_exit}"
     echo "- Validation: ${validate_status}"
     echo "- Outcome: ${reason}"
-    if [[ -n "$validation_hint" ]]; then
+    if [[ -n $validation_hint ]]; then
       echo "- Validation signal: $(normalize_runtime_line "$validation_hint")"
     fi
     echo "- Runtime logs: $(agent_log_path "$iteration"), $(validation_log_path "$iteration")"
-  } >> "$RECENT_FILE"
+  } >>"$RECENT_FILE"
 }
 
 enforce_memory_updates() {
@@ -781,13 +784,13 @@ enforce_memory_updates() {
   item_title="$(printf '%s\n' "$next_item_json" | jq -r '.title // .description // "untitled"')"
 
   local reason="progressed"
-  if [[ "$agent_timed_out" -eq 1 ]]; then
+  if [[ $agent_timed_out -eq 1 ]]; then
     reason="agent_timeout"
-  elif [[ "$abort_seen" -eq 1 ]]; then
+  elif [[ $abort_seen -eq 1 ]]; then
     reason="abort"
-  elif [[ "$LAST_VALIDATE_EXIT" -ne 0 ]]; then
+  elif [[ $LAST_VALIDATE_EXIT -ne 0 ]]; then
     reason="validation_failed"
-  elif [[ "$work_mode" == "stabilize" ]]; then
+  elif [[ $work_mode == "stabilize" ]]; then
     reason="stabilized_validation"
   fi
 
@@ -799,15 +802,15 @@ enforce_memory_updates() {
   post_style_hash="$(file_hash "$STYLE_FILE")"
   post_recent_hash="$(file_hash "$RECENT_FILE")"
 
-  if [[ "$post_guard_hash" == "$pre_guard_hash" ]]; then
+  if [[ $post_guard_hash == "$pre_guard_hash" ]]; then
     append_guardrail_note "$iteration" "$item_id" "$item_title" "$reason" "$validation_hint"
   fi
 
-  if [[ "$post_style_hash" == "$pre_style_hash" ]]; then
+  if [[ $post_style_hash == "$pre_style_hash" ]]; then
     append_style_note "$iteration" "$item_id" "$validation_hint"
   fi
 
-  if [[ "$post_recent_hash" == "$pre_recent_hash" ]]; then
+  if [[ $post_recent_hash == "$pre_recent_hash" ]]; then
     append_recent_note "$iteration" "$item_id" "$item_title" "$work_mode" "$agent_exit" "$LAST_VALIDATE_EXIT" "$reason" "$validation_hint"
   fi
 }
@@ -816,7 +819,7 @@ run_compaction() {
   local iteration="$1"
   local should_run="$2"
 
-  if [[ "$should_run" -ne 1 || "$COMPACT_MODE" == "off" || -z "$COMPACT_CMD" ]]; then
+  if [[ $should_run -ne 1 || $COMPACT_MODE == "off" || -z $COMPACT_CMD ]]; then
     return 0
   fi
 
@@ -826,7 +829,7 @@ run_compaction() {
   local compact_exit=$?
   set -e
 
-  printf '%s\n' "$compact_output" > "$RUNTIME_DIR/compact-${iteration}.log"
+  printf '%s\n' "$compact_output" >"$RUNTIME_DIR/compact-${iteration}.log"
 
   if [[ $compact_exit -eq 0 ]]; then
     echo "Compaction succeeded."
@@ -835,11 +838,52 @@ run_compaction() {
   fi
 }
 
+run_refresh_context() {
+  local iteration="$1"
+  local item_id="$2"
+  local item_title="$3"
+
+  if ! command -v uv >/dev/null 2>&1; then
+    return 0
+  fi
+
+  set +e
+  local refresh_output
+  refresh_output="$(uv run agent-recall ralph refresh-context --task "${item_title:-}" --item "${item_id:-}" --iteration "$iteration" 2>&1)"
+  local refresh_exit=$?
+  set -e
+
+  printf '%s\n' "$refresh_output" >"$RUNTIME_DIR/refresh-${iteration}.log"
+  if [[ $refresh_exit -ne 0 ]]; then
+    echo "Warning: context refresh failed; continuing."
+  fi
+}
+
+run_archive_completed() {
+  local iteration="$1"
+
+  if ! command -v uv >/dev/null 2>&1; then
+    return 0
+  fi
+
+  set +e
+  local archive_output
+  archive_output="$(uv run agent-recall ralph archive-completed --prd-file "$PRD_FILE" --iteration "$iteration" 2>&1)"
+  local archive_exit=$?
+  set -e
+
+  printf '%s\n' "$archive_output" >"$RUNTIME_DIR/archive-${iteration}.log"
+  if [[ $archive_exit -ne 0 ]]; then
+    echo "Warning: archive-completed failed; continuing."
+  fi
+}
+
 if all_done; then
   echo "PRD already complete."
   run_validation "initial" || true
   if [[ $LAST_VALIDATE_EXIT -eq 0 ]]; then
     echo "Validation is green. Nothing to do."
+    run_archive_completed "0"
     run_notify "complete" "0"
     exit 0
   fi
@@ -850,13 +894,13 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   echo ""
   echo "=== Agent Recall Ralph iteration $i/$MAX_ITERATIONS ==="
 
-  if [[ -n "$PRE_ITERATION_CMD" ]]; then
+  if [[ -n $PRE_ITERATION_CMD ]]; then
     echo "Running pre-iteration command"
     set +e
     PRE_ITERATION_OUTPUT="$(bash -lc "$PRE_ITERATION_CMD" 2>&1)"
     PRE_ITERATION_EXIT=$?
     set -e
-    printf '%s\n' "$PRE_ITERATION_OUTPUT" > "$RUNTIME_DIR/pre-${i}.log"
+    printf '%s\n' "$PRE_ITERATION_OUTPUT" >"$RUNTIME_DIR/pre-${i}.log"
     if [[ $PRE_ITERATION_EXIT -ne 0 ]]; then
       echo "Pre-iteration command exited non-zero ($PRE_ITERATION_EXIT); continuing."
     fi
@@ -867,7 +911,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   NEXT_ITEM=""
   UNPASSED_ITEMS="[]"
 
-  if [[ "$REMAINING" == "0" ]]; then
+  if [[ $REMAINING == "0" ]]; then
     echo "No remaining PRD items."
     run_validation "$i" || true
     if [[ $LAST_VALIDATE_EXIT -eq 0 ]]; then
@@ -881,7 +925,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     echo "Validation is failing; running stabilization iteration."
   else
     UNPASSED_ITEMS="$(unpassed_items_json)"
-    if [[ "$UNPASSED_ITEMS" == "[]" ]]; then
+    if [[ $UNPASSED_ITEMS == "[]" ]]; then
       echo "Unable to enumerate unpassed PRD items while work remains." >&2
       exit 1
     fi
@@ -899,8 +943,8 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   ASSISTANT_LOG="$RUNTIME_DIR/assistant-${i}.log"
   RESULT_LOG="$RUNTIME_DIR/result-${i}.log"
   RECENT_COMMITS="$(recent_commits)"
-  : > "$ASSISTANT_LOG"
-  : > "$RESULT_LOG"
+  : >"$ASSISTANT_LOG"
+  : >"$RESULT_LOG"
 
   {
     cat "$PROMPT_TEMPLATE"
@@ -921,7 +965,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     jq . "$PRD_FILE"
     echo '```'
 
-    if [[ "$WORK_MODE" == "feature" ]]; then
+    if [[ $WORK_MODE == "feature" ]]; then
       echo ""
       echo "## Unpassed PRD Items (Agent Must Select One)"
       echo '```json'
@@ -935,7 +979,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
       echo '```'
     fi
 
-    if [[ -s "$PROGRESS_FILE" ]]; then
+    if [[ -s $PROGRESS_FILE ]]; then
       echo ""
       echo "## Recent Progress Context"
       echo '```text'
@@ -966,7 +1010,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     printf '%s\n' "$RECENT_COMMITS"
     echo '```'
 
-    if [[ -n "$VALIDATE_CMD" ]]; then
+    if [[ -n $VALIDATE_CMD ]]; then
       echo ""
       echo "## CI Gate"
       echo "Validation command to run before committing:"
@@ -975,7 +1019,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
       echo '```'
     fi
 
-    if [[ -n "$LAST_VALIDATE_OUTPUT" ]]; then
+    if [[ -n $LAST_VALIDATE_OUTPUT ]]; then
       echo ""
       echo "## Last Validation Failure (Fix This)"
       echo '```text'
@@ -985,7 +1029,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
 
     echo ""
     echo "## Agent Recall Directives"
-    if [[ "$WORK_MODE" == "feature" ]]; then
+    if [[ $WORK_MODE == "feature" ]]; then
       echo "1. Select what you deem the highest-priority unpassed PRD item."
       echo "2. Assign or adjust priority values across unpassed items to reflect your ordering."
       echo "3. Work ONLY on your selected item; do not start a second feature."
@@ -1000,7 +1044,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     echo "   - $GUARDRAILS_FILE"
     echo "   - $STYLE_FILE"
     echo "   - $RECENT_FILE"
-    if [[ -n "$VALIDATE_CMD" ]]; then
+    if [[ -n $VALIDATE_CMD ]]; then
       echo "7. Run validation and ensure it passes before committing."
     else
       echo "7. Run available local checks before committing."
@@ -1008,13 +1052,13 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     echo "8. Make one commit for this iteration and include 'RALPH' in the message."
     echo "9. If all PRD work is complete and no further work remains, print exactly:"
     printf '   %s\n' "$COMPLETE_MARKER"
-    if [[ -n "$ALT_COMPLETE_MARKER" ]]; then
+    if [[ -n $ALT_COMPLETE_MARKER ]]; then
       echo "10. Alternate completion marker accepted by the loop:"
       printf '   %s\n' "$ALT_COMPLETE_MARKER"
     fi
     echo "11. If blocked and cannot proceed safely, print exactly:"
     printf '   %s\n' "$ABORT_MARKER"
-  } > "$PROMPT_FILE"
+  } >"$PROMPT_FILE"
 
   set +e
   run_agent "$PROMPT_FILE" "$AGENT_LOG"
@@ -1026,15 +1070,15 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     echo "Agent timed out after ${AGENT_TIMEOUT_SECONDS}s (backend: ${AGENT_TIMEOUT_BACKEND})."
   fi
 
-  if [[ "$AGENT_OUTPUT_MODE" == "stream-json" ]]; then
+  if [[ $AGENT_OUTPUT_MODE == "stream-json" ]]; then
     STREAM_ASSISTANT_TEXT="$(extract_from_stream_json "$AGENT_LOG" 'select(.type == "assistant").message.content[]? | select(.type == "text").text // empty')"
     STREAM_FINAL_RESULT="$(extract_from_stream_json "$AGENT_LOG" 'select(.type == "result").result // empty')"
 
-    if [[ -n "$STREAM_ASSISTANT_TEXT" ]]; then
-      printf '%s\n' "$STREAM_ASSISTANT_TEXT" > "$ASSISTANT_LOG"
+    if [[ -n $STREAM_ASSISTANT_TEXT ]]; then
+      printf '%s\n' "$STREAM_ASSISTANT_TEXT" >"$ASSISTANT_LOG"
     fi
-    if [[ -n "$STREAM_FINAL_RESULT" ]]; then
-      printf '%s\n' "$STREAM_FINAL_RESULT" > "$RESULT_LOG"
+    if [[ -n $STREAM_FINAL_RESULT ]]; then
+      printf '%s\n' "$STREAM_FINAL_RESULT" >"$RESULT_LOG"
     fi
   fi
 
@@ -1045,7 +1089,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   fi
 
   ABORT_SEEN=0
-  if [[ "$AGENT_OUTPUT_MODE" == "stream-json" ]]; then
+  if [[ $AGENT_OUTPUT_MODE == "stream-json" ]]; then
     if log_has_marker "$RESULT_LOG" "$ABORT_MARKER"; then
       ABORT_SEEN=1
       echo "Abort marker seen in result payload."
@@ -1061,7 +1105,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   VALIDATION_HINT="$(extract_validation_hint "$i")"
 
   HAS_COMPLETE=0
-  if [[ "$AGENT_OUTPUT_MODE" == "stream-json" ]]; then
+  if [[ $AGENT_OUTPUT_MODE == "stream-json" ]]; then
     if log_has_marker "$RESULT_LOG" "$COMPLETE_MARKER"; then
       HAS_COMPLETE=1
     elif log_has_marker "$RESULT_LOG" "$ALT_COMPLETE_MARKER"; then
@@ -1076,13 +1120,13 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   fi
 
   MEMORY_ITEM="$NEXT_ITEM"
-  if [[ "$WORK_MODE" == "feature" ]]; then
+  if [[ $WORK_MODE == "feature" ]]; then
     CHANGED_ITEM="$(derive_changed_item_json "$PRE_PRD_SNAPSHOT" "$PRD_FILE" || true)"
-    if [[ -n "$CHANGED_ITEM" ]]; then
+    if [[ -n $CHANGED_ITEM ]]; then
       MEMORY_ITEM="$CHANGED_ITEM"
     else
       FALLBACK_ITEM="$(next_item_json)"
-      if [[ -n "$FALLBACK_ITEM" ]]; then
+      if [[ -n $FALLBACK_ITEM ]]; then
         MEMORY_ITEM="$FALLBACK_ITEM"
       fi
     fi
@@ -1095,14 +1139,18 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   enforce_memory_updates "$i" "$MEMORY_ITEM" "$WORK_MODE" "$AGENT_EXIT" "$AGENT_TIMED_OUT" "$ABORT_SEEN" "$PRE_GUARD_HASH" "$PRE_STYLE_HASH" "$PRE_RECENT_HASH" "$VALIDATION_HINT"
 
   SHOULD_COMPACT=0
-  if [[ "$COMPACT_MODE" == "always" ]]; then
+  if [[ $COMPACT_MODE == "always" ]]; then
     SHOULD_COMPACT=1
-  elif [[ "$COMPACT_MODE" == "on-failure" ]]; then
+  elif [[ $COMPACT_MODE == "on-failure" ]]; then
     if [[ $LAST_VALIDATE_EXIT -ne 0 || $ABORT_SEEN -eq 1 ]]; then
       SHOULD_COMPACT=1
     fi
   fi
   run_compaction "$i" "$SHOULD_COMPACT"
+
+  ITEM_ID="$(printf '%s\n' "$MEMORY_ITEM" | jq -r '.id // empty')"
+  ITEM_TITLE="$(printf '%s\n' "$MEMORY_ITEM" | jq -r '.title // .description // empty')"
+  run_refresh_context "$i" "$ITEM_ID" "$ITEM_TITLE"
 
   if [[ $ABORT_SEEN -eq 1 ]]; then
     echo "Abort marker seen. Exiting with failure."
@@ -1113,6 +1161,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   if all_done; then
     if [[ $LAST_VALIDATE_EXIT -eq 0 ]]; then
       echo "All PRD items passed. Exiting."
+      run_archive_completed "$i"
       run_notify "complete" "$i"
       exit 0
     fi

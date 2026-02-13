@@ -255,7 +255,16 @@
 - Next: Run validation; if green, proceed to AR-205 refresh-context CLI command.
 - Outcome: progressed
 - Notes: Added Ralph archive-completed and search-archive actions with default PRD path helper and command contract entries; reprioritized remaining PRD items.
-- Next: Run validation; then proceed with AR-206 bash loop hooks or AR-207 script-path helper.
+- Next: Run validation; then proceed with AR-207 script-path helper or AR-301 CLI scaffolding fixes.
+
+## 2026-02-13T21:45:00Z Iteration 6
+- Item: AR-206 - Add context refresh and archival hooks to bash Ralph loop script
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Added refresh-context and archive-completed hook helpers to the bash loop; hooks are guarded by uv availability, log outputs to .runtime, warn on failure, and run at iteration end/clean completion.
+- Next: Run validation, then proceed with AR-207 path helper defaults.
 
 ## 2026-02-13T02:30:00Z Iteration 6
 - Item: AR-009 - Ship shared backend tracer-bullet (single-tenant)

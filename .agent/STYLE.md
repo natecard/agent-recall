@@ -147,6 +147,9 @@
 ## 2026-02-13T05:12:08Z Iteration 3 (AR-011)
 - Model audit events as Pydantic payloads and reuse JSON serialization helpers for HTTP posts.
 
+## 2026-02-13T21:45:00Z Iteration 6 (AR-206)
+- Keep bash loop hook helpers small and side-effect isolated; capture output to .runtime and only print warnings on failure.
+
 ## 2026-02-13T02:02:56Z Iteration 4 (AR-010)
 - Prefer one logical change per commit.
 - Keep validation command green before committing: uv run pytest && uv run ruff check . && uv run ty check
