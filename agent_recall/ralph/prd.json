@@ -310,7 +310,7 @@
       "steps": [
         "[done] Add a pending-memory queue state for newly extracted learnings.",
         "[done] Implement approve/edit/reject operations and status transitions in storage and CLI.",
-        "Update compaction/retrieval to respect curation status filters.",
+        "[done] Update compaction/retrieval to respect curation status filters.",
         "Add tests covering queue lifecycle and promotion behavior."
       ],
       "acceptance": [

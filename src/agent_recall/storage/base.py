@@ -96,7 +96,12 @@ class Storage(ABC):
         ...
 
     @abstractmethod
-    def get_entries_by_label(self, labels: list[SemanticLabel], limit: int = 100) -> list[LogEntry]:
+    def get_entries_by_label(
+        self,
+        labels: list[SemanticLabel],
+        limit: int = 100,
+        curation_status: CurationStatus = CurationStatus.APPROVED,
+    ) -> list[LogEntry]:
         """Retrieve recent log entries matching a set of semantic labels."""
         ...
 

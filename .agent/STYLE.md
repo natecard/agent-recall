@@ -219,3 +219,6 @@
 
 ## 2026-02-13T10:58:12Z Iteration 6 (AR-012)
 - For curation workflows, reuse existing storage APIs and add narrow list/update methods to avoid spreading SQL across CLI.
+
+## 2026-02-13T12:00:00Z Iteration 1 (AR-012)
+- Resolve curation status from config via a small helper that normalizes and defaults on invalid values.

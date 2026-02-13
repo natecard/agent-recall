@@ -33,3 +33,4 @@
 2026-02-13T09:45:00Z | Iteration 4 | AR-015 | Documented Ralph CLI command in CLI reference and added compact mode config CLI coverage; validation pending.
 2026-02-13T05:18:38Z | Iteration 5 | AR-012 | Added curation status field (pending/approved/rejected), defaulted existing logs to approved, marked extracted learnings as pending, and filtered storage label queries to approved entries; validation green.
 2026-02-13T10:58:12Z | Iteration 6 | AR-012 | Added curation CLI commands (list/approve/reject) and storage support for listing/updating curation status with tests; validation green.
+2026-02-13T12:00:00Z | Iteration 1 | AR-012 | Updated compaction to filter by curation status (default approved, configurable) and added compaction tests; adjusted remote HTTP status fixture for BackgroundSyncStatus.

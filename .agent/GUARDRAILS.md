@@ -285,3 +285,6 @@
 
 ## 2026-02-13T10:58:12Z Iteration 6 (AR-012)
 - When adding new CLI command groups, update the command contract so parity reports do not flag extra CLI drift.
+
+## 2026-02-13T12:00:00Z Iteration 1 (AR-012)
+- Keep compaction curation filtering explicit and default to approved; allow pending-only via config to avoid promoting unreviewed items.

@@ -189,11 +189,16 @@ class _HTTPClient(Storage):
         response.raise_for_status()
         return [LogEntry.model_validate(e) for e in response.json()]
 
-    def get_entries_by_label(self, labels: list[SemanticLabel], limit: int = 100) -> list[LogEntry]:
+    def get_entries_by_label(
+        self,
+        labels: list[SemanticLabel],
+        limit: int = 100,
+        curation_status: CurationStatus = CurationStatus.APPROVED,
+    ) -> list[LogEntry]:
         params = {
             "labels": [label.value for label in labels],
             "limit": limit,
-            "curation_status": CurationStatus.APPROVED.value,
+            "curation_status": curation_status.value,
         }
         # httpx handles list params by repeating keys: labels=...&labels=...
         response = self._client.get("/entries", params=params)
@@ -517,8 +522,18 @@ class RemoteStorage(Storage):
     def get_entries(self, session_id: UUID) -> list[LogEntry]:
         return self._execute("get_entries", session_id)
 
-    def get_entries_by_label(self, labels: list[SemanticLabel], limit: int = 100) -> list[LogEntry]:
-        return self._execute("get_entries_by_label", labels=labels, limit=limit)
+    def get_entries_by_label(
+        self,
+        labels: list[SemanticLabel],
+        limit: int = 100,
+        curation_status: CurationStatus = CurationStatus.APPROVED,
+    ) -> list[LogEntry]:
+        return self._execute(
+            "get_entries_by_label",
+            labels=labels,
+            limit=limit,
+            curation_status=curation_status,
+        )
 
     def list_entries_by_curation_status(
         self,

@@ -124,10 +124,17 @@ def test_has_chunk(storage):
 def test_get_background_sync_status(storage):
     now = datetime.now(UTC)
     status_data = {
+        "id": str(uuid.uuid4()),
+        "tenant_id": "test-tenant",
+        "project_id": "test-project",
         "is_running": True,
-        "last_run_at": now.isoformat(),
-        "last_status": "success",
+        "started_at": now.isoformat(),
+        "completed_at": None,
+        "sessions_processed": 1,
+        "learnings_extracted": 2,
+        "error_message": None,
         "pid": 12345,
+        "updated_at": now.isoformat(),
     }
 
     respx.get("http://test-server/background-sync/status").mock(

@@ -7,7 +7,7 @@ from agent_recall.core.log import LogWriter
 from agent_recall.core.session import SessionManager
 from agent_recall.llm.base import LLMProvider, LLMResponse, Message
 from agent_recall.storage.files import KnowledgeTier
-from agent_recall.storage.models import SemanticLabel
+from agent_recall.storage.models import CurationStatus, SemanticLabel
 
 
 class FakeLLMProvider(LLMProvider):
@@ -176,3 +176,39 @@ async def test_compaction_generates_embeddings_when_enabled(storage, files) -> N
     assert len(chunks) == 1
     assert chunks[0].embedding is not None
     assert len(chunks[0].embedding or []) == 16
+
+
+@pytest.mark.asyncio
+async def test_compaction_ignores_pending_entries(storage, files) -> None:
+    log_writer = LogWriter(storage)
+    log_writer.log(content="Approved entry", label=SemanticLabel.GOTCHA)
+    pending_entry = log_writer.log(
+        content="Pending entry",
+        label=SemanticLabel.GOTCHA,
+    )
+    storage.update_entry_curation_status(pending_entry.id, CurationStatus.PENDING)
+
+    engine = CompactionEngine(storage=storage, files=files, llm=FakeLLMProvider())
+    results = await engine.compact(force=True)
+
+    assert int(results["chunks_indexed"]) == 1
+    assert storage.has_chunk("Approved entry", SemanticLabel.GOTCHA)
+    assert not storage.has_chunk("Pending entry", SemanticLabel.GOTCHA)
+
+
+@pytest.mark.asyncio
+async def test_compaction_can_target_pending_entries(storage, files) -> None:
+    files.write_config({"compaction": {"curation_status": "pending"}})
+
+    log_writer = LogWriter(storage)
+    pending_entry = log_writer.log(
+        content="Pending entry",
+        label=SemanticLabel.GOTCHA,
+    )
+    storage.update_entry_curation_status(pending_entry.id, CurationStatus.PENDING)
+
+    engine = CompactionEngine(storage=storage, files=files, llm=FakeLLMProvider())
+    results = await engine.compact(force=True)
+
+    assert int(results["chunks_indexed"]) == 1
+    assert storage.has_chunk("Pending entry", SemanticLabel.GOTCHA)

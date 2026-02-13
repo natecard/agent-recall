@@ -10,7 +10,14 @@ from agent_recall.core.embeddings import generate_embedding
 from agent_recall.llm.base import LLMProvider, Message
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
-from agent_recall.storage.models import Chunk, ChunkSource, LogEntry, SemanticLabel, SessionStatus
+from agent_recall.storage.models import (
+    Chunk,
+    ChunkSource,
+    CurationStatus,
+    LogEntry,
+    SemanticLabel,
+    SessionStatus,
+)
 
 GUARDRAILS_PROMPT = """You are synthesizing guardrails from development learnings.
 
@@ -133,10 +140,20 @@ class CompactionEngine:
         non_style_index_labels = self._resolve_non_style_index_labels(compaction_cfg)
         non_style_index_thresholds = self._resolve_non_style_index_thresholds(compaction_cfg)
 
-        guardrail_entries = self.storage.get_entries_by_label(guardrail_labels)
-        style_entries = self.storage.get_entries_by_label(style_labels)
+        curation_status = self._resolve_curation_status(compaction_cfg)
+        guardrail_entries = self.storage.get_entries_by_label(
+            guardrail_labels,
+            curation_status=curation_status,
+        )
+        style_entries = self.storage.get_entries_by_label(
+            style_labels,
+            curation_status=curation_status,
+        )
         non_style_index_entries = self._filter_non_style_index_entries(
-            self.storage.get_entries_by_label(non_style_index_labels),
+            self.storage.get_entries_by_label(
+                non_style_index_labels,
+                curation_status=curation_status,
+            ),
             non_style_index_thresholds,
         )
         promoted_style_entries = self._promoted_style_entries(
@@ -335,6 +352,14 @@ class CompactionEngine:
             thresholds[label] = max(0.0, min(1.0, value))
 
         return thresholds
+
+    @staticmethod
+    def _resolve_curation_status(compaction_cfg: dict[str, Any]) -> CurationStatus:
+        raw_value = compaction_cfg.get("curation_status", CurationStatus.APPROVED.value)
+        try:
+            return CurationStatus(str(raw_value).strip().lower())
+        except ValueError:
+            return CurationStatus.APPROVED
 
     @staticmethod
     def _filter_non_style_index_entries(

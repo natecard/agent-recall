@@ -370,7 +370,12 @@ class SQLiteStorage(Storage):
             ).fetchall()
         return [self._row_to_entry(row) for row in rows]
 
-    def get_entries_by_label(self, labels: list[SemanticLabel], limit: int = 100) -> list[LogEntry]:
+    def get_entries_by_label(
+        self,
+        labels: list[SemanticLabel],
+        limit: int = 100,
+        curation_status: CurationStatus = CurationStatus.APPROVED,
+    ) -> list[LogEntry]:
         if not labels:
             return []
 
@@ -385,7 +390,7 @@ class SQLiteStorage(Storage):
                     "ORDER BY timestamp DESC LIMIT ?"
                 ),
                 [label.value for label in labels]
-                + [CurationStatus.APPROVED.value, self.tenant_id, self.project_id, limit],
+                + [curation_status.value, self.tenant_id, self.project_id, limit],
             ).fetchall()
         return [self._row_to_entry(row) for row in rows]
 
