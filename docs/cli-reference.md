@@ -7,7 +7,7 @@
 - `agent-recall log <content> --label <semantic_label> [--tags x,y]`
 - `agent-recall end <summary>`
 - `agent-recall context [--task <task>] [--format md|json] [--top-k N] [--backend fts5|hybrid] [--fusion-k N] [--rerank/--no-rerank] [--rerank-candidate-k N]`
-- `agent-recall refresh-context [--task <task>] [--output-dir PATH]`
+- `agent-recall refresh-context [--task <task>] [--output-dir PATH] [--adapter-payloads/--no-adapter-payloads]`
 - `agent-recall compact [--force]`
 - `agent-recall sync [--source cursor|claude-code|opencode|codex] [--since-days N] [--session-id ID --session-id ID2] [--max-sessions N] [--compact/--no-compact] [--cursor-db-path PATH] [--cursor-storage-dir PATH] [--all-cursor-workspaces] [--verbose]`
 - `agent-recall sessions [--source cursor|claude-code|opencode|codex] [--since-days N] [--session-id ID --session-id ID2] [--max-sessions N] [--format table|json] [--cursor-db-path PATH] [--cursor-storage-dir PATH] [--all-cursor-workspaces]`
@@ -19,6 +19,7 @@
 - `agent-recall ingest <path> [--source-session-id ID]`
 - `agent-recall providers`
 - `agent-recall config model [--provider P] [--model M] [--base-url URL] [--temperature T] [--max-tokens N] [--validate/--no-validate]`
+- `agent-recall config adapters [--enabled/--disabled] [--output-dir PATH] [--token-budget N] [--per-adapter-token-budget name=N,name2=N]`
 - `agent-recall test-llm`
 - `agent-recall theme list|set|show`
 - `agent-recall ralph status|enable|disable [--max-iterations N] [--sleep-seconds N] [--compact-mode always|on-failure|off]`

@@ -224,8 +224,8 @@
 - Agent exit code: 0
 - Validation: pending
 - Outcome: progressed
-- Notes: Added adapter token budgets (global + per-adapter) for refresh-context payloads; trimmed payload context deterministically and wired config defaults with tests.
-- Next: Add adapter opt-in/opt-out CLI controls and integration tests to prevent duplicate injection.
+- Notes: Added adapter config CLI (`config adapters`), surfaced adapter status in `status`, updated init config + CLI docs, and added tests for config updates.
+- Next: Add integration tests validating adapter injection without duplication and opt-in behavior.
 
 ## 2026-02-13T02:30:00Z Iteration 6
 - Item: AR-009 - Ship shared backend tracer-bullet (single-tenant)

@@ -273,6 +273,12 @@ ralph:
   max_iterations: 10
   sleep_seconds: 2
   compact_mode: always
+
+adapters:
+  enabled: false
+  output_dir: .agent/context
+  token_budget: null
+  per_adapter_token_budget: {}
 """
 
 
@@ -599,6 +605,12 @@ def _read_ralph_config(files: FileStorage) -> dict[str, Any]:
     return ralph_config if isinstance(ralph_config, dict) else {}
 
 
+def _read_adapter_config(files: FileStorage) -> dict[str, Any]:
+    config_dict = files.read_config()
+    adapter_config = config_dict.get("adapters", {}) if isinstance(config_dict, dict) else {}
+    return adapter_config if isinstance(adapter_config, dict) else {}
+
+
 def _write_ralph_config(files: FileStorage, updates: dict[str, object]) -> dict[str, object]:
     config_dict = files.read_config()
     if "ralph" not in config_dict or not isinstance(config_dict.get("ralph"), dict):
@@ -609,6 +621,37 @@ def _write_ralph_config(files: FileStorage, updates: dict[str, object]) -> dict[
     config_dict["ralph"] = ralph_config
     files.write_config(config_dict)
     return config_dict
+
+
+def _write_adapter_config(files: FileStorage, updates: dict[str, object]) -> dict[str, object]:
+    config_dict = files.read_config()
+    if "adapters" not in config_dict or not isinstance(config_dict.get("adapters"), dict):
+        config_dict["adapters"] = {}
+    adapter_config = config_dict["adapters"]
+    if isinstance(adapter_config, dict):
+        adapter_config.update(updates)
+    config_dict["adapters"] = adapter_config
+    files.write_config(config_dict)
+    return config_dict
+
+
+def _format_adapter_budgets(adapter_config: dict[str, object]) -> str:
+    budgets = adapter_config.get("per_adapter_token_budget")
+    if not isinstance(budgets, dict):
+        return "none"
+    normalized: list[str] = []
+    for name, budget in budgets.items():
+        if not isinstance(name, str):
+            continue
+        if not isinstance(budget, int):
+            continue
+        normalized.append(f"{name}={budget}")
+    return ", ".join(normalized) if normalized else "none"
+
+
+def _format_adapter_token_budget(adapter_config: dict[str, object]) -> str:
+    value = adapter_config.get("token_budget")
+    return str(value) if value is not None else "none"
 
 
 def _normalize_tui_output_line(line: str) -> str:
@@ -1897,6 +1940,7 @@ def status():
     style = files.read_tier(KnowledgeTier.STYLE)
     recent = files.read_tier(KnowledgeTier.RECENT)
     selected_sources = _get_repo_selected_sources(files)
+    adapter_config = _read_adapter_config(files)
 
     lines = [
         "[bold]Knowledge Base:[/bold]",
@@ -1912,6 +1956,12 @@ def status():
         "[bold]Onboarding:[/bold]",
         f"  Completed: {'yes' if is_repo_onboarding_complete(files) else 'no'}",
         f"  Agents:    {', '.join(selected_sources) if selected_sources else 'all'}",
+        "",
+        "[bold]Context Adapters:[/bold]",
+        f"  Enabled: {'yes' if bool(adapter_config.get('enabled')) else 'no'}",
+        f"  Output dir: {adapter_config.get('output_dir') or '.agent/context'}",
+        f"  Token budget: {_format_adapter_token_budget(adapter_config)}",
+        f"  Per-adapter budgets: {_format_adapter_budgets(adapter_config)}",
         "",
         "[bold]Session Sources:[/bold]",
     ]
@@ -2881,6 +2931,95 @@ def config_model(
         max_tokens=max_tokens,
         validate=validate,
     )
+
+
+@config_app.command("adapters")
+def config_adapters(
+    enabled: bool | None = typer.Option(
+        None,
+        "--enabled/--disabled",
+        help="Enable or disable automatic context adapter payloads",
+    ),
+    output_dir: Path | None = typer.Option(
+        None,
+        "--output-dir",
+        help="Directory where adapter payloads are written",
+    ),
+    token_budget: int | None = typer.Option(
+        None,
+        "--token-budget",
+        min=1,
+        help="Global token budget for adapter payload context",
+    ),
+    per_adapter_token_budget: str | None = typer.Option(
+        None,
+        "--per-adapter-token-budget",
+        help="Per-adapter token budgets as name=tokens pairs",
+    ),
+):
+    """Configure automatic context adapter payloads."""
+    _get_theme_manager()
+    ensure_initialized()
+    files = get_files()
+
+    updates: dict[str, object] = {}
+    if enabled is not None:
+        updates["enabled"] = enabled
+    if output_dir is not None:
+        updates["output_dir"] = str(output_dir)
+    if token_budget is not None:
+        updates["token_budget"] = token_budget
+    if per_adapter_token_budget is not None:
+        parsed: dict[str, int] = {}
+        if per_adapter_token_budget.strip():
+            for raw in per_adapter_token_budget.split(","):
+                item = raw.strip()
+                if not item:
+                    continue
+                if "=" not in item:
+                    console.print(
+                        f"[error]Invalid per-adapter budget '{item}'. Use name=tokens.[/error]"
+                    )
+                    raise typer.Exit(1)
+                name, value = item.split("=", 1)
+                name = name.strip()
+                value = value.strip()
+                if not name:
+                    console.print("[error]Adapter name cannot be empty.[/error]")
+                    raise typer.Exit(1)
+                try:
+                    tokens = int(value)
+                except ValueError:
+                    console.print(f"[error]Invalid token budget '{value}'. Use an integer.[/error]")
+                    raise typer.Exit(1)
+                if tokens <= 0:
+                    console.print(f"[error]Token budget must be > 0 (got {tokens}).[/error]")
+                    raise typer.Exit(1)
+                parsed[name] = tokens
+        updates["per_adapter_token_budget"] = parsed
+
+    if not updates:
+        adapter_config = _read_adapter_config(files)
+        lines = [
+            "[bold]Context Adapters:[/bold]",
+            f"  Enabled: {'yes' if bool(adapter_config.get('enabled')) else 'no'}",
+            f"  Output dir: {adapter_config.get('output_dir') or '.agent/context'}",
+            f"  Token budget: {_format_adapter_token_budget(adapter_config)}",
+            f"  Per-adapter budgets: {_format_adapter_budgets(adapter_config)}",
+        ]
+        console.print(Panel.fit("\n".join(lines), title="Context Adapters"))
+        return
+
+    _write_adapter_config(files, updates)
+    adapter_config = _read_adapter_config(files)
+    lines = [
+        "[success]✓ Adapter settings updated[/success]",
+        f"  Enabled: {'yes' if bool(adapter_config.get('enabled')) else 'no'}",
+        f"  Output dir: {adapter_config.get('output_dir') or '.agent/context'}",
+        f"  Token budget: {_format_adapter_token_budget(adapter_config)}",
+        f"  Per-adapter budgets: {_format_adapter_budgets(adapter_config)}",
+    ]
+    console.print(Panel.fit("\n".join(lines), title="Context Adapters"))
 
 
 @app.command()

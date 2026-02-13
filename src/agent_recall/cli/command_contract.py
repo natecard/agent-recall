@@ -217,6 +217,12 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("cli", "tui"),
         ),
         CommandContract(
+            command="config adapters",
+            aliases=(),
+            description="Configure context adapter payloads",
+            surfaces=("cli",),
+        ),
+        CommandContract(
             command="config settings",
             aliases=("config preferences",),
             description="Configure workspace settings",

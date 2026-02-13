@@ -1470,6 +1470,7 @@ def test_tui_palette_command_catalog_includes_cli_commands() -> None:
     assert "status" in commands
     assert "config setup" in commands
     assert "config model" in commands
+    assert "config adapters" in commands
     assert "ralph" in commands
     assert "command-inventory" in commands
 
@@ -1513,3 +1514,29 @@ def test_cli_ralph_compact_mode_updates_config() -> None:
         config = FileStorage(Path(".agent")).read_config()
         ralph_config = config.get("ralph", {})
         assert ralph_config.get("compact_mode") == "on-failure"
+
+
+def test_cli_config_adapters_updates_config() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(
+            cli_main.app,
+            [
+                "config",
+                "adapters",
+                "--enabled",
+                "--output-dir",
+                "agent-context",
+                "--token-budget",
+                "120",
+                "--per-adapter-token-budget",
+                "codex=40,cursor=80",
+            ],
+        )
+        assert result.exit_code == 0
+        config = FileStorage(Path(".agent")).read_config()
+        adapters = config.get("adapters", {})
+        assert adapters.get("enabled") is True
+        assert adapters.get("output_dir") == "agent-context"
+        assert adapters.get("token_budget") == 120
+        assert adapters.get("per_adapter_token_budget") == {"codex": 40, "cursor": 80}
