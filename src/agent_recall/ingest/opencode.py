@@ -248,9 +248,7 @@ class OpenCodeIngester(SessionIngester):
 
         # Preserve user file references without inlining huge generated file dumps.
         if role == "user" and attachments:
-            attachment_block = "Attached files:\n" + "\n".join(
-                f"- {item}" for item in attachments
-            )
+            attachment_block = "Attached files:\n" + "\n".join(f"- {item}" for item in attachments)
             if content:
                 content = f"{content}\n\n{attachment_block}"
             else:

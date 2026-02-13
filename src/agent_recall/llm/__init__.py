@@ -142,14 +142,10 @@ def _install_dependency(package_name: str) -> subprocess.CompletedProcess[str]:
         if uv_completed.returncode == 0:
             return uv_completed
         combined_stderr = "\n".join(
-            part
-            for part in [completed.stderr.strip(), uv_completed.stderr.strip()]
-            if part
+            part for part in [completed.stderr.strip(), uv_completed.stderr.strip()] if part
         )
         combined_stdout = "\n".join(
-            part
-            for part in [completed.stdout.strip(), uv_completed.stdout.strip()]
-            if part
+            part for part in [completed.stdout.strip(), uv_completed.stdout.strip()] if part
         )
         return subprocess.CompletedProcess(
             args=uv_completed.args,
@@ -243,9 +239,7 @@ def create_llm_provider(config: LLMConfig) -> LLMProvider:
         )
 
     available = ", ".join(get_available_providers())
-    raise LLMConfigError(
-        f"Unknown LLM provider: '{provider}'. Available providers: {available}"
-    )
+    raise LLMConfigError(f"Unknown LLM provider: '{provider}'. Available providers: {available}")
 
 
 def get_available_providers() -> list[str]:

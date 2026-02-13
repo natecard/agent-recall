@@ -258,7 +258,7 @@ class TestCursorIngester:
                         "toolFormerData": {
                             "name": "edit_file_v2",
                             "status": "completed",
-                            "params": "{\"path\":\"src/theme.py\"}",
+                            "params": '{"path":"src/theme.py"}',
                         },
                     }
                 ),
@@ -410,9 +410,7 @@ class TestClaudeCodeIngester:
             {
                 "role": "assistant",
                 "content": "I'll read that file.",
-                "tool_calls": [
-                    {"name": "Read", "args": {"file": "test.py"}, "result": "# code"}
-                ],
+                "tool_calls": [{"name": "Read", "args": {"file": "test.py"}, "result": "# code"}],
                 "timestamp": "2024-01-01T10:00:00Z",
             }
         ]
@@ -608,10 +606,7 @@ class TestOpenCodeIngester:
             {
                 "id": "prt_noise_text",
                 "type": "text",
-                "text": (
-                    "Called the Read tool with the following input: "
-                    "{\"filePath\":\"foo.swift\"}"
-                ),
+                "text": ('Called the Read tool with the following input: {"filePath":"foo.swift"}'),
             },
         )
 
@@ -636,8 +631,7 @@ class TestOpenCodeIngester:
         assert len(assistant_message.tool_calls) == 2
         assert assistant_message.tool_calls[0].tool == "bash"
         assert (
-            assistant_message.tool_calls[0].args["command"]
-            == "xcodebuild -scheme PlexPlayer build"
+            assistant_message.tool_calls[0].args["command"] == "xcodebuild -scheme PlexPlayer build"
         )
         assert assistant_message.tool_calls[0].duration_ms == 1000
         assert assistant_message.tool_calls[1].tool == "patch"
@@ -741,7 +735,7 @@ class TestCodexIngester:
                     "payload": {
                         "type": "function_call",
                         "name": "exec_command",
-                        "arguments": "{\"cmd\": \"rg --files\"}",
+                        "arguments": '{"cmd": "rg --files"}',
                         "call_id": "call-1",
                     },
                 },
@@ -837,7 +831,7 @@ class TestCodexIngester:
                     "payload": {
                         "type": "custom_tool_call_output",
                         "call_id": "call-custom-1",
-                        "output": "{\"output\":\"Success\"}",
+                        "output": '{"output":"Success"}',
                     },
                 },
                 {
@@ -928,8 +922,8 @@ class MockLLM(LLMProvider):
         _ = (messages, temperature, max_tokens)
         return LLMResponse(
             content=(
-                "[{\"label\": \"pattern\", \"content\": \"Test pattern\", "
-                "\"tags\": [\"test\"], \"confidence\": 0.8}]"
+                '[{"label": "pattern", "content": "Test pattern", '
+                '"tags": ["test"], "confidence": 0.8}]'
             ),
             model="mock",
             usage=None,
@@ -996,9 +990,9 @@ class TestTranscriptExtractor:
                 _ = (messages, temperature, max_tokens)
                 return LLMResponse(
                     content=(
-                        "[{\"label\":\"preference\",\"content\":\"Do not modify plan files; mark "
-                        "existing to-dos as in_progress first\",\"tags\":[\"workflow\"],"
-                        "\"confidence\":0.9}]"
+                        '[{"label":"preference","content":"Do not modify plan files; mark '
+                        'existing to-dos as in_progress first","tags":["workflow"],'
+                        '"confidence":0.9}]'
                     ),
                     model="mock",
                 )
@@ -1044,11 +1038,11 @@ class TestTranscriptExtractor:
                     content=(
                         "<think>I should reason here but not output it</think>\n"
                         "```json\n"
-                        "[{\"label\":\"pattern\","
-                        "\"content\":\"Use retry with backoff for flaky API calls\","
-                        "\"tags\":[\"api\",\"reliability\"],"
-                        "\"confidence\":0.8,"
-                        "\"evidence\":\"Retries stabilized failing calls\"}]\n"
+                        '[{"label":"pattern",'
+                        '"content":"Use retry with backoff for flaky API calls",'
+                        '"tags":["api","reliability"],'
+                        '"confidence":0.8,'
+                        '"evidence":"Retries stabilized failing calls"}]\n'
                         "```"
                     ),
                     model="mock",
@@ -1108,12 +1102,12 @@ class TestTranscriptExtractor:
                 return LLMResponse(
                     content=(
                         "Result:\n"
-                        "{\"learnings\":[{\"label\":\"gotcha\","
-                        "\"content\":\"Cursor ItemTable stores prompt/generation arrays, "
-                        "not only chatdata\","
-                        "\"tags\":[\"cursor\",\"storage\"],"
-                        "\"confidence\":0.8,"
-                        "\"evidence\":\"Found aiService.prompts and aiService.generations keys\"}"
+                        '{"learnings":[{"label":"gotcha",'
+                        '"content":"Cursor ItemTable stores prompt/generation arrays, '
+                        'not only chatdata",'
+                        '"tags":["cursor","storage"],'
+                        '"confidence":0.8,'
+                        '"evidence":"Found aiService.prompts and aiService.generations keys"}'
                         "]}"
                     ),
                     model="mock",
@@ -1176,9 +1170,9 @@ class TestTranscriptExtractor:
                 self.calls += 1
                 return LLMResponse(
                     content=(
-                        "[{\"label\":\"pattern\",\"content\":\"Batch learning "
+                        '[{"label":"pattern","content":"Batch learning '
                         + str(self.calls)
-                        + "\",\"tags\":[\"batch\"],\"confidence\":0.8}]"
+                        + '","tags":["batch"],"confidence":0.8}]'
                     ),
                     model="mock",
                 )

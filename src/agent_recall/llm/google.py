@@ -54,8 +54,7 @@ class GoogleProvider(LLMProvider):
                 genai = importlib.import_module("google.genai")
             except ImportError as exc:
                 raise LLMConfigError(
-                    "google-genai package not installed. "
-                    "Install with: pip install google-genai"
+                    "google-genai package not installed. Install with: pip install google-genai"
                 ) from exc
 
             self._genai_module = genai

@@ -183,8 +183,7 @@ class ClaudeCodeIngester(SessionIngester):
             session_id=self.get_session_id(path),
             title=self._infer_title(messages, fallback=path.stem),
             project_path=self.project_path,
-            started_at=started_at
-            or datetime.fromtimestamp(path.stat().st_mtime, tz=UTC),
+            started_at=started_at or datetime.fromtimestamp(path.stat().st_mtime, tz=UTC),
             ended_at=ended_at,
             messages=messages,
         )
@@ -201,9 +200,7 @@ class ClaudeCodeIngester(SessionIngester):
                 return f"{normalized[:93].rstrip()}..."
             return normalized
 
-        cleaned_fallback = " ".join(
-            fallback.replace("-", " ").replace("_", " ").split()
-        ).strip()
+        cleaned_fallback = " ".join(fallback.replace("-", " ").replace("_", " ").split()).strip()
         return cleaned_fallback or fallback
 
     def _extract_timestamp(self, event: dict[str, Any]) -> datetime | None:

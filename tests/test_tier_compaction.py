@@ -1,6 +1,5 @@
 """Tests for tier compaction hook."""
 
-
 import pytest
 
 from agent_recall.core.tier_compaction import (

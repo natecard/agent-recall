@@ -307,11 +307,7 @@ class CursorIngester(SessionIngester):
                 (
                     ref.created_at.timestamp()
                     if ref.created_at
-                    else (
-                        ref.last_updated_at.timestamp()
-                        if ref.last_updated_at
-                        else 0.0
-                    )
+                    else (ref.last_updated_at.timestamp() if ref.last_updated_at else 0.0)
                 ),
                 ref.composer_id or "",
             )
@@ -532,8 +528,7 @@ class CursorIngester(SessionIngester):
             bubble_payloads: dict[str, dict[str, Any]] = {}
             if header_items:
                 bubble_keys = [
-                    f"bubbleId:{composer_id}:{bubble_id}"
-                    for bubble_id, _ in header_items
+                    f"bubbleId:{composer_id}:{bubble_id}" for bubble_id, _ in header_items
                 ]
                 bubble_payloads = self._load_rows_by_keys(conn, kv_table, bubble_keys)
             else:
