@@ -101,9 +101,6 @@ CREATE TABLE IF NOT EXISTS processed_sessions (
 CREATE INDEX IF NOT EXISTS idx_entries_session ON log_entries(session_id);
 CREATE INDEX IF NOT EXISTS idx_entries_label ON log_entries(label);
 CREATE INDEX IF NOT EXISTS idx_chunks_label ON chunks(label);
-CREATE INDEX IF NOT EXISTS idx_sessions_scope ON sessions(tenant_id, project_id);
-CREATE INDEX IF NOT EXISTS idx_entries_scope ON log_entries(tenant_id, project_id);
-CREATE INDEX IF NOT EXISTS idx_chunks_scope ON chunks(tenant_id, project_id);
 
 CREATE TABLE IF NOT EXISTS session_checkpoints (
     id TEXT PRIMARY KEY,
@@ -134,6 +131,15 @@ CREATE TABLE IF NOT EXISTS background_sync_status (
 );
 """
 
+SCOPE_INDEXES_BY_TABLE = {
+    "sessions": "idx_sessions_scope",
+    "log_entries": "idx_entries_scope",
+    "chunks": "idx_chunks_scope",
+    "processed_sessions": "idx_processed_sessions_scope",
+    "session_checkpoints": "idx_session_checkpoints_scope",
+    "background_sync_status": "idx_background_sync_status_scope",
+}
+
 
 class SQLiteStorage(Storage):
     def __init__(
@@ -155,6 +161,18 @@ class SQLiteStorage(Storage):
             conn.executescript(SCHEMA)
         self._migrate_db()
 
+    @staticmethod
+    def _table_columns(conn: sqlite3.Connection, table: str) -> list[str]:
+        return [row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+
+    def _ensure_scope_indexes(self, conn: sqlite3.Connection) -> None:
+        for table, index_name in SCOPE_INDEXES_BY_TABLE.items():
+            columns = self._table_columns(conn, table)
+            if "tenant_id" in columns and "project_id" in columns:
+                conn.execute(
+                    f"CREATE INDEX IF NOT EXISTS {index_name} ON {table}(tenant_id, project_id)"
+                )
+
     def _migrate_db(self) -> None:
         """Ensure schema has required columns for tenant/project isolation."""
         tables = [
@@ -175,21 +193,18 @@ class SQLiteStorage(Storage):
                 if not exists:
                     continue
 
-                columns = [
-                    row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
-                ]
+                columns = self._table_columns(conn, table)
                 if "tenant_id" not in columns:
                     conn.execute(
                         f"ALTER TABLE {table} ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'"
                     )
-                    conn.execute(
-                        f"CREATE INDEX IF NOT EXISTS idx_{table}_scope "
-                        f"ON {table}(tenant_id, project_id)"
-                    )
+                    columns.append("tenant_id")
                 if "project_id" not in columns:
                     conn.execute(
                         f"ALTER TABLE {table} ADD COLUMN project_id TEXT NOT NULL DEFAULT 'default'"
                     )
+                    columns.append("project_id")
+            self._ensure_scope_indexes(conn)
 
     def _validate_namespace(self) -> None:
         """Validate namespace if strict mode is enabled."""

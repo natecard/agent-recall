@@ -1,5 +1,6 @@
 # CLI Reference
 
+- `agent-recall --version` / `agent-recall -v`
 - `agent-recall init [--force]`
 - `agent-recall config setup [--force] [--quick]`
 - `agent-recall start <task>`

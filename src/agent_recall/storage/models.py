@@ -97,6 +97,31 @@ class Chunk(BaseModel):
     embedding: list[float] | None = None
 
 
+class AuditAction(StrEnum):
+    """Audit actions for shared storage mutations."""
+
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+    CLEAR = "clear"
+    START = "start"
+    COMPLETE = "complete"
+
+
+class AuditEvent(BaseModel):
+    """Immutable audit event for shared storage mutations."""
+
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: str = "default"
+    project_id: str = "default"
+    actor: str = "system"
+    action: AuditAction
+    resource_type: str
+    resource_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class LLMConfig(BaseModel):
     """LLM provider configuration."""
 
