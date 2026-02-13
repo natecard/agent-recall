@@ -49,6 +49,14 @@ from agent_recall.core.onboarding import (
 from agent_recall.core.retrieve import Retriever
 from agent_recall.core.session import SessionManager
 from agent_recall.core.sync import AutoSync
+from agent_recall.core.tier_writer import (
+    TierValidationError,
+    TierWriter,
+    WriteMode,
+    WritePolicy,
+    get_tier_statistics,
+    lint_tier_file,
+)
 from agent_recall.ingest import get_default_ingesters, get_ingester
 from agent_recall.ingest.sources import (
     VALID_SOURCE_NAMES,
@@ -2874,6 +2882,234 @@ def theme_show():
 
 app.add_typer(theme_app, name="theme")
 app.add_typer(config_app, name="config")
+
+
+@app.command("write-guardrails")
+def write_guardrails(
+    iteration: int = typer.Option(..., "--iteration", "-i", help="Iteration number"),
+    item_id: str = typer.Option(..., "--item-id", help="PRD item ID"),
+    item_title: str = typer.Option(..., "--item-title", help="PRD item title"),
+    reason: str = typer.Option("progressed", "--reason", "-r", help="Reason for entry"),
+    validation_hint: str = typer.Option("", "--validation-hint", help="Validation signal hint"),
+    mode: str = typer.Option("append", "--mode", "-m", help="Write mode: append, replace-section"),
+    skip_duplicate: bool = typer.Option(
+        True, "--skip-duplicate/--no-skip-duplicate", help="Skip if duplicate"
+    ),
+):
+    """Write a structured entry to GUARDRAILS.md."""
+    ensure_initialized()
+    files = get_files()
+
+    policy = WritePolicy(
+        mode=WriteMode(mode),
+        deduplicate=skip_duplicate,
+    )
+    writer = TierWriter(files, policy)
+
+    try:
+        written = writer.write_guardrails_entry(
+            iteration=iteration,
+            item_id=item_id,
+            item_title=item_title,
+            reason=reason,
+            validation_hint=validation_hint,
+        )
+        if written:
+            console.print(f"[success]Wrote guardrails entry for iteration {iteration}[/success]")
+        else:
+            console.print(f"[info]Skipped duplicate entry for iteration {iteration}[/info]")
+    except TierValidationError as e:
+        console.print(f"[error]Validation failed: {e}[/error]")
+        raise typer.Exit(1)
+
+
+@app.command("write-guardrails-failure")
+def write_guardrails_failure(
+    iteration: int = typer.Option(..., "--iteration", "-i", help="Iteration number"),
+    item_id: str = typer.Option(..., "--item-id", help="PRD item ID"),
+    item_title: str = typer.Option(..., "--item-title", help="PRD item title"),
+    validation_errors: list[str] = typer.Option([], "--error", help="Validation error messages"),
+    validation_hint: str = typer.Option("", "--validation-hint", help="Primary validation signal"),
+):
+    """Write a hard failure entry to GUARDRAILS.md."""
+    ensure_initialized()
+    files = get_files()
+
+    writer = TierWriter(files)
+
+    try:
+        written = writer.write_guardrails_hard_failure(
+            iteration=iteration,
+            item_id=item_id,
+            item_title=item_title,
+            validation_errors=validation_errors,
+            validation_hint=validation_hint,
+        )
+        if written:
+            console.print(
+                f"[success]Wrote hard failure guardrails entry for iteration {iteration}[/success]"
+            )
+        else:
+            console.print("[info]Skipped duplicate entry[/info]")
+    except TierValidationError as e:
+        console.print(f"[error]Validation failed: {e}[/error]")
+        raise typer.Exit(1)
+
+
+@app.command("write-style")
+def write_style(
+    iteration: int = typer.Option(..., "--iteration", "-i", help="Iteration number"),
+    item_id: str = typer.Option(..., "--item-id", help="PRD item ID"),
+    validation_hint: str = typer.Option("", "--validation-hint", help="Validation signal hint"),
+):
+    """Write a structured entry to STYLE.md."""
+    ensure_initialized()
+    files = get_files()
+
+    writer = TierWriter(files)
+
+    try:
+        written = writer.write_style_entry(
+            iteration=iteration,
+            item_id=item_id,
+            validation_hint=validation_hint,
+        )
+        if written:
+            console.print(f"[success]Wrote style entry for iteration {iteration}[/success]")
+        else:
+            console.print("[info]Skipped duplicate entry[/info]")
+    except TierValidationError as e:
+        console.print(f"[error]Validation failed: {e}[/error]")
+        raise typer.Exit(1)
+
+
+@app.command("write-recent")
+def write_recent(
+    iteration: int = typer.Option(..., "--iteration", "-i", help="Iteration number"),
+    item_id: str = typer.Option(..., "--item-id", help="PRD item ID"),
+    item_title: str = typer.Option(..., "--item-title", help="PRD item title"),
+    work_mode: str = typer.Option("feature", "--mode", "-m", help="Work mode"),
+    agent_exit: int = typer.Option(0, "--agent-exit", help="Agent exit code"),
+    validate_status: str = typer.Option("passed", "--validate-status", help="Validation status"),
+    outcome: str = typer.Option("progressed", "--outcome", "-o", help="Outcome"),
+    validation_hint: str = typer.Option("", "--validation-hint", help="Validation signal hint"),
+):
+    """Write a structured entry to RECENT.md."""
+    ensure_initialized()
+    files = get_files()
+
+    writer = TierWriter(files)
+
+    try:
+        written = writer.write_recent_entry(
+            iteration=iteration,
+            item_id=item_id,
+            item_title=item_title,
+            work_mode=work_mode,
+            agent_exit=agent_exit,
+            validate_status=validate_status,
+            outcome=outcome,
+            validation_hint=validation_hint,
+        )
+        if written:
+            console.print(f"[success]Wrote recent entry for iteration {iteration}[/success]")
+        else:
+            console.print("[info]Skipped duplicate entry[/info]")
+    except TierValidationError as e:
+        console.print(f"[error]Validation failed: {e}[/error]")
+        raise typer.Exit(1)
+
+
+@app.command("lint-tiers")
+def lint_tiers(
+    tier: str = typer.Option(
+        "all", "--tier", "-t", help="Tier to lint: guardrails, style, recent, all"
+    ),
+    strict: bool = typer.Option(False, "--strict", "-s", help="Treat warnings as errors"),
+):
+    """Lint tier files for formatting issues and validation errors."""
+    ensure_initialized()
+    files = get_files()
+
+    tiers_to_lint: list[KnowledgeTier] = []
+    if tier == "all":
+        tiers_to_lint = [KnowledgeTier.GUARDRAILS, KnowledgeTier.STYLE, KnowledgeTier.RECENT]
+    else:
+        tier_map = {
+            "guardrails": KnowledgeTier.GUARDRAILS,
+            "style": KnowledgeTier.STYLE,
+            "recent": KnowledgeTier.RECENT,
+        }
+        if tier not in tier_map:
+            console.print(f"[error]Unknown tier: {tier}[/error]")
+            raise typer.Exit(1)
+        tiers_to_lint = [tier_map[tier]]
+
+    all_passed = True
+    for kt in tiers_to_lint:
+        content = files.read_tier(kt)
+        errors, warnings = lint_tier_file(kt, content, strict=strict)
+
+        console.print(f"\n[accent]{kt.value}.md[/accent]")
+
+        if errors:
+            console.print(f"  [error]Errors ({len(errors)}):[/error]")
+            for error in errors:
+                console.print(f"    • {error}")
+            all_passed = False
+        else:
+            console.print("  [success]No errors[/success]")
+
+        if warnings:
+            console.print(f"  [warning]Warnings ({len(warnings)}):[/warning]")
+            for warning in warnings:
+                console.print(f"    • {warning}")
+            if strict:
+                all_passed = False
+
+    if all_passed:
+        console.print("\n[success]All tier files passed linting[/success]")
+        raise typer.Exit(0)
+    else:
+        console.print("\n[error]Some tier files have issues[/error]")
+        raise typer.Exit(1)
+
+
+@app.command("tier-stats")
+def tier_stats():
+    """Show statistics for all tier files."""
+    ensure_initialized()
+    files = get_files()
+
+    table = Table(title="Tier File Statistics")
+    table.add_column("Tier", style="accent")
+    table.add_column("Entries", justify="right")
+    table.add_column("Size (chars)", justify="right")
+    table.add_column("Lines", justify="right")
+    table.add_column("Date Range")
+
+    for tier in [KnowledgeTier.GUARDRAILS, KnowledgeTier.STYLE, KnowledgeTier.RECENT]:
+        content = files.read_tier(tier)
+        stats = get_tier_statistics(content)
+
+        date_range = "N/A"
+        if stats["date_range"]["earliest"] and stats["date_range"]["latest"]:
+            earliest = stats["date_range"]["earliest"][:10]  # Just the date part
+            latest = stats["date_range"]["latest"][:10]
+            if earliest == latest:
+                date_range = earliest
+            else:
+                date_range = f"{earliest} to {latest}"
+
+        table.add_row(
+            tier.value,
+            str(stats["entry_count"]),
+            f"{stats['content_size']:,}",
+            str(stats["line_count"]),
+            date_range,
+        )
+
+    console.print(table)
 
 
 def main() -> None:

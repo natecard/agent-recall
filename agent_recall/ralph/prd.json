@@ -412,11 +412,11 @@
       "description": "Define and enforce structured write policies for GUARDRAILS/STYLE/RECENT so loop-time updates remain scoped, deterministic, and low-noise before compaction.",
       "user_story": "Allow agents to write useful iteration learnings without creating duplicated or contradictory tier-file content.",
       "steps": [
-        "Decide and document ownership boundaries between Ralph-loop writes and post-loop compaction responsibilities.",
-        "Define canonical schemas and write policies for `.agent/GUARDRAILS.md`, `.agent/STYLE.md`, and `.agent/RECENT.md`.",
-        "Implement lightweight in-loop write hygiene (section-targeted updates, duplicate guards, and bounded append behavior).",
-        "Add explicit write modes for loop-time updates (append and replace-section) and require policy-aware writes.",
-        "Add validation and lint checks that detect malformed sections, duplication, and low-signal noise before persisting."
+        "[done] Decide and document ownership boundaries between Ralph-loop writes and post-loop compaction responsibilities.",
+        "[done] Define canonical schemas and write policies for `.agent/GUARDRAILS.md`, `.agent/STYLE.md`, and `.agent/RECENT.md`.",
+        "[done] Implement lightweight in-loop write hygiene (section-targeted updates, duplicate guards, and bounded append behavior).",
+        "[done] Add explicit write modes for loop-time updates (append and replace-section) and require policy-aware writes.",
+        "[done] Add validation and lint checks that detect malformed sections, duplication, and low-signal noise before persisting."
       ],
       "acceptance": [
         "Tier files preserve explicit, non-duplicated teachings with predictable structure.",
@@ -429,7 +429,7 @@
         "uv run ruff check .",
         "uv run ty check"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-017",
