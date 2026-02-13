@@ -215,7 +215,7 @@
     {
       "id": "AR-602",
       "category": "functional",
-      "priority": 4,
+      "priority": 5,
       "title": "Update _split_preamble_and_lines to skip Ralph entry blocks",
       "description": "Update the _split_preamble_and_lines() static method in compact.py to detect and skip Ralph entry blocks using is_ralph_entry_start(). Implement in_ralph_block tracking with correct block termination logic: a Ralph block ends when a new '## ' header is encountered OR when two consecutive empty lines appear. Lines within Ralph blocks are excluded from both the preamble and extracted lists.",
       "user_story": "As a developer running 'agent-recall run' (compaction), I need the bullet-entry extraction logic to completely skip over Ralph-format entry blocks so that compaction only processes bullet entries and leaves Ralph entries untouched.",
@@ -248,12 +248,12 @@
         "uv run ruff check .",
         "uv run ty check"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-603",
       "category": "functional",
-      "priority": 5,
+      "priority": 4,
       "title": "Ensure Ralph blocks are preserved on compact.py rewrite with integration tests",
       "description": "Ensure that when compact.py rewrites a tier file after compaction, all Ralph entry blocks that were skipped during extraction are preserved verbatim in the output. Add comprehensive integration tests covering mixed-format files (GUARDRAILS.md, STYLE.md, RECENT.md), Ralph-only files, bullet-only files, and round-trip preservation. Verify that no deprecated tier_format alias names exist in compact.py.",
       "user_story": "As a developer, I need absolute certainty that running compaction never destroys Ralph loop entries in my tier files, regardless of the mix of entry formats present, so I can safely run 'agent-recall run' at any time.",

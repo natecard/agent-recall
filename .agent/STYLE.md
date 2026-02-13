@@ -162,6 +162,9 @@
 ## 2026-02-13T10:05:00Z Iteration 2 (AR-601)
 - Prefer verifying existing code with direct grep/reads before editing; mark PRD passes when acceptance criteria are already satisfied.
 
+## 2026-02-13T22:25:00Z Iteration 3 (AR-602)
+- Confirm PRD acceptance by reading the code path end-to-end before marking passes.
+
 ## 2026-02-13T02:02:56Z Iteration 4 (AR-010)
 - Prefer one logical change per commit.
 - Keep validation command green before committing: uv run pytest && uv run ruff check . && uv run ty check

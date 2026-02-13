@@ -302,6 +302,10 @@
 - Notes: Verified compact.py already uses canonical tier_format imports; updated PRD priority ordering and marked AR-601 complete.
 - Next: Implement AR-301 Ralph CLI scaffolding in a dedicated ralph.py subapp.
 
+- Outcome: progressed
+- Notes: Verified compaction tier splitter already skips Ralph blocks per AR-602; marked AR-602 complete and reprioritized remaining PRD items.
+- Next: Implement AR-603 to preserve Ralph blocks on compaction rewrite.
+
 ## 2026-02-13T02:30:00Z Iteration 6
 - Item: AR-009 - Ship shared backend tracer-bullet (single-tenant)
 - Mode: feature
