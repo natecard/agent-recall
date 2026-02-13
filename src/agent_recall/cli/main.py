@@ -82,12 +82,14 @@ from agent_recall.llm import (
     validate_provider_config,
 )
 from agent_recall.ralph.context_refresh import ContextRefreshHook
+from agent_recall.ralph.loop import RalphLoop
 from agent_recall.ralph.prd_archive import PRDArchive
 from agent_recall.storage import create_storage_backend
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.models import CurationStatus, LLMConfig, RetrievalConfig, SemanticLabel
 from agent_recall.storage.remote import resolve_shared_db_path
+from agent_recall.storage.sqlite import SQLiteStorage
 
 app = typer.Typer(help="Agent Memory System - Persistent knowledge for AI coding agents")
 _slash_runner = CliRunner()
@@ -363,6 +365,21 @@ def ensure_initialized() -> None:
     _get_theme_manager()  # Ensure theme is loaded
     console.print("[error]Not initialized. Run 'agent-recall init' first.[/error]")
     raise typer.Exit(1)
+
+
+def get_agent_dir() -> Path:
+    return Path.cwd() / ".agent"
+
+
+def get_ralph_components() -> tuple[Path, SQLiteStorage, FileStorage]:
+    agent_dir = get_agent_dir()
+    if not agent_dir.exists():
+        _get_theme_manager()
+        console.print("[error]Not initialized. Run 'agent-recall init' first.[/error]")
+        raise typer.Exit(1)
+    storage = SQLiteStorage(agent_dir / "state.db")
+    files = FileStorage(agent_dir)
+    return agent_dir, storage, files
 
 
 @lru_cache(maxsize=1)
@@ -793,6 +810,7 @@ def _execute_tui_slash_command(
     terminal_width: int | None = None,
     terminal_height: int | None = None,
 ) -> tuple[bool, list[str]]:
+    get_storage.cache_clear()
     value = _normalize_tui_command(raw)
     if not value:
         return False, []
@@ -3267,6 +3285,7 @@ def ralph(
     prd_file: Path | None = typer.Option(
         None,
         "--prd-file",
+        "--prd",
         "-p",
         help="Path to PRD JSON file (default: auto-detected)",
     ),
@@ -3365,6 +3384,41 @@ def ralph(
         config_dict = files.read_config()
         lines = _render_ralph_status(config_dict)
         console.print(Panel.fit("\n".join(lines), title="Ralph Loop"))
+        return
+
+    if normalized == "enable":
+        agent_dir, storage, loop_files = get_ralph_components()
+        loop = RalphLoop(agent_dir, storage, loop_files)
+        updates: dict[str, object] = {"enabled": True}
+        if max_iterations is not None:
+            updates["max_iterations"] = max_iterations
+        if sleep_seconds is not None:
+            updates["sleep_seconds"] = sleep_seconds
+        if compact_mode is not None:
+            updates["compact_mode"] = compact_mode
+        config_dict = _write_ralph_config(files, updates)
+        if prd_file is None:
+            state = loop.enable()
+            lines = _render_ralph_status(config_dict)
+            console.print(Panel.fit("\n".join(lines), title="Ralph Loop Updated"))
+        else:
+            if not prd_file.exists():
+                console.print(f"[error]PRD file not found: {prd_file}[/error]")
+                raise typer.Exit(1)
+            item_count = loop.initialize_from_prd(prd_file)
+            console.print(f"[success]✓ Ralph enabled ({item_count} PRD items)[/success]")
+        return
+
+    if normalized == "disable":
+        agent_dir, storage, loop_files = get_ralph_components()
+        loop = RalphLoop(agent_dir, storage, loop_files)
+        state = loop.disable()
+        config_dict = _write_ralph_config(files, {"enabled": False})
+        console.print(
+            f"[warning]Ralph disabled (total iterations: {state.total_iterations})[/warning]"
+        )
+        lines = _render_ralph_status(config_dict)
+        console.print(Panel.fit("\n".join(lines), title="Ralph Loop Updated"))
         return
 
     if normalized == "archive-completed":

@@ -263,19 +263,19 @@ def get_command_contract() -> list[CommandContract]:
             command="ralph status",
             aliases=(),
             description="Show Ralph loop status",
-            surfaces=("tui",),
+            surfaces=("cli", "tui"),
         ),
         CommandContract(
             command="ralph enable",
             aliases=(),
             description="Enable Ralph loop",
-            surfaces=("tui",),
+            surfaces=("cli", "tui"),
         ),
         CommandContract(
             command="ralph disable",
             aliases=(),
             description="Disable Ralph loop",
-            surfaces=("tui",),
+            surfaces=("cli", "tui"),
         ),
         CommandContract(
             command="ralph select",

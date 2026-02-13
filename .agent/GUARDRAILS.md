@@ -150,6 +150,9 @@
 ## 2026-02-13T22:25:00Z Iteration 3 (AR-602)
 - If a PRD item is already implemented, confirm acceptance against code before marking passes to avoid redundant edits.
 
+## 2026-02-13T18:31:00Z Iteration 5 (AR-301)
+- Avoid reusing cached storage connections in CLI/TUI tests; clear `get_storage` cache at slash-command entry to keep isolated filesystems consistent.
+
 ## 2026-02-13T10:05:00Z Iteration 2 (AR-601)
 - When a PRD item requires only verification (no code edits), still run full validation and record the outcome in progress tracking.
 

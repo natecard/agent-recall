@@ -268,3 +268,6 @@
 - Keep CLI action routing consolidated in the existing command handler when adding Ralph sub-actions.
 ## 2026-02-13T23:55:00Z Iteration 5 (AR-204)
 - Keep Ralph CLI outputs aligned with existing Rich patterns (Panel/Table/bullets) to match other CLI surfaces.
+
+## 2026-02-13T18:31:00Z Iteration 5 (AR-301)
+- Implement Ralph enable/disable using a small state JSON writer/reader to avoid adding unused heavy loop machinery.

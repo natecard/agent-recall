@@ -315,6 +315,10 @@
 - Notes: Compaction now preserves Ralph blocks verbatim when rewriting tiers; added integration tests for GUARDRAILS/STYLE/RECENT and round-trip count plus deprecated alias check.
 - Next: Run validation; if green, mark AR-603 complete and reprioritize remaining PRDs.
 
+- Outcome: progressed
+- Notes: Added Ralph CLI enable/disable with ralph_state.json tracking and PRD init support; added tests for state creation/disable and PRD count output.
+- Next: Run validation and, if green, proceed to AR-303 (run command Mode B delegation).
+
 ## 2026-02-13T02:30:00Z Iteration 6
 - Item: AR-009 - Ship shared backend tracer-bullet (single-tenant)
 - Mode: feature
