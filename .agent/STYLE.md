@@ -280,3 +280,6 @@
 
 ## 2026-02-13T23:59:59Z Iteration 8 (AR-302)
 - For dual-mode CLI status views, split rendering into focused helpers and reuse shared truncation utilities.
+
+## 2026-02-13T23:59:59Z Iteration 9 (AR-303)
+- Keep progress callbacks in CLI narrowly focused on rendering while loop logic owns payload structure.

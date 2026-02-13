@@ -346,6 +346,15 @@
 - Notes: Split Ralph CLI into a dedicated Typer subapp in `src/agent_recall/cli/ralph.py`, wired subcommands through main CLI, and kept helper wrappers for existing tests; reprioritized remaining PRDs.
 - Next: Implement AR-303 (run command) before AR-302 (status dual-mode).
 
+## 2026-02-13T23:59:59Z Iteration 9
+- Item: AR-303 - Implement Ralph run command with dual-mode execution
+- Mode: feature
+- Agent exit code: 0
+- Validation: passed
+- Outcome: progressed
+- Notes: Added Python-mode run path with progress callbacks, summary panel, and Ralph state payload updates; bash mode unchanged.
+- Next: Ready to close AR-303.
+
 ## 2026-02-13T02:30:00Z Iteration 6
 - Item: AR-009 - Ship shared backend tracer-bullet (single-tenant)
 - Mode: feature

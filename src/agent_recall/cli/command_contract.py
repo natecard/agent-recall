@@ -280,7 +280,7 @@ def get_command_contract() -> list[CommandContract]:
         CommandContract(
             command="ralph run",
             aliases=(),
-            description="Run Ralph loop (bash delegation)",
+            description="Run Ralph loop (python or bash)",
             surfaces=("cli",),
         ),
         CommandContract(

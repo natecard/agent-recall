@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import subprocess
@@ -457,6 +458,19 @@ def ralph_disable() -> None:
 
 @ralph_app.command("run")
 def ralph_run(
+    max_mode_a_iterations: int | None = typer.Option(
+        None,
+        "--max",
+        "-m",
+        min=1,
+        help="Max iterations for Python loop mode",
+    ),
+    item_id: str | None = typer.Option(
+        None,
+        "--item",
+        "-i",
+        help="PRD item id to run in Python loop mode",
+    ),
     agent_cmd: str | None = typer.Option(
         None,
         "--agent-cmd",
@@ -494,14 +508,77 @@ def ralph_run(
         help="Sleep seconds between iterations",
     ),
 ) -> None:
-    """Run the Ralph loop (bash delegation only)."""
+    """Run the Ralph loop."""
     _get_theme_manager()
     if agent_cmd is None:
-        console.print(
-            "[error]Python loop mode is not yet available. "
-            "Provide --agent-cmd to run the bash loop.[/error]"
+        ensure_initialized()
+        files = get_files()
+        ralph_cfg = read_ralph_config(files)
+        agent_dir = get_agent_dir()
+        state_manager = RalphStateManager(agent_dir)
+        if state_manager.load().status == RalphStatus.DISABLED:
+            console.print("[error]Ralph loop is disabled. Run 'agent-recall ralph enable'.[/error]")
+            raise typer.Exit(1)
+        enabled_value = ralph_cfg.get("enabled")
+        enabled = bool(enabled_value) if isinstance(enabled_value, bool) else False
+        if not enabled:
+            console.print("[error]Ralph loop is disabled. Run 'agent-recall ralph enable'.[/error]")
+            raise typer.Exit(1)
+
+        python_max_iterations = max_mode_a_iterations
+        selected_value = ralph_cfg.get("selected_prd_ids")
+        selected_ids: list[str] | None = None
+        if isinstance(selected_value, list) and selected_value:
+            selected_ids = [str(x) for x in selected_value if x]
+
+        if python_max_iterations is None:
+            max_iterations_value = ralph_cfg.get("max_iterations")
+            python_max_iterations = (
+                int(max_iterations_value) if isinstance(max_iterations_value, int | float) else None
+            )
+
+        def progress_callback(event: dict[str, Any]) -> None:
+            event_type = str(event.get("event") or "")
+            if event_type == "iteration_started":
+                iteration = event.get("iteration")
+                item = event.get("item_id")
+                console.print(f"[cyan]Iteration {iteration}: {item} started[/cyan]")
+            elif event_type == "agent_complete":
+                exit_code = int(event.get("exit_code") or 0)
+                if exit_code == 0:
+                    console.print("[green]✓ Agent complete[/green]")
+                else:
+                    console.print(f"[red]✗ Agent failed (exit {exit_code})[/red]")
+            elif event_type == "validation_complete":
+                success = bool(event.get("success"))
+                hint = str(event.get("hint") or "")
+                if success:
+                    console.print("[green]✓ Validation passed[/green]")
+                else:
+                    message = _truncate(hint, 80) if hint else "Validation failed"
+                    console.print(f"[red]✗ {message}[/red]")
+            elif event_type == "iteration_complete":
+                outcome = str(event.get("outcome") or "")
+                duration = float(event.get("duration_seconds") or 0)
+                console.print(f"[dim]Iteration complete ({outcome}) in {duration:.2f}s[/dim]")
+
+        agent_dir, storage, loop_files = get_ralph_components()
+        loop = RalphLoop(agent_dir, storage, loop_files)
+        summary = asyncio.run(
+            loop.run_loop(
+                max_iterations=python_max_iterations,
+                item_id=item_id,
+                selected_prd_ids=selected_ids,
+                progress_callback=progress_callback,
+            )
         )
-        raise typer.Exit(1)
+        panel_lines = [
+            f"Total iterations: {summary.get('total_iterations', 0)}",
+            f"Passed: [green]{summary.get('passed', 0)}[/green]",
+            f"Failed: [red]{summary.get('failed', 0)}[/red]",
+        ]
+        console.print(Panel.fit("\n".join(panel_lines), title="Ralph Run Summary"))
+        return
 
     compact_mode = compact_mode.strip().lower()
     if compact_mode not in {"always", "on-failure", "off"}:

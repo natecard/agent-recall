@@ -347,3 +347,6 @@
 
 ## 2026-02-13T23:59:59Z Iteration 8 (AR-302)
 - Avoid expanding Ralph state schema unless the run-loop persists those fields; keep status Mode A tolerant of missing keys.
+
+## 2026-02-13T23:59:59Z Iteration 9 (AR-303)
+- When adding Python-mode Ralph run, keep state updates best-effort and align payload fields with status Mode A expectations.

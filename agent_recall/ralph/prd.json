@@ -41,7 +41,7 @@
     {
       "id": "AR-014",
       "category": "functional",
-      "priority": 4,
+      "priority": 2,
       "title": "Add backup, restore, and migration tooling for shared memory",
       "description": "Provide operational tooling for safe upgrades and disaster recovery of shared memory data.",
       "user_story": "Allow teams to upgrade backend schema and recover memory state without losing history.",
@@ -101,7 +101,7 @@
     {
       "id": "AR-302",
       "category": "functional",
-      "priority": 2,
+      "priority": 4,
       "title": "Implement Ralph status command with dual-mode display",
       "description": "Implement the 'status' command in ralph.py supporting two display modes. Mode A (from spec 1): reads RalphStateManager state and displays a Rich Panel with status, iteration counts, last run time, last outcome, and PRD path, plus a Rich Table of state-tracked PRD items with color-coded statuses. Mode B (from spec 2): reads a JSON PRD file and displays project name, version, total/completed/remaining counts, plus a Rich Table sorted by priority showing '\u2713 Passed' or 'Pending' status. Auto-detection selects Mode B when JSON PRD exists, falling back to Mode A.",
       "user_story": "As a developer, I want the status command to show me the most relevant view of Ralph progress \u2014 either the live loop state when running the Python orchestrator, or the PRD completion status when using the bash loop \u2014 so I always have an accurate picture regardless of which execution mode I'm using.",
@@ -177,7 +177,7 @@
         "uv run ruff check .",
         "uv run ty check"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-601",
