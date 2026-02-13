@@ -307,3 +307,6 @@
 
 ## 2026-02-13T22:15:00Z Iteration 2 (AR-202)
 - Keep archive indexing as a no-op when storage is None and guard storage access in _index_archived_item to avoid NoneType errors.
+
+## 2026-02-13T22:45:00Z Iteration 3 (AR-203)
+- When building Ralph refresh tasks, default missing task to "Continue work" so adapter payloads always include a task string when item_id/iteration are set.

@@ -241,3 +241,6 @@
 
 ## 2026-02-13T22:15:00Z Iteration 2 (AR-202)
 - Keep PRD archive search encapsulated in PRDArchive (generate embeddings + cosine similarity) so CLI wiring stays thin.
+
+## 2026-02-13T22:45:00Z Iteration 3 (AR-203)
+- Format Ralph refresh task strings in one place (hook) to keep CLI/batch callers consistent.
