@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from agent_recall.core.embeddings import generate_embedding
+from agent_recall.core.tier_format import is_ralph_entry_start
 from agent_recall.llm.base import LLMProvider, Message
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
@@ -596,17 +597,37 @@ class CompactionEngine:
         matcher: re.Pattern[str],
     ) -> tuple[list[str], list[str]]:
         lines = content.splitlines()
-        first_index = None
-        for index, line in enumerate(lines):
+        preamble: list[str] = []
+        extracted: list[str] = []
+        in_ralph_block = False
+        current_ralph_empty_count = 0
+        found_entry = False
+
+        for line in lines:
+            if is_ralph_entry_start(line):
+                in_ralph_block = True
+                current_ralph_empty_count = 0
+                found_entry = True
+                continue
+
+            if in_ralph_block:
+                if line.startswith("## ") and not is_ralph_entry_start(line):
+                    in_ralph_block = False
+                elif line.strip() == "":
+                    current_ralph_empty_count += 1
+                    if current_ralph_empty_count >= 2:
+                        in_ralph_block = False
+                    continue
+                else:
+                    current_ralph_empty_count = 0
+                    continue
+
             if matcher.match(line):
-                first_index = index
-                break
-        if first_index is None:
-            preamble = lines
-            extracted: list[str] = []
-        else:
-            preamble = lines[:first_index]
-            extracted = [line.strip() for line in lines[first_index:] if matcher.match(line)]
+                extracted.append(line.strip())
+                found_entry = True
+            elif not found_entry:
+                preamble.append(line)
+
         return preamble, extracted
 
     @staticmethod

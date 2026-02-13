@@ -19,6 +19,15 @@
 - Notes: Added ParsedEntry/TierContent dataclasses plus parse helpers; Ralph blocks group multi-line content with termination on double-empty lines or non-Ralph headers.
 - Next: Run validation, then move to AR-503 merge/split helpers.
 
+## 2026-02-13T02:05:00Z Iteration 1
+- Item: AR-602 - Update _split_preamble_and_lines to skip Ralph entry blocks
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Added Ralph block skipping logic to compaction tier splitting using is_ralph_entry_start with header/double-empty termination.
+- Next: Run validation and confirm AR-602 acceptance; continue with AR-603 if green.
+
 ## 2026-02-13T22:15:00Z Iteration 2
 - Item: AR-202 - Implement PRD archive semantic search and knowledge indexing
 - Mode: feature
