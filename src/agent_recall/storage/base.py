@@ -16,6 +16,11 @@ from agent_recall.storage.models import (
 )
 
 
+class SharedBackendUnavailableError(Exception):
+    """Raised when the shared storage backend is unreachable."""
+    pass
+
+
 class Storage(ABC):
     """
     Abstract Base Class defining the interface for storage backends.

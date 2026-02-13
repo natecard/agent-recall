@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import sqlite3
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -9,7 +11,7 @@ from uuid import UUID
 
 import httpx
 
-from agent_recall.storage.base import Storage
+from agent_recall.storage.base import SharedBackendUnavailableError, Storage
 from agent_recall.storage.models import (
     BackgroundSyncStatus,
     Chunk,
@@ -189,9 +191,12 @@ class RemoteStorage(Storage):
     """
 
     _delegate: Storage
+    _local: Storage | None
 
-    def __init__(self, config: SharedStorageConfig) -> None:
+    def __init__(self, config: SharedStorageConfig, local_db_path: Path | None = None) -> None:
         self.config = config
+        self._local = SQLiteStorage(local_db_path) if local_db_path else None
+
         resolved = resolve_shared_db_path(config.base_url)
 
         if isinstance(resolved, Path):
@@ -199,99 +204,136 @@ class RemoteStorage(Storage):
         else:
             self._delegate = _HTTPClient(config)
 
+    def _execute(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
+        attempts = max(1, self.config.retry_attempts or 1)
+        last_error: Exception | None = None
+
+        for i in range(attempts):
+            try:
+                method = getattr(self._delegate, method_name)
+                return method(*args, **kwargs)
+            except (
+                httpx.TransportError,
+                httpx.TimeoutException,
+                sqlite3.OperationalError,
+                OSError,
+                SharedBackendUnavailableError,
+            ) as e:
+                last_error = e
+                if i < attempts - 1:
+                    time.sleep(0.5 * (2**i))
+                    continue
+
+        if self._local:
+            try:
+                method = getattr(self._local, method_name)
+                return method(*args, **kwargs)
+            except Exception:
+                # If local also fails, ignore local error and raise the shared one
+                pass
+
+        if last_error:
+            raise SharedBackendUnavailableError(
+                f"Shared storage operation '{method_name}' failed after {attempts} attempts"
+            ) from last_error
+
+        raise SharedBackendUnavailableError(
+            f"Shared storage operation '{method_name}' failed with unknown error"
+        )
+
     def create_session(self, session: Session) -> None:
-        return self._delegate.create_session(session)
+        return self._execute("create_session", session)
 
     def get_session(self, session_id: UUID) -> Session | None:
-        return self._delegate.get_session(session_id)
+        return self._execute("get_session", session_id)
 
     def get_active_session(self) -> Session | None:
-        return self._delegate.get_active_session()
+        return self._execute("get_active_session")
 
     def list_sessions(
         self, limit: int = 50, status: SessionStatus | None = None
     ) -> list[Session]:
-        return self._delegate.list_sessions(limit=limit, status=status)
+        return self._execute("list_sessions", limit=limit, status=status)
 
     def update_session(self, session: Session) -> None:
-        return self._delegate.update_session(session)
+        return self._execute("update_session", session)
 
     def append_entry(self, entry: LogEntry) -> None:
-        return self._delegate.append_entry(entry)
+        return self._execute("append_entry", entry)
 
     def get_entries(self, session_id: UUID) -> list[LogEntry]:
-        return self._delegate.get_entries(session_id)
+        return self._execute("get_entries", session_id)
 
     def get_entries_by_label(
         self, labels: list[SemanticLabel], limit: int = 100
     ) -> list[LogEntry]:
-        return self._delegate.get_entries_by_label(labels=labels, limit=limit)
+        return self._execute("get_entries_by_label", labels=labels, limit=limit)
 
     def count_log_entries(self) -> int:
-        return self._delegate.count_log_entries()
+        return self._execute("count_log_entries")
 
     def store_chunk(self, chunk: Chunk) -> None:
-        return self._delegate.store_chunk(chunk)
+        return self._execute("store_chunk", chunk)
 
     def has_chunk(self, content: str, label: SemanticLabel) -> bool:
-        return self._delegate.has_chunk(content, label)
+        return self._execute("has_chunk", content, label)
 
     def count_chunks(self) -> int:
-        return self._delegate.count_chunks()
+        return self._execute("count_chunks")
 
     def search_chunks_fts(self, query: str, top_k: int = 5) -> list[Chunk]:
-        return self._delegate.search_chunks_fts(query, top_k=top_k)
+        return self._execute("search_chunks_fts", query, top_k=top_k)
 
     def list_chunks_with_embeddings(self) -> list[Chunk]:
-        return self._delegate.list_chunks_with_embeddings()
+        return self._execute("list_chunks_with_embeddings")
 
     def is_session_processed(self, source_session_id: str) -> bool:
-        return self._delegate.is_session_processed(source_session_id)
+        return self._execute("is_session_processed", source_session_id)
 
     def mark_session_processed(self, source_session_id: str) -> None:
-        return self._delegate.mark_session_processed(source_session_id)
+        return self._execute("mark_session_processed", source_session_id)
 
     def clear_processed_sessions(
         self,
         source: str | None = None,
         source_session_id: str | None = None,
     ) -> int:
-        return self._delegate.clear_processed_sessions(
-            source=source, source_session_id=source_session_id
+        return self._execute(
+            "clear_processed_sessions", source=source, source_session_id=source_session_id
         )
 
     def get_session_checkpoint(self, source_session_id: str) -> SessionCheckpoint | None:
-        return self._delegate.get_session_checkpoint(source_session_id)
+        return self._execute("get_session_checkpoint", source_session_id)
 
     def save_session_checkpoint(self, checkpoint: SessionCheckpoint) -> None:
-        return self._delegate.save_session_checkpoint(checkpoint)
+        return self._execute("save_session_checkpoint", checkpoint)
 
     def clear_session_checkpoints(
         self,
         source: str | None = None,
         source_session_id: str | None = None,
     ) -> int:
-        return self._delegate.clear_session_checkpoints(
-            source=source, source_session_id=source_session_id
+        return self._execute(
+            "clear_session_checkpoints", source=source, source_session_id=source_session_id
         )
 
     def get_stats(self) -> dict[str, int]:
-        return self._delegate.get_stats()
+        return self._execute("get_stats")
 
     def get_last_processed_at(self) -> datetime | None:
-        return self._delegate.get_last_processed_at()
+        return self._execute("get_last_processed_at")
 
     def list_recent_source_sessions(self, limit: int = 20) -> list[dict[str, Any]]:
-        return self._delegate.list_recent_source_sessions(limit=limit)
+        return self._execute("list_recent_source_sessions", limit=limit)
 
     def get_background_sync_status(self) -> BackgroundSyncStatus:
-        return self._delegate.get_background_sync_status()
+        return self._execute("get_background_sync_status")
 
     def save_background_sync_status(self, status: BackgroundSyncStatus) -> None:
-        return self._delegate.save_background_sync_status(status)
+        return self._execute("save_background_sync_status", status)
 
     def start_background_sync(self, pid: int) -> BackgroundSyncStatus:
-        return self._delegate.start_background_sync(pid)
+        return self._execute("start_background_sync", pid)
 
     def complete_background_sync(
         self,
@@ -299,6 +341,9 @@ class RemoteStorage(Storage):
         learnings_extracted: int,
         error_message: str | None = None,
     ) -> BackgroundSyncStatus:
-        return self._delegate.complete_background_sync(
-            sessions_processed, learnings_extracted, error_message
+        return self._execute(
+            "complete_background_sync",
+            sessions_processed,
+            learnings_extracted,
+            error_message,
         )

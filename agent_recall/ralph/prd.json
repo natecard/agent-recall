@@ -195,9 +195,10 @@
 				"[done] Implement a single-tenant shared backend client path for sessions/chunks/checkpoints via shared filesystem URLs (`file://` and `sqlite://`).",
 				"[done] Add shared tier-file synchronization for filesystem shared backends (`file://` and `sqlite://`).",
 				"Extend shared backend to HTTP service/client transport.",
-				"Add retry, timeout, and fallback behavior so local mode can continue if shared backend is unavailable.",
+				"[done] Add retry, timeout, and fallback behavior so local mode can continue if shared backend is unavailable.",
 				"[done] Add end-to-end tests that run the same sync/retrieve/compact flow against both local and shared modes."
 			],
+
 			"acceptance": [
 				"Shared backend mode can ingest, compact, and retrieve memory from a second machine.",
 				"The same CLI commands work in local and shared modes without behavior regressions.",

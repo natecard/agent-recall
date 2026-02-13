@@ -18,7 +18,7 @@ def create_storage_backend(config: AgentRecallConfig, db_path: Path) -> Storage:
     if config.storage.backend == "shared":
         from agent_recall.storage.remote import RemoteStorage
 
-        return RemoteStorage(config.storage.shared)
+        return RemoteStorage(config.storage.shared, local_db_path=db_path)
 
     else:
         raise ValueError(f"Unsupported storage backend: {config.storage.backend}")
