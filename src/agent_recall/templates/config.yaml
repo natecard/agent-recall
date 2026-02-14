@@ -48,6 +48,8 @@ theme:
 
 ralph:
   enabled: false
+  coding_cli: null
+  cli_model: null
   max_iterations: 10
   sleep_seconds: 2
   compact_mode: always

@@ -1,295 +1,250 @@
 {
-  "project": "Agent Recall Super Ralph",
-  "version": 2,
-  "selection_policy": {
-    "agent_decides_priority": true,
-    "priority_scale": "1 = highest priority",
-    "order_of_operations": [
-      "critical bugfixes",
-      "tracer-bullet feature slices",
-      "polish and quick wins",
-      "refactors"
-    ]
-  },
-  "items": [
-    {
-      "id": "AR-007",
-      "category": "functional",
-      "priority": 7,
-      "title": "Introduce optional shared team memory backend",
-      "description": "Add a multi-user backend option so teams can share durable memory beyond per-repo local SQLite.",
-      "user_story": "Allow multiple developers and agents to benefit from shared learnings across repositories and environments.",
-      "steps": [
-        "[done] Define storage abstraction boundary between local and shared backends.",
-        "[done] Implement first shared backend with auth and namespace isolation.",
-        "[done] Add sync/merge strategy for shared chunks and tier updates.",
-        "[done] Document migration path and opt-in configuration for teams."
-      ],
-      "acceptance": [
-        "Team mode supports read/write memory across multiple machines.",
-        "Namespace boundaries prevent cross-project memory leakage.",
-        "Local-only mode remains default and behavior-compatible.",
-        "Shared backend failures degrade gracefully without data corruption."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-014",
-      "category": "functional",
-      "priority": 2,
-      "title": "Add backup, restore, and migration tooling for shared memory",
-      "description": "Provide operational tooling for safe upgrades and disaster recovery of shared memory data.",
-      "user_story": "Allow teams to upgrade backend schema and recover memory state without losing history.",
-      "steps": [
-        "Implement export/import commands for full shared memory snapshots.",
-        "Add schema migration versioning with forward/backward safety checks.",
-        "Add restore verification command to validate data integrity after recovery.",
-        "Document operational runbooks for backup cadence and rollback procedures."
-      ],
-      "acceptance": [
-        "Teams can create and restore full memory snapshots reliably.",
-        "Schema migrations are versioned, repeatable, and validated in CI.",
-        "Restore checks detect missing/corrupted data before normal operation resumes.",
-        "Operational docs are sufficient for on-call recovery execution."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-301",
-      "category": "functional",
-      "priority": 3,
-      "title": "Create Ralph CLI scaffolding with enable and disable commands",
-      "description": "Create src/agent_recall/cli/ralph.py as a Typer sub-application with shared helpers (get_agent_dir, get_ralph_components) and the enable and disable commands. These commands are identical across both specifications and form the foundation that status and run build upon.",
-      "user_story": "As a developer, I want to enable and disable the Ralph loop from the CLI so I can control when automated PRD-driven development is active for my repository.",
-      "steps": [
-        "Create src/agent_recall/cli/ralph.py with a Typer sub-application named 'ralph'.",
-        "Implement get_agent_dir() helper to resolve the .agent directory from cwd.",
-        "Implement get_ralph_components() helper to instantiate SQLiteStorage and FileStorage, printing an error and exiting with code 1 if .agent directory does not exist.",
-        "Implement 'enable' command with optional --prd/-p flag (Path type).",
-        "In 'enable' without --prd: call loop.enable() and print '\u2713 Ralph enabled' with status.",
-        "In 'enable' with --prd: verify file exists (exit 1 if not), call loop.initialize_from_prd(prd), print item count.",
-        "Implement 'disable' command that calls loop.disable() and prints 'Ralph disabled' with total_iterations count.",
-        "Ensure both commands instantiate RalphLoop with agent_dir, storage, and files from get_ralph_components()."
-      ],
-      "acceptance": [
-        "'agent-recall ralph enable' creates ralph_state.json with status ENABLED.",
-        "'agent-recall ralph enable --prd ./PRD.md' parses items and shows item count.",
-        "'agent-recall ralph enable --prd ./nonexistent.md' shows error and exits with code 1.",
-        "'agent-recall ralph disable' sets status to DISABLED and shows total iterations.",
-        "Running without 'agent-recall init' shows 'Not initialized' error and exits with code 1.",
-        "get_agent_dir() returns Path.cwd() / '.agent'.",
-        "get_ralph_components() returns (agent_dir, SQLiteStorage, FileStorage) tuple.",
-        "Rich Console is used for all output formatting."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-302",
-      "category": "functional",
-      "priority": 4,
-      "title": "Implement Ralph status command with dual-mode display",
-      "description": "Implement the 'status' command in ralph.py supporting two display modes. Mode A (from spec 1): reads RalphStateManager state and displays a Rich Panel with status, iteration counts, last run time, last outcome, and PRD path, plus a Rich Table of state-tracked PRD items with color-coded statuses. Mode B (from spec 2): reads a JSON PRD file and displays project name, version, total/completed/remaining counts, plus a Rich Table sorted by priority showing '\u2713 Passed' or 'Pending' status. Auto-detection selects Mode B when JSON PRD exists, falling back to Mode A.",
-      "user_story": "As a developer, I want the status command to show me the most relevant view of Ralph progress \u2014 either the live loop state when running the Python orchestrator, or the PRD completion status when using the bash loop \u2014 so I always have an accurate picture regardless of which execution mode I'm using.",
-      "steps": [
-        "Implement get_default_prd_path() helper that searches candidates in order: .agent/ralph/prd.json, agent_recall/ralph/prd.json, prd.json, returning the first that exists or the first candidate as fallback.",
-        "Implement 'status' command auto-detection: check if get_default_prd_path() points to an existing JSON file (\u2192 Mode B), else check if RalphStateManager state file exists (\u2192 Mode A), else exit with code 1 and message.",
-        "Implement Mode A: instantiate RalphStateManager, call load(), build Rich Panel with status (color-coded by RalphStatus), current_iteration, total_iterations, successful_iterations, failed_iterations, last_run_at (ISO format), last_outcome, and prd_path.",
-        "Implement Mode A Rich Table titled 'PRD Items' with columns: ID (cyan), Title (truncated to 40 chars), Status (color-coded: pending=dim, in_progress=yellow, completed=green, blocked=red, skipped=dim), Iterations.",
-        "Implement Mode B: read and parse JSON PRD file, extract project name, version, items list.",
-        "Implement Mode B counts: total = len(items), passed = count where passes=true, remaining = total - passed.",
-        "Implement Mode B Rich Panel with PRD path, Project name, Version, Total items, Completed (green), Remaining (yellow).",
-        "Implement Mode B Rich Table titled 'PRD Items' with columns: ID (cyan), Priority, Title (truncated to 50 chars), Status ('\u2713 Passed' in green or 'Pending' in yellow based on passes field), sorted by priority ascending.",
-        "Handle json.JSONDecodeError with error message and exit code 1 in Mode B."
-      ],
-      "acceptance": [
-        "'agent-recall ralph status' shows Mode B panel when JSON PRD file exists at default path.",
-        "'agent-recall ralph status' shows Mode A panel when only state file exists and no JSON PRD.",
-        "'agent-recall ralph status' exits with code 1 and message when neither state file nor PRD JSON exists.",
-        "Mode A Panel displays all state fields: status, current_iteration, total_iterations, successful_iterations, failed_iterations.",
-        "Mode A Panel conditionally displays last_run_at and last_outcome only when present.",
-        "Mode A Table shows PRD items with color-coded statuses matching the status_style mapping.",
-        "Mode B Panel displays project name, version, total/completed/remaining counts.",
-        "Mode B Table sorts items by priority (ascending) and truncates titles to 50 characters.",
-        "Mode B Table shows '\u2713 Passed' (green) for items with passes=true and 'Pending' (yellow) otherwise.",
-        "Invalid JSON PRD file shows error message and exits with code 1."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-303",
-      "category": "functional",
-      "priority": 1,
-      "title": "Implement Ralph run command with dual-mode execution",
-      "description": "Implement the 'run' command in ralph.py supporting two execution modes. Mode A (from spec 1): Python orchestrator via asyncio.run(loop.run_loop()) with --max/-m and --item/-i flags, progress_callback for real-time console output, and a summary panel. Mode B (from spec 2): bash script delegation via subprocess.run() with --agent-cmd/-a (required), --validate-cmd/-v, --max-iterations/-n, --prd-file/-p, --compact-mode, --sleep-seconds flags, and exit code handling. Mode selection is determined by whether --agent-cmd is provided (Mode B) or not (Mode A).",
-      "user_story": "As a developer, I want the run command to support both the Python loop orchestrator (for full integration with state management and progress callbacks) and bash script delegation (for simpler CLI-driven workflows), so I can choose the execution mode that fits my needs.",
-      "steps": [
-        "Implement get_default_script_path() helper that searches candidates: agent_recall/scripts/ralph-agent-recall-loop.sh, scripts/ralph-agent-recall-loop.sh, returning first existing or first candidate.",
-        "Implement 'run' command with Mode A parameters: --max/-m (Optional[int], default None), --item/-i (Optional[str], default None).",
-        "Implement 'run' command with Mode B parameters: --agent-cmd/-a (Optional[str], default None), --validate-cmd/-v (Optional[str], default None), --max-iterations/-n (int, default 10), --prd-file/-p (Optional[Path], default None), --compact-mode (str, default 'always'), --sleep-seconds (int, default 2).",
-        "Implement mode detection: if --agent-cmd is provided \u2192 Mode B, else \u2192 Mode A.",
-        "Implement Mode A: load RalphConfig from files.read_config().get('ralph', {}), check state is not DISABLED (exit 1 if so), create progress_callback function, instantiate RalphLoop, call asyncio.run(loop.run_loop(max_iterations=max_iterations)).",
-        "Implement Mode A progress_callback handling events: iteration_started (cyan with iteration number and item_id), agent_complete (green/red based on exit_code), validation_complete (green \u2713 or red with hint truncated to 80 chars), iteration_complete (dim with duration and outcome).",
-        "Implement Mode A summary Rich Panel showing total iterations, passed count (green), failed count (red).",
-        "Implement Mode B: resolve script_path via get_default_script_path() (exit 1 if not found), resolve prd_path via --prd-file or get_default_prd_path() (exit 1 if not found).",
-        "Implement Mode B command array construction: [script_path, '--agent-cmd', agent_cmd, '--max-iterations', str(max_iterations), '--prd-file', str(prd_path), '--compact-mode', compact_mode, '--sleep-seconds', str(sleep_seconds)] plus optional '--validate-cmd'.",
-        "Implement Mode B execution via subprocess.run(cmd, cwd=Path.cwd(), check=False).",
-        "Implement Mode B exit code handling: 0 = green success message, 2 = yellow max iterations message, 130 = yellow keyboard interrupt (via except KeyboardInterrupt), other = red with code.",
-        "Implement Mode B pre-run console output showing PRD path and max iterations."
-      ],
-      "acceptance": [
-        "'agent-recall ralph run --max 3' executes Mode A Python orchestrator limited to 3 iterations.",
-        "'agent-recall ralph run' without --agent-cmd executes Mode A with no iteration limit.",
-        "'agent-recall ralph run' Mode A shows error and exits 1 when Ralph is DISABLED.",
-        "'agent-recall ralph run' Mode A progress_callback displays all four event types correctly.",
-        "'agent-recall ralph run' Mode A summary panel shows correct passed/failed counts.",
-        "'agent-recall ralph run --agent-cmd \"claude --print {prompt_file}\"' executes Mode B bash delegation.",
-        "'agent-recall ralph run --agent-cmd \"claude\" --max-iterations 20' passes --max-iterations 20 to bash script.",
-        "'agent-recall ralph run --agent-cmd \"claude\" --validate-cmd \"make test\"' passes custom validation command.",
-        "'agent-recall ralph run --agent-cmd \"claude\" --compact-mode on-failure --sleep-seconds 5' passes all parameters.",
-        "Mode B returns exit code 0 for success with green message.",
-        "Mode B returns exit code 2 for max iterations with yellow message.",
-        "Mode B catches KeyboardInterrupt and exits with code 130.",
-        "Mode B shows error and exits 1 when bash script not found.",
-        "Mode B shows error and exits 1 when PRD file not found."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-601",
-      "category": "functional",
-      "priority": 6,
-      "title": "Update compact.py imports to canonical tier_format API",
-      "description": "Update all imports in src/agent_recall/core/compact.py to use the canonical function names from the extended tier_format module: is_ralph_entry_start (not is_ralph_entry_line), is_bullet_entry (not is_bullet_entry_line). Optionally import parse_tier_content and TierContent for richer format-aware processing in downstream sub-PRDs. Verify no deprecated alias names appear anywhere in compact.py.",
-      "user_story": "As a developer maintaining compact.py, I need imports to reference the canonical tier_format API so that when deprecated aliases are eventually removed, compact.py continues to work without modification.",
-      "steps": [
-        "Add import statement: from agent_recall.core.tier_format import is_ralph_entry_start to compact.py.",
-        "Add import statement: from agent_recall.core.tier_format import is_bullet_entry to compact.py (if needed by existing detection logic).",
-        "Optionally add import: from agent_recall.core.tier_format import parse_tier_content, TierContent for AR-603 usage.",
-        "Remove or replace any existing references to is_ralph_entry_line in compact.py.",
-        "Remove or replace any existing references to is_bullet_entry_line in compact.py.",
-        "Remove or replace any existing references to split_tier_by_format in compact.py (if using parse_tier_content instead).",
-        "Run ruff check to verify no unused imports and no import errors.",
-        "Run ty check to verify type correctness of all import references."
-      ],
-      "acceptance": [
-        "compact.py imports is_ralph_entry_start from agent_recall.core.tier_format.",
-        "compact.py does not contain the string 'is_ralph_entry_line' anywhere (neither import nor usage).",
-        "compact.py does not contain the string 'is_bullet_entry_line' anywhere (neither import nor usage).",
-        "All imports resolve without ImportError when compact.py is loaded.",
-        "ruff check reports no unused imports in compact.py.",
-        "ty check reports no type errors related to tier_format imports.",
-        "All existing compact.py tests continue to pass (no functional changes yet)."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-602",
-      "category": "functional",
-      "priority": 7,
-      "title": "Update _split_preamble_and_lines to skip Ralph entry blocks",
-      "description": "Update the _split_preamble_and_lines() static method in compact.py to detect and skip Ralph entry blocks using is_ralph_entry_start(). Implement in_ralph_block tracking with correct block termination logic: a Ralph block ends when a new '## ' header is encountered OR when two consecutive empty lines appear. Lines within Ralph blocks are excluded from both the preamble and extracted lists.",
-      "user_story": "As a developer running 'agent-recall run' (compaction), I need the bullet-entry extraction logic to completely skip over Ralph-format entry blocks so that compaction only processes bullet entries and leaves Ralph entries untouched.",
-      "steps": [
-        "[done] Locate the _split_preamble_and_lines() static method in compact.py.",
-        "[done] Add in_ralph_block: bool = False tracking variable before the line iteration loop.",
-        "[done] Add current_ralph_empty_count: int = 0 to track consecutive empty lines within Ralph blocks.",
-        "[done] At the start of each loop iteration, check if is_ralph_entry_start(line) is True: if so, set in_ralph_block = True, reset current_ralph_empty_count = 0, and continue (skip this line).",
-        "[done] If in_ralph_block is True: check for block termination conditions.",
-        "[done] Termination condition 1: line.startswith('## ') but is NOT a Ralph entry start \u2192 set in_ralph_block = False, fall through to normal processing.",
-        "[done] Termination condition 2: line.strip() == '' \u2192 increment current_ralph_empty_count; if current_ralph_empty_count >= 2, set in_ralph_block = False and continue.",
-        "[done] Termination condition 3 (non-terminating): line has content \u2192 reset current_ralph_empty_count = 0 and continue (still in Ralph block).",
-        "[done] If in_ralph_block is True and not terminated, continue to next line.",
-        "[done] Remaining logic (matcher.match, preamble collection) is unchanged for non-Ralph lines."
-      ],
-      "acceptance": [
-        "A Ralph entry header line is skipped and does not appear in preamble or extracted lists.",
-        "Lines following a Ralph header (e.g., '- Error: something' within a Ralph block) are skipped.",
-        "A Ralph block with 5 detail lines is entirely skipped (0 lines in extracted).",
-        "A Ralph block terminated by a new '## Other Heading' correctly ends the block.",
-        "A Ralph block terminated by two consecutive empty lines correctly ends the block.",
-        "A single empty line within a Ralph block does not terminate the block.",
-        "Bullet entries appearing after a Ralph block are correctly extracted.",
-        "Preamble lines appearing before any entry (including Ralph entries) are correctly collected.",
-        "A tier file with interleaved Ralph and bullet entries extracts only bullet entries.",
-        "A tier file with only Ralph entries returns empty extracted list and correct preamble."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-603",
-      "category": "functional",
-      "priority": 5,
-      "title": "Ensure Ralph blocks are preserved on compact.py rewrite with integration tests",
-      "description": "Ensure that when compact.py rewrites a tier file after compaction, all Ralph entry blocks that were skipped during extraction are preserved verbatim in the output. Add comprehensive integration tests covering mixed-format files (GUARDRAILS.md, STYLE.md, RECENT.md), Ralph-only files, bullet-only files, and round-trip preservation. Verify that no deprecated tier_format alias names exist in compact.py.",
-      "user_story": "As a developer, I need absolute certainty that running compaction never destroys Ralph loop entries in my tier files, regardless of the mix of entry formats present, so I can safely run 'agent-recall run' at any time.",
-      "steps": [
-        "Review the tier file rewrite path in compact.py to identify where compacted bullet entries are written back to disk.",
-        "Before rewrite: use parse_tier_content() (or is_ralph_entry_start() line-by-line scan) on the original file content to extract all Ralph blocks as a list of raw strings.",
-        "After computing compacted bullet entries: reconstruct file content as: preamble + compacted bullet entries + preserved Ralph blocks (in original order).",
-        "Ensure double-newline separation between sections in the reconstructed content.",
-        "Write integration test: GUARDRAILS.md with 3 bullet entries and 2 Ralph blocks \u2192 compact \u2192 verify 2 Ralph blocks preserved verbatim, bullet entries compacted.",
-        "Write integration test: STYLE.md with only Ralph entries \u2192 compact \u2192 verify file is unchanged.",
-        "Write integration test: RECENT.md with only bullet entries \u2192 compact \u2192 verify normal compaction, no errors.",
-        "Write integration test: Mixed file with Ralph block between two groups of bullet entries \u2192 compact \u2192 verify Ralph block position and content preserved.",
-        "Write integration test: File with preamble header, bullet entries, and Ralph entries \u2192 compact \u2192 verify preamble preserved.",
-        "Write verification test: grep compact.py source for deprecated names (is_ralph_entry_line, is_bullet_entry_line) \u2192 assert zero matches.",
-        "Write round-trip test: original file \u2192 compact \u2192 parse_tier_content() on result \u2192 verify ralph_entries count matches original."
-      ],
-      "acceptance": [
-        "Compaction of GUARDRAILS.md preserves all Ralph-format entries verbatim (byte-for-byte).",
-        "Compaction of STYLE.md preserves all Ralph-format entries verbatim.",
-        "Compaction of RECENT.md preserves all Ralph-format entries verbatim.",
-        "A tier file with only Ralph entries is not modified by compaction.",
-        "A tier file with only bullet entries compacts normally without errors.",
-        "A tier file with both formats round-trips correctly: Ralph entry count is preserved.",
-        "Preamble content is preserved when both Ralph and bullet entries exist.",
-        "Ralph blocks maintain their internal line structure (detail lines, empty lines within block).",
-        "No references to deprecated tier_format function names exist anywhere in compact.py.",
-        "All integration tests pass with uv run pytest.",
-        "ruff check reports no issues in compact.py.",
-        "ty check reports no type errors in compact.py."
-      ],
-      "validation": [
-        "uv run pytest",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    }
-  ]
+	"project": "Agent Recall Super Ralph",
+	"version": 2,
+	"selection_policy": {
+		"agent_decides_priority": true,
+		"priority_scale": "1 = highest priority",
+		"order_of_operations": ["critical bugfixes", "tracer-bullet feature slices", "polish and quick wins", "refactors"]
+	},
+	"items": [
+		{
+			"id": "WM-001",
+			"category": "functional",
+			"priority": 1,
+			"title": "Iteration Record Store",
+			"description": "Create structured JSON storage for iteration data. This is Layer 1 of the Weather Model — the raw data that feeds all downstream generation. Each iteration produces a numbered JSON file with deterministic fields capturing outcome, timing, validation results, and git state.",
+			"user_story": "As the Ralph loop harness, I need to persist structured iteration data to JSON files so the system can deterministically rebuild forecasts and synthesize climate without relying on unstructured agent prose.",
+			"steps": [
+				"Create src/agent_recall/ralph/iteration_store.py.",
+				"Implement IterationOutcome StrEnum: COMPLETED, VALIDATION_FAILED, SCOPE_REDUCED, BLOCKED, TIMEOUT.",
+				"Implement IterationReport dataclass with three field groups: (1) harness-set before agent: iteration, item_id, item_title, started_at; (2) agent-set during work: outcome, summary, failure_reason, gotcha_discovered, pattern_that_worked, scope_change; (3) harness-set after agent: validation_exit_code, validation_hint, files_changed, commit_hash, completed_at, duration_seconds.",
+				"Implement to_dict() with datetime ISO formatting and from_dict() with graceful missing-field handling.",
+				"Implement IterationReportStore with iterations_dir at ralph_dir/'iterations' and current_path at iterations_dir/'current.json'.",
+				"Implement create_for_iteration(iteration, item_id, item_title) that writes current.json with defaults.",
+				"Implement finalize_current(validation_exit, validation_hint) that sets completed_at, computes duration, sets COMPLETED if exit==0, archives to {iteration:03d}.json, deletes current.json.",
+				"Implement load_current() and save_current() with corrupt-file safety.",
+				"Implement load_recent(count=10) returning archived reports newest-first, skipping current.json.",
+				"Write tests for round-trip serialization, create/finalize lifecycle, corrupt file handling, load_recent ordering."
+			],
+			"acceptance": [
+				"IterationReport round-trips through to_dict()/from_dict() without data loss.",
+				"create_for_iteration writes current.json and creates directories.",
+				"finalize_current archives to zero-padded filename and deletes current.json.",
+				"finalize_current returns None when current.json missing.",
+				"load_current returns None for missing or corrupt files.",
+				"load_recent returns correct count in newest-first order.",
+				"JSON schema validates with deterministic field names."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "WM-002",
+			"category": "functional",
+			"priority": 1,
+			"title": "Heuristic Extractor",
+			"description": "Create an observation-based extraction module that parses validation output, git diff, PRD state changes, and elapsed time into structured iteration report fields — without any LLM calls. This replaces the old pattern where the agent self-reported its learnings. The system now observes artifacts and extracts facts deterministically.",
+			"user_story": "As the loop harness, I need to extract structured facts from observable build artifacts so iteration reports are populated from evidence rather than agent self-reporting, producing deterministic output from the same input.",
+			"steps": [
+				"Create src/agent_recall/ralph/extraction.py.",
+				"Implement extract_outcome(validation_exit_code, agent_exit_code, elapsed_seconds, timeout_seconds) returning IterationOutcome: COMPLETED if validation passes, TIMEOUT if elapsed >= timeout, VALIDATION_FAILED otherwise.",
+				"Implement extract_failure_reason(validation_output: list[str]) that scans for the first line containing error/failed/exception/assert indicators and returns it truncated to 200 chars, or None.",
+				"Implement extract_files_changed(repo_dir: Path) that runs 'git diff --name-only HEAD' and returns the list of changed file paths.",
+				"Implement extract_validation_hint(validation_output: list[str]) that finds the first actionable error line, skipping blank lines and separator lines.",
+				"Implement extract_from_artifacts(validation_exit, validation_output, agent_exit, elapsed, timeout, repo_dir) returning a dict with keys: outcome, failure_reason, validation_hint, files_changed — all computed from the above functions.",
+				"Write tests with fixed input producing deterministic output for each extraction function."
+			],
+			"acceptance": [
+				"extract_outcome returns COMPLETED when validation_exit is 0.",
+				"extract_outcome returns TIMEOUT when elapsed >= timeout.",
+				"extract_outcome returns VALIDATION_FAILED for non-zero validation exit below timeout.",
+				"extract_failure_reason returns first error-indicator line truncated to 200 chars.",
+				"extract_failure_reason returns None when no errors found.",
+				"extract_files_changed returns list of paths from git diff.",
+				"extract_from_artifacts returns a complete dict from the same inputs every time.",
+				"Deterministic: same input always produces same output."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "WM-003",
+			"category": "functional",
+			"priority": 1,
+			"title": "Heuristic Forecast Generator",
+			"description": "Create the Layer 2 forecast generator that rebuilds RECENT.md entirely from the last N iteration records using pure heuristics — no LLM, runs instantly. Produces markdown with Trajectory (last 5 outcomes), Current Status, Watch For, and Emerging Pattern sections. RECENT.md is overwritten every iteration, never appended to.",
+			"user_story": "As the Ralph loop, I need RECENT.md rebuilt between every iteration from structured data so the agent receives a concise tactical forecast instead of an ever-growing prose file.",
+			"steps": [
+				"Create src/agent_recall/ralph/forecast.py.",
+				"Implement ForecastConfig dataclass: window (int, default 5), use_llm (bool, default False), llm_on_consecutive_failures (int, default 2), llm_model (str|None, default None).",
+				"Implement ForecastGenerator.__init__ taking ralph_dir, files (FileStorage), optional config.",
+				"Implement _empty_forecast() returning default first-iteration RECENT.md content.",
+				"Implement _generate_heuristic(reports) building markdown: '# Current Situation' header with timestamp, '## Trajectory' showing last 5 iterations oldest-to-newest with ✓/✗ and truncated hints (50 chars), '## Current Status' with latest outcome, '## Watch For' with gotcha/hint/scope or fallback, '## Emerging Pattern' with pattern_that_worked (omitted if None).",
+				"Implement generate(llm=None) that loads recent reports, returns _empty_forecast() if none, delegates to _generate_heuristic() for now (LLM path added in WM-004).",
+				"Implement write_forecast(llm=None) that calls generate(), writes to RECENT.md via files.write_tier(KnowledgeTier.RECENT, content), returns content.",
+				"Write tests verifying heuristic output for empty reports, single report, five mixed-outcome reports, and missing optional fields."
+			],
+			"acceptance": [
+				"generate() returns _empty_forecast() when no reports exist.",
+				"Trajectory shows up to 5 iterations in oldest-to-newest reading order.",
+				"Trajectory uses ✓ for COMPLETED and ✗ for all other outcomes.",
+				"Watch For shows gotcha_discovered, validation_hint (100 chars), or fallback message.",
+				"Emerging Pattern section omitted entirely when pattern_that_worked is None.",
+				"write_forecast() overwrites RECENT.md, not appends.",
+				"Zero LLM calls in heuristic path."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "WM-006",
+			"category": "integration",
+			"priority": 1,
+			"title": "Loop Integration — Bash Loop Lifecycle Update",
+			"description": "Update ralph-agent-recall-loop.sh to use the new Weather Model lifecycle: setup_iteration (create report) → run agent → run validation → finalize_iteration (extract artifacts, finalize report, rebuild forecast, refresh context). Remove old direct memory file append logic. The agent no longer writes to tier files — the system extracts and rebuilds. Post-loop calls synthesize-climate.",
+			"user_story": "As a developer using the bash Ralph loop, I need the loop to follow the Weather Model lifecycle where artifacts are extracted by the system and the forecast is rebuilt between iterations, replacing the old pattern of agent-written tier files.",
+			"steps": [
+				"Add setup_iteration() bash function that calls 'uv run agent-recall ralph create-report --iteration N --item-id ID --item-title TITLE' before agent invocation.",
+				"Add finalize_iteration() bash function that calls in strict order: (1) 'uv run agent-recall ralph extract-iteration --iteration N --runtime-dir .agent/ralph/.runtime', (2) 'uv run agent-recall ralph finalize-report --validation-exit $EXIT --validation-hint \"$HINT\"', (3) 'uv run agent-recall ralph rebuild-forecast', (4) 'uv run agent-recall ralph refresh-context --task \"$TITLE\" --item \"$ID\" --iteration N'.",
+				"Wrap each CLI call with '|| true' to prevent loop halt on failure, log warnings to stderr.",
+				"Guard all uv calls with 'command -v uv >/dev/null 2>&1'.",
+				"Remove old lines that directly append/echo to .agent/GUARDRAILS.md, .agent/STYLE.md, .agent/RECENT.md.",
+				"Call setup_iteration before run_agent in the main loop.",
+				"Call finalize_iteration after run_validation in the main loop.",
+				"Add post-loop call to 'uv run agent-recall ralph synthesize-climate' when loop exits.",
+				"Ensure rebuild-forecast completes BEFORE refresh-context (RECENT.md must exist before context assembly)."
+			],
+			"acceptance": [
+				"setup_iteration creates current.json before agent starts.",
+				"finalize_iteration runs extract → finalize → rebuild → refresh in order.",
+				"Each finalize step uses '|| true' so failures don't halt the loop.",
+				"rebuild-forecast completes before refresh-context.",
+				"No direct tier file append/echo logic remains in the script.",
+				"Post-loop synthesize-climate is called on exit.",
+				"Loop functions correctly in environments without uv."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "WM-007",
+			"category": "functional",
+			"priority": 1,
+			"title": "Agent Prompt Simplification",
+			"description": "Replace the current agent-prompt.md that instructs the agent to write to GUARDRAILS.md, STYLE.md, and RECENT.md with a simplified contract where the agent only works on code and updates current.json with structured outcome fields. Tier files become read-only context injected by the system. Deprecate tier_writer.py usage from the loop iteration path.",
+			"user_story": "As the Ralph loop system, I need the agent to follow a strict read-only contract for tier files and only write structured JSON to current.json, so the system controls all tier file content and prevents bloat.",
+			"steps": [
+				"Create or update agent-prompt.md (at src/agent_recall/ralph/templates/agent-prompt.md or equivalent).",
+				"Write '## Context Provided' section listing GUARDRAILS.md, STYLE.md, RECENT.md as read-only, plus PRD state and iteration report location.",
+				"Write '## Task Selection' with priority order: critical bugfixes → tracer-bullet slices → quick wins → refactors.",
+				"Write '## Execution' with scope reduction protocol: 'HANG ON A SECOND' trigger when task too large.",
+				"Write '## Required Output' specifying current.json schema: outcome (enum), summary, failure_reason, gotcha_discovered, pattern_that_worked, scope_change.",
+				"Write '## What NOT To Do' with explicit prohibitions: do NOT write to GUARDRAILS.md, STYLE.md, RECENT.md; do NOT append to progress.txt; do NOT start a second feature.",
+				"Mark tier_writer.py calls in loop.py _write_tier_entries() for removal — the Weather Model replaces this with extraction + forecast + synthesis.",
+				"Ensure prompt template is parameterizable with item_id, item_title, description, validation_command."
+			],
+			"acceptance": [
+				"Prompt states tier files are read-only.",
+				"Prompt specifies current.json JSON schema with all six agent-writable fields.",
+				"Prompt lists all valid outcome enum values.",
+				"Prompt includes explicit '❌ Do NOT' prohibitions.",
+				"Prompt does not instruct the agent to write to GUARDRAILS.md, STYLE.md, or RECENT.md.",
+				"Prompt includes task selection priority and scope reduction protocol.",
+				"tier_writer.py is no longer called from the iteration path."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "WM-008",
+			"category": "functional",
+			"priority": 1,
+			"title": "CLI Commands for Weather Model",
+			"description": "Add CLI commands to the Ralph Typer sub-application for the Weather Model operations: extract-iteration (run heuristic extraction on iteration artifacts), create-report and finalize-report (iteration lifecycle), rebuild-forecast (Layer 2), and synthesize-climate (Layer 3). These are the commands called by the bash loop and available for manual use.",
+			"user_story": "As the bash loop script and as a developer, I need CLI commands for each Weather Model operation so the three-layer architecture can be driven from the shell.",
+			"steps": [
+				"Add 'create-report' command with --iteration (int), --item-id (str), --item-title (str). Creates current.json via IterationReportStore.",
+				"Add 'finalize-report' command with --validation-exit (int), --validation-hint (str). Finalizes and archives via IterationReportStore.",
+				"Add 'extract-iteration' command with --iteration (int), --runtime-dir (Path). Reads validation log and git state, runs heuristic extraction, updates current.json with extracted fields via save_current().",
+				"Add 'rebuild-forecast' command with --use-llm flag. Reads ralph.forecast config from config.yaml. Instantiates ForecastGenerator. Calls write_forecast(). Displays content length.",
+				"Add 'synthesize-climate' command with --force flag. Loads all archived reports. Extracts guardrail and style candidates. Uses LLM to synthesize. Writes to GUARDRAILS.md and STYLE.md. Displays entry counts.",
+				"All commands check .agent directory exists, exit code 1 if missing.",
+				"Write tests for each command with mock filesystem."
+			],
+			"acceptance": [
+				"'ralph create-report --iteration 1 --item-id AUTH-001 --item-title \"JWT\"' creates current.json.",
+				"'ralph finalize-report --validation-exit 0' archives to 001.json and deletes current.json.",
+				"'ralph extract-iteration --iteration 1 --runtime-dir .agent/ralph/.runtime' populates current.json with extracted fields.",
+				"'ralph rebuild-forecast' overwrites RECENT.md and displays char count.",
+				"'ralph rebuild-forecast --use-llm' attempts LLM, falls back to heuristic.",
+				"'ralph synthesize-climate' writes both GUARDRAILS.md and STYLE.md.",
+				"'ralph synthesize-climate --force' bypasses recency check.",
+				"All commands exit 1 without .agent directory."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "WM-004",
+			"category": "functional",
+			"priority": 2,
+			"title": "LLM-Enhanced Forecast Generation",
+			"description": "Extend ForecastGenerator in forecast.py with the optional LLM path. Triggered only when consecutive failures exceed the configured threshold AND an LLM provider is available. Uses a small model (e.g., qwen3:1.5b) for quick turnaround. Falls back to heuristic gracefully on any LLM error.",
+			"user_story": "As a developer, when the Ralph loop hits consecutive failures, I need a smarter forecast from a small LLM that can identify deeper patterns — while always falling back to instant heuristics if LLM is unavailable.",
+			"steps": [
+				"Define FORECAST_LLM_PROMPT constant with {iteration_summaries} and {current_item} placeholders requesting Trajectory, Current Status, Watch For, Emerging Pattern in max 150 words.",
+				"Implement async _generate_with_llm(reports, llm) that builds PASS/FAIL summaries with failure_reason and gotcha_discovered, calls llm.generate() with temperature=0.3 and max_tokens=400, prepends standard header.",
+				"Update generate() to count consecutive failures (stop at first COMPLETED), trigger LLM only when config.use_llm AND llm not None AND failures >= threshold.",
+				"Wrap _generate_with_llm in try/except, fall back to _generate_heuristic on any error.",
+				"Update write_forecast() to handle async LLM path via asyncio.run when appropriate.",
+				"Add ralph.forecast config section to config.yaml schema: window, use_llm, llm_on_consecutive_failures, llm_model.",
+				"Write tests for LLM trigger conditions, fallback behavior, and prompt construction."
+			],
+			"acceptance": [
+				"LLM triggers only when all three conditions met: config, provider, threshold.",
+				"LLM does not trigger when failures below threshold.",
+				"LLM error falls back to heuristic without exception.",
+				"Prompt includes iteration summaries with PASS/FAIL prefix.",
+				"LLM called with temperature=0.3 and max_tokens=400.",
+				"Config reads from ralph.forecast section with sensible defaults.",
+				"Missing config section uses heuristic-only defaults."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		},
+		{
+			"id": "WM-005",
+			"category": "functional",
+			"priority": 2,
+			"title": "Climate Synthesizer (Layer 3)",
+			"description": "Create the Layer 3 climate synthesizer that runs once at loop end to distill all accumulated iteration reports into stable GUARDRAILS.md and STYLE.md content. Extracts failure_reason and gotcha_discovered for guardrails, pattern_that_worked for style. Deduplicates by frequency. Requires LLM for semantic synthesis. Tracks synthesis state to avoid redundant runs.",
+			"user_story": "As a developer, I need accumulated iteration learnings automatically distilled into concise guardrails and style patterns at loop end, so future loops benefit from past experience without files growing unbounded.",
+			"steps": [
+				"Create src/agent_recall/ralph/synthesis.py.",
+				"Implement SynthesisConfig: max_guardrails (int, 30), max_style (int, 30), auto_after_loop (bool, True).",
+				"Implement ClimateSynthesizer.__init__ taking ralph_dir, files (FileStorage), llm, optional config.",
+				"Implement _extract_guardrail_candidates(reports) collecting all non-None failure_reason and gotcha_discovered.",
+				"Implement _extract_style_candidates(reports) collecting all non-None pattern_that_worked.",
+				"Implement _deduplicate_candidates(candidates) grouping similar entries, returning (entry, frequency) sorted by frequency.",
+				"Define GUARDRAILS_SYNTHESIS_PROMPT and STYLE_SYNTHESIS_PROMPT requesting concise bullet-format rules capped at max entries.",
+				"Implement async synthesize_guardrails(candidates) and synthesize_style(candidates) calling LLM with temperature=0.2, max_tokens=800.",
+				"Implement async synthesize() loading all reports, extracting candidates, calling both synthesis functions, writing to tier files, writing synthesis_state.json with last_synthesized_at and iteration_count.",
+				"Implement should_synthesize() returning False when iteration count unchanged since last synthesis.",
+				"Add ralph.synthesis config section: auto_after_loop, max_guardrails, max_style.",
+				"Write tests for candidate extraction, deduplication, state tracking, and synthesis with mock LLM."
+			],
+			"acceptance": [
+				"Extracts failure_reason and gotcha_discovered for guardrails, pattern_that_worked for style.",
+				"Deduplicates candidates by frequency.",
+				"Synthesis respects max_guardrails and max_style limits.",
+				"Writes both GUARDRAILS.md and STYLE.md (overwrite, not append).",
+				"synthesis_state.json tracks last run.",
+				"should_synthesize() returns False when no new data.",
+				"Empty candidates produce minimal valid tier content.",
+				"LLM unavailability raises clear error (no silent fallback for Layer 3)."
+			],
+			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
+			"passes": false
+		}
+	]
 }

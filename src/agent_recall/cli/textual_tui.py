@@ -351,6 +351,14 @@ def get_palette_actions() -> list[PaletteAction]:
             keywords="settings preferences",
         ),
         PaletteAction(
+            "ralph-config",
+            "Ralph Configuration",
+            "Configure Ralph loop agent, model, and behavior",
+            "Settings",
+            shortcut="ralph config",
+            keywords="ralph config setup agent coding cli model",
+        ),
+        PaletteAction(
             "quit",
             "Quit",
             "Exit the TUI",
@@ -1009,6 +1017,205 @@ class SettingsModal(ModalScreen[dict[str, Any] | None]):
                 ),
             }
         )
+
+
+_RALPH_CLI_OPTIONS = [
+    ("claude-code", "claude-code"),
+    ("codex", "codex"),
+    ("opencode", "opencode"),
+]
+
+_RALPH_CLI_DEFAULT_MODELS: dict[str, list[str]] = {
+    "claude-code": [
+        "claude-sonnet-4-20250514",
+        "claude-opus-4-6",
+        "claude-haiku-4-5-20251001",
+    ],
+    "codex": [
+        "o4-mini",
+        "gpt-4o",
+        "gpt-5.3-codex",
+        "gpt-5-codex",
+    ],
+    "opencode": [],
+}
+
+_COMPACT_MODE_OPTIONS: list[tuple[str, str]] = [
+    ("always", "always"),
+    ("on-failure", "on-failure"),
+    ("off", "off"),
+]
+
+
+class RalphConfigModal(ModalScreen[dict[str, Any] | None]):
+    BINDINGS = [Binding("escape", "dismiss(None)", "Close")]
+
+    def __init__(self, defaults: dict[str, Any]):
+        super().__init__()
+        self.defaults = defaults
+
+    def compose(self) -> ComposeResult:
+        current_cli = _clean_optional_text(self.defaults.get("coding_cli", ""))
+        current_model = _clean_optional_text(self.defaults.get("cli_model", ""))
+        max_iter = self.defaults.get("max_iterations", 10)
+        sleep_sec = self.defaults.get("sleep_seconds", 2)
+        compact = _clean_optional_text(self.defaults.get("compact_mode", "always")) or "always"
+        enabled = bool(self.defaults.get("enabled", False))
+
+        with Container(id="modal_overlay"):
+            with Vertical(id="modal_card"):
+                yield Static("Ralph Configuration", classes="modal_title")
+                yield Static(
+                    "Coding agent, model, and loop behavior",
+                    classes="modal_subtitle",
+                )
+                with Horizontal(classes="field_row"):
+                    yield Static("Coding CLI", classes="field_label")
+                    yield Select(
+                        _RALPH_CLI_OPTIONS,
+                        value=(
+                            current_cli if current_cli in dict(_RALPH_CLI_OPTIONS) else Select.BLANK
+                        ),
+                        allow_blank=True,
+                        id="ralph_cli",
+                        classes="field_input",
+                    )
+                with Horizontal(classes="field_row"):
+                    yield Static("CLI Model", classes="field_label")
+                    yield Input(
+                        value=current_model,
+                        placeholder="Model name (optional)",
+                        id="ralph_cli_model",
+                        classes="field_input",
+                    )
+                with Horizontal(classes="field_row"):
+                    yield Static("Model list", classes="field_label")
+                    yield Select(
+                        [("Manual entry", "__manual__")],
+                        value="__manual__",
+                        allow_blank=False,
+                        id="ralph_model_picker",
+                        classes="field_input",
+                    )
+                with Horizontal(classes="field_row"):
+                    yield Static("Max iterations", classes="field_label")
+                    yield Input(
+                        value=str(max_iter),
+                        placeholder=">=1",
+                        id="ralph_max_iterations",
+                        classes="field_input",
+                    )
+                with Horizontal(classes="field_row"):
+                    yield Static("Sleep seconds", classes="field_label")
+                    yield Input(
+                        value=str(sleep_sec),
+                        placeholder=">=0",
+                        id="ralph_sleep_seconds",
+                        classes="field_input",
+                    )
+                with Horizontal(classes="field_row"):
+                    yield Static("Compact mode", classes="field_label")
+                    yield Select(
+                        _COMPACT_MODE_OPTIONS,
+                        value=compact,
+                        allow_blank=False,
+                        id="ralph_compact_mode",
+                        classes="field_input",
+                    )
+                yield Checkbox(
+                    "Enabled",
+                    value=enabled,
+                    id="ralph_enabled",
+                )
+                yield Static("", id="ralph_error")
+                with Horizontal(classes="modal_actions"):
+                    yield Button(
+                        "Apply",
+                        variant="primary",
+                        id="ralph_apply",
+                    )
+                    yield Button("Cancel", id="ralph_cancel")
+
+    def on_mount(self) -> None:
+        self._refresh_model_picker()
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "ralph_cli":
+            self._refresh_model_picker()
+            return
+        if event.select.id != "ralph_model_picker":
+            return
+        selected = event.value
+        if selected == Select.BLANK:
+            return
+        if str(selected) == "__manual__":
+            return
+        self.query_one("#ralph_cli_model", Input).value = str(selected)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "ralph_cancel":
+            self.dismiss(None)
+            return
+        if event.button.id != "ralph_apply":
+            return
+
+        error_w = self.query_one("#ralph_error", Static)
+
+        cli_widget = self.query_one("#ralph_cli", Select)
+        cli_value = cli_widget.value
+        coding_cli = None if cli_value == Select.BLANK else str(cli_value)
+
+        try:
+            max_iter = int(self.query_one("#ralph_max_iterations", Input).value)
+        except ValueError:
+            error_w.update("[red]Max iterations must be an integer[/red]")
+            return
+        if max_iter < 1:
+            error_w.update("[red]Max iterations must be >= 1[/red]")
+            return
+
+        try:
+            sleep_sec = int(self.query_one("#ralph_sleep_seconds", Input).value)
+        except ValueError:
+            error_w.update("[red]Sleep seconds must be an integer[/red]")
+            return
+        if sleep_sec < 0:
+            error_w.update("[red]Sleep seconds must be >= 0[/red]")
+            return
+
+        compact_widget = self.query_one("#ralph_compact_mode", Select)
+        compact_value = compact_widget.value
+        compact_mode = "always" if compact_value == Select.BLANK else str(compact_value)
+
+        cli_model = _clean_optional_text(self.query_one("#ralph_cli_model", Input).value) or None
+
+        self.dismiss(
+            {
+                "coding_cli": coding_cli,
+                "cli_model": cli_model,
+                "max_iterations": max_iter,
+                "sleep_seconds": sleep_sec,
+                "compact_mode": compact_mode,
+                "enabled": bool(self.query_one("#ralph_enabled", Checkbox).value),
+            }
+        )
+
+    def _refresh_model_picker(self) -> None:
+        cli_widget = self.query_one("#ralph_cli", Select)
+        cli_value = cli_widget.value
+        cli_name = "" if cli_value == Select.BLANK else str(cli_value)
+
+        models = _RALPH_CLI_DEFAULT_MODELS.get(cli_name, [])
+        picker = self.query_one("#ralph_model_picker", Select)
+        options: list[tuple[str, str]] = [("Manual entry", "__manual__")]
+        options.extend((name, name) for name in models)
+        picker.set_options(options)
+
+        current_model = _clean_optional_text(self.query_one("#ralph_cli_model", Input).value)
+        if current_model in models:
+            picker.value = current_model
+        else:
+            picker.value = "__manual__"
 
 
 class SessionRunModal(ModalScreen[dict[str, Any] | None]):
@@ -1843,6 +2050,9 @@ class AgentRecallTextualApp(App[None]):
         if action_id == "settings":
             self.action_open_settings_modal()
             return
+        if action_id == "ralph-config":
+            self.action_open_ralph_config_modal()
+            return
         if action_id == "theme":
             self.action_open_theme_modal()
             return
@@ -1901,6 +2111,24 @@ class AgentRecallTextualApp(App[None]):
             exit_on_error=False,
         )
         self._worker_context[id(worker)] = "prd_picker"
+
+    def action_open_ralph_config_modal(self) -> None:
+        """Open the Ralph configuration modal."""
+        defaults: dict[str, Any] = {}
+        try:
+            from agent_recall.cli.ralph import read_ralph_config
+            from agent_recall.storage.files import FileStorage
+
+            agent_dir = Path(".agent")
+            if agent_dir.exists():
+                files = FileStorage(agent_dir)
+                defaults = read_ralph_config(files)
+        except Exception:  # noqa: BLE001
+            pass
+        self.push_screen(
+            RalphConfigModal(defaults=defaults),
+            self._apply_ralph_config_modal_result,
+        )
 
     def _run_backend_command(self, command: str, *, bypass_local: bool = False) -> None:
         if not bypass_local and self._handle_local_command(command):
@@ -2009,6 +2237,11 @@ class AgentRecallTextualApp(App[None]):
         if action == "ralph" and second == "select":
             self.action_open_prd_select_modal()
             self.status = "Select PRD items"
+            return True
+
+        if action == "ralph" and second == "config":
+            self.action_open_ralph_config_modal()
+            self.status = "Ralph configuration"
             return True
 
         return False
@@ -2127,6 +2360,24 @@ class AgentRecallTextualApp(App[None]):
             else "Cleared PRD selection (all items)."
         )
         self._run_backend_command(command)
+
+    def _apply_ralph_config_modal_result(self, result: dict[str, Any] | None) -> None:
+        if result is None:
+            self._append_activity("Ralph configuration cancelled.")
+            return
+        try:
+            from agent_recall.cli.ralph import write_ralph_config
+            from agent_recall.storage.files import FileStorage
+
+            agent_dir = Path(".agent")
+            if agent_dir.exists():
+                files = FileStorage(agent_dir)
+                write_ralph_config(files, result)
+                self._append_activity("Ralph configuration updated.")
+            else:
+                self._append_activity("Not initialized. Run 'agent-recall init' first.")
+        except Exception as exc:  # noqa: BLE001
+            self._append_activity(f"Failed to save Ralph config: {exc}")
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         worker_key = id(event.worker)

@@ -30,6 +30,27 @@ ralph_app = typer.Typer(help="Manage Ralph loop configuration")
 AGENT_DIR = Path(".agent")
 DB_PATH = AGENT_DIR / "state.db"
 
+CODING_CLIS: dict[str, dict[str, str]] = {
+    "claude-code": {"binary": "claude", "model_flag": "--model"},
+    "codex": {"binary": "codex", "model_flag": "--model"},
+    "opencode": {"binary": "opencode", "model_flag": "--model"},
+}
+
+CLI_DEFAULT_MODELS: dict[str, list[str]] = {
+    "claude-code": [
+        "claude-sonnet-4-20250514",
+        "claude-opus-4-6",
+        "claude-haiku-4-5-20251001",
+    ],
+    "codex": [
+        "o4-mini",
+        "gpt-4o",
+        "gpt-5.3-codex",
+        "gpt-5-codex",
+    ],
+    "opencode": [],
+}
+
 _theme_manager = ThemeManager(DEFAULT_THEME)
 console = Console(theme=_theme_manager.get_theme())
 
@@ -212,9 +233,22 @@ def render_ralph_status(_config_dict: dict[str, object]) -> list[str]:
         ", ".join(selected_prd_ids) if selected_prd_ids else "all (model decides)"
     )
 
+    coding_cli_value = ralph_config.get("coding_cli")
+    coding_cli = (
+        str(coding_cli_value)
+        if isinstance(coding_cli_value, str) and coding_cli_value
+        else "not set"
+    )
+    cli_model_value = ralph_config.get("cli_model")
+    cli_model = (
+        str(cli_model_value) if isinstance(cli_model_value, str) and cli_model_value else "not set"
+    )
+
     lines = [
         "[bold]Ralph Loop:[/bold]",
         f"  Status: {state}",
+        f"  Coding CLI:     {coding_cli}",
+        f"  CLI Model:      {cli_model}",
         f"  Max iterations: {max_iterations}",
         f"  Sleep seconds:  {sleep_seconds}",
         f"  Compact mode:   {compact_mode}",
@@ -821,3 +855,34 @@ def ralph_refresh_context(
     if isinstance(task_value, str) and task_value.strip():
         lines.append(f"  Task: {task_value}")
     console.print("\n".join(lines))
+
+
+@ralph_app.command("set-agent")
+def ralph_set_agent(
+    cli: str = typer.Option(
+        ...,
+        "--cli",
+        help="Coding CLI to use: claude-code, codex, or opencode",
+    ),
+    model: str | None = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="Model to use with the selected coding CLI",
+    ),
+) -> None:
+    """Set the coding CLI and model for the Ralph loop."""
+    _get_theme_manager()
+    ensure_initialized()
+    cli_name = cli.strip().lower()
+    if cli_name not in CODING_CLIS:
+        valid = ", ".join(sorted(CODING_CLIS))
+        console.print(f"[error]Invalid coding CLI '{cli_name}'. Choose from: {valid}[/error]")
+        raise typer.Exit(1)
+    files = get_files()
+    updates: dict[str, object] = {"coding_cli": cli_name}
+    if model is not None:
+        updates["cli_model"] = model.strip() or None
+    config_dict = write_ralph_config(files, updates)
+    lines = render_ralph_status(config_dict)
+    console.print(Panel.fit("\n".join(lines), title="Ralph Agent Updated"))

@@ -57,3 +57,27 @@ def test_cli_ralph_disable_updates_state() -> None:
         state_path = Path(".agent") / "ralph" / "ralph_state.json"
         payload = json.loads(state_path.read_text())
         assert payload["status"] == "DISABLED"
+
+
+def test_cli_ralph_set_agent_stores_in_config() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(
+            cli_main.app,
+            ["ralph", "set-agent", "--cli", "claude-code", "--model", "claude-opus-4-6"],
+        )
+        assert result.exit_code == 0
+        import yaml
+
+        config_path = Path(".agent") / "config.yaml"
+        config = yaml.safe_load(config_path.read_text())
+        assert config["ralph"]["coding_cli"] == "claude-code"
+        assert config["ralph"]["cli_model"] == "claude-opus-4-6"
+
+
+def test_cli_ralph_set_agent_rejects_invalid() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["ralph", "set-agent", "--cli", "invalid-tool"])
+        assert result.exit_code == 1
+        assert "Invalid coding CLI" in result.output

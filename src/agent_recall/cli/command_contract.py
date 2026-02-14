@@ -296,6 +296,18 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("cli",),
         ),
         CommandContract(
+            command="ralph set-agent",
+            aliases=(),
+            description="Set coding CLI and model for Ralph loop",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="ralph config",
+            aliases=(),
+            description="Open Ralph configuration modal",
+            surfaces=("tui",),
+        ),
+        CommandContract(
             command="refresh-context",
             aliases=(),
             description="Refresh context bundle outputs",
