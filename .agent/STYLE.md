@@ -289,3 +289,6 @@
 - Run local checks before commit when available.
 - Start debugging from the first actionable validation line: testpaths: tests
 - Runtime logs: agent_recall/ralph/.runtime/agent-1.log, agent_recall/ralph/.runtime/validate-1.log
+
+## 2026-02-14T05:10:00Z Iteration 1 (WM-001)
+- Use ISO-8601 UTC serialization for datetime fields in report JSON models.

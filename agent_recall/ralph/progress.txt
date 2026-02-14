@@ -56,3 +56,4 @@
 2026-02-13T00:20:00Z | Iteration 7 | AR-303 | Added Ralph run CLI bash delegation (agent-cmd mode) with script/prd resolution, exit handling, and command contract update; validation pending.
 2026-02-13T23:59:59Z | Iteration 8 | AR-302 | Implemented dual-mode Ralph status (PRD JSON vs state) with Rich panels/tables and auto-detection; validation green.
 2026-02-13T23:59:59Z | Iteration 9 | AR-303 | Added Python-mode Ralph run with progress callbacks, state updates, and summary panel; updated command contract; validation green.
+2026-02-14T05:10:00Z | Iteration 1 | WM-001 | Added iteration record store with report model/store, serialization, and tests for lifecycle, corrupt loads, and ordering; validation green.

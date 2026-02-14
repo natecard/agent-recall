@@ -480,3 +480,12 @@
 - Outcome: progressed
 - Validation signal: testpaths: tests
 - Runtime logs: agent_recall/ralph/.runtime/agent-1.log, agent_recall/ralph/.runtime/validate-1.log
+
+## 2026-02-14T05:10:00Z Iteration 1
+- Item: WM-001 - Iteration Record Store
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Added iteration report model/store with JSON serialization, current/archived lifecycle, corrupt file safety, and ordering; added tests for round-trip, lifecycle, and load_recent ordering.
+- Next: Run validation and, if green, proceed to WM-002 (Heuristic Extractor).

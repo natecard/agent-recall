@@ -356,3 +356,6 @@
 - Keep changes isolated and verifiable before commit.
 - Runtime validation signal: testpaths: tests
 - Runtime logs: agent_recall/ralph/.runtime/agent-1.log, agent_recall/ralph/.runtime/validate-1.log
+
+## 2026-02-14T05:10:00Z Iteration 1 (WM-001)
+- Guard iteration report persistence against corrupt JSON by returning None instead of raising.
