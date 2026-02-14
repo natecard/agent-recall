@@ -260,6 +260,14 @@ def get_palette_actions() -> list[PaletteAction]:
             keywords="ralph prd select items",
         ),
         PaletteAction(
+            "ralph-run",
+            "Run Ralph Loop",
+            "Execute the Ralph loop and stream CLI output to console",
+            "Core",
+            shortcut="ralph run",
+            keywords="ralph run execute loop agent",
+        ),
+        PaletteAction(
             "sources",
             "Source Health",
             "Check source availability and discovered conversation counts",
@@ -2053,6 +2061,9 @@ class AgentRecallTextualApp(App[None]):
         if action_id == "ralph-config":
             self.action_open_ralph_config_modal()
             return
+        if action_id == "ralph-run":
+            self.action_run_ralph_loop()
+            return
         if action_id == "theme":
             self.action_open_theme_modal()
             return
@@ -2129,6 +2140,121 @@ class AgentRecallTextualApp(App[None]):
             RalphConfigModal(defaults=defaults),
             self._apply_ralph_config_modal_result,
         )
+
+    def action_run_ralph_loop(self) -> None:
+        """Run the Ralph loop with live output streaming to the activity console."""
+        self.status = "Ralph loop starting"
+        self._append_activity("Starting Ralph loop...")
+
+        def _ralph_run_worker() -> dict[str, Any]:
+            import asyncio as _asyncio
+
+            from agent_recall.cli.ralph import (
+                get_ralph_components,
+                read_ralph_config,
+            )
+            from agent_recall.ralph.loop import RalphLoop
+            from agent_recall.storage.files import FileStorage
+
+            agent_dir = Path(".agent")
+            if not agent_dir.exists():
+                self.call_from_thread(
+                    self._append_activity, "Not initialized. Run 'agent-recall init' first."
+                )
+                return {"total_iterations": 0, "passed": 0, "failed": 0}
+
+            files = FileStorage(agent_dir)
+            ralph_cfg = read_ralph_config(files)
+
+            enabled_value = ralph_cfg.get("enabled")
+            if not (isinstance(enabled_value, bool) and enabled_value):
+                self.call_from_thread(
+                    self._append_activity, "Ralph loop is disabled. Enable it first."
+                )
+                return {"total_iterations": 0, "passed": 0, "failed": 0}
+
+            selected_value = ralph_cfg.get("selected_prd_ids")
+            selected_ids: list[str] | None = None
+            if isinstance(selected_value, list) and selected_value:
+                selected_ids = [str(x) for x in selected_value if x]
+
+            max_iter_value = ralph_cfg.get("max_iterations")
+            max_iterations = (
+                int(max_iter_value) if isinstance(max_iter_value, int | float) else None
+            )
+
+            coding_cli_value = ralph_cfg.get("coding_cli")
+            coding_cli = (
+                str(coding_cli_value)
+                if isinstance(coding_cli_value, str) and coding_cli_value
+                else None
+            )
+            cli_model_value = ralph_cfg.get("cli_model")
+            cli_model = (
+                str(cli_model_value)
+                if isinstance(cli_model_value, str) and cli_model_value
+                else None
+            )
+
+            def progress_callback(event: dict[str, Any]) -> None:
+                event_type = str(event.get("event") or "")
+                if event_type == "output_line":
+                    line = str(event.get("line") or "")
+                    if line:
+                        self.call_from_thread(self._append_activity, line)
+                    return
+                if event_type == "iteration_started":
+                    iteration = event.get("iteration")
+                    item = event.get("item_id")
+                    self.call_from_thread(
+                        self._append_activity, f"Iteration {iteration}: {item} started"
+                    )
+                    self.call_from_thread(setattr, self, "status", f"Ralph: iteration {iteration}")
+                elif event_type == "agent_complete":
+                    exit_code = int(event.get("exit_code") or 0)
+                    if exit_code == 0:
+                        self.call_from_thread(self._append_activity, "✓ Agent complete")
+                    else:
+                        self.call_from_thread(
+                            self._append_activity, f"✗ Agent failed (exit {exit_code})"
+                        )
+                elif event_type == "validation_complete":
+                    success = bool(event.get("success"))
+                    hint = str(event.get("hint") or "")
+                    if success:
+                        self.call_from_thread(self._append_activity, "✓ Validation passed")
+                    else:
+                        msg = hint[:80] if hint else "Validation failed"
+                        self.call_from_thread(self._append_activity, f"✗ {msg}")
+                elif event_type == "iteration_complete":
+                    outcome = str(event.get("outcome") or "")
+                    duration = float(event.get("duration_seconds") or 0)
+                    self.call_from_thread(
+                        self._append_activity,
+                        f"Iteration complete ({outcome}) in {duration:.2f}s",
+                    )
+
+            agent_dir_path, storage, loop_files = get_ralph_components()
+            loop = RalphLoop(agent_dir_path, storage, loop_files)
+            summary: dict[str, int] = _asyncio.run(
+                loop.run_loop(
+                    max_iterations=max_iterations,
+                    selected_prd_ids=selected_ids,
+                    progress_callback=progress_callback,
+                    coding_cli=coding_cli,
+                    cli_model=cli_model,
+                )
+            )
+            return summary
+
+        worker = self.run_worker(
+            _ralph_run_worker,
+            thread=True,
+            group="tui-ops",
+            exclusive=True,
+            exit_on_error=False,
+        )
+        self._worker_context[id(worker)] = "ralph_run"
 
     def _run_backend_command(self, command: str, *, bypass_local: bool = False) -> None:
         if not bypass_local and self._handle_local_command(command):
@@ -2532,6 +2658,18 @@ class AgentRecallTextualApp(App[None]):
 
             self.status = "Model configuration updated"
             self._append_activity("Model configuration updated.")
+            self._refresh_dashboard_panel()
+            return
+
+        if context == "ralph_run":
+            rd = dict(result) if isinstance(result, dict) else {}
+            total = int(rd.get("total_iterations", 0))
+            passed = int(rd.get("passed", 0))
+            failed = int(rd.get("failed", 0))
+            self._append_activity(
+                f"Ralph run complete — {total} iteration(s), {passed} passed, {failed} failed."
+            )
+            self.status = "Ralph loop complete"
             self._refresh_dashboard_panel()
 
     def _complete_knowledge_worker(self, worker_key: int, *, success: bool) -> None:

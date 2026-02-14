@@ -573,6 +573,11 @@ def ralph_run(
 
         def progress_callback(event: dict[str, Any]) -> None:
             event_type = str(event.get("event") or "")
+            if event_type == "output_line":
+                line = str(event.get("line") or "")
+                if line:
+                    console.print(f"[dim]{line}[/dim]")
+                return
             if event_type == "iteration_started":
                 iteration = event.get("iteration")
                 item = event.get("item_id")
@@ -596,6 +601,17 @@ def ralph_run(
                 duration = float(event.get("duration_seconds") or 0)
                 console.print(f"[dim]Iteration complete ({outcome}) in {duration:.2f}s[/dim]")
 
+        coding_cli_value = ralph_cfg.get("coding_cli")
+        coding_cli = (
+            str(coding_cli_value)
+            if isinstance(coding_cli_value, str) and coding_cli_value
+            else None
+        )
+        cli_model_value = ralph_cfg.get("cli_model")
+        cli_model = (
+            str(cli_model_value) if isinstance(cli_model_value, str) and cli_model_value else None
+        )
+
         agent_dir, storage, loop_files = get_ralph_components()
         loop = RalphLoop(agent_dir, storage, loop_files)
         summary = asyncio.run(
@@ -604,6 +620,8 @@ def ralph_run(
                 item_id=item_id,
                 selected_prd_ids=selected_ids,
                 progress_callback=progress_callback,
+                coding_cli=coding_cli,
+                cli_model=cli_model,
             )
         )
         panel_lines = [

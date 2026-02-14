@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import shutil
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -11,6 +13,13 @@ from typing import Any
 
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage
+
+# CLI binary lookup for Ralph-supported coding agents.
+_CODING_CLI_BINARIES: dict[str, str] = {
+    "claude-code": "claude",
+    "codex": "codex",
+    "opencode": "opencode",
+}
 
 
 class RalphStatus(StrEnum):
@@ -120,6 +129,95 @@ class RalphLoop:
         except Exception:  # noqa: BLE001
             return
 
+    async def _run_agent_subprocess(
+        self,
+        *,
+        coding_cli: str,
+        cli_model: str | None,
+        item_title: str,
+        iteration: int,
+        item_id: str,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> int:
+        """Spawn the coding CLI and stream output lines via progress_callback."""
+        binary = _CODING_CLI_BINARIES.get(coding_cli)
+        if not binary:
+            self._emit_progress(
+                progress_callback,
+                {
+                    "event": "output_line",
+                    "line": f"Unknown coding CLI: {coding_cli}",
+                    "iteration": iteration,
+                    "item_id": item_id,
+                },
+            )
+            return 1
+
+        resolved = shutil.which(binary)
+        if resolved is None:
+            self._emit_progress(
+                progress_callback,
+                {
+                    "event": "output_line",
+                    "line": f"CLI binary not found on PATH: {binary}",
+                    "iteration": iteration,
+                    "item_id": item_id,
+                },
+            )
+            return 1
+
+        prompt = f"Work on PRD item {item_id}: {item_title}"
+        cmd: list[str] = [resolved, "--print", prompt]
+        if cli_model:
+            cmd.extend(["--model", cli_model])
+
+        self._emit_progress(
+            progress_callback,
+            {
+                "event": "output_line",
+                "line": f"$ {' '.join(cmd)}",
+                "iteration": iteration,
+                "item_id": item_id,
+            },
+        )
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        except OSError as exc:
+            self._emit_progress(
+                progress_callback,
+                {
+                    "event": "output_line",
+                    "line": f"Failed to start {binary}: {exc}",
+                    "iteration": iteration,
+                    "item_id": item_id,
+                },
+            )
+            return 1
+
+        assert proc.stdout is not None  # noqa: S101
+        while True:
+            raw = await proc.stdout.readline()
+            if not raw:
+                break
+            line = raw.decode("utf-8", errors="replace").rstrip("\n")
+            self._emit_progress(
+                progress_callback,
+                {
+                    "event": "output_line",
+                    "line": line,
+                    "iteration": iteration,
+                    "item_id": item_id,
+                },
+            )
+
+        exit_code = await proc.wait()
+        return exit_code
+
     def _read_state_payload(self) -> dict[str, Any]:
         if not self.state.state_path.exists():
             return {}
@@ -143,6 +241,8 @@ class RalphLoop:
         item_id: str | None = None,
         selected_prd_ids: list[str] | None = None,
         progress_callback: Callable[[dict[str, Any]], None] | None = None,
+        coding_cli: str | None = None,
+        cli_model: str | None = None,
     ) -> dict[str, int]:
         prd_path = self._resolve_prd_path(self.agent_dir)
         if not prd_path.exists():
@@ -201,7 +301,26 @@ class RalphLoop:
                 },
             )
 
-            exit_code = 0
+            if coding_cli:
+                exit_code = await self._run_agent_subprocess(
+                    coding_cli=coding_cli,
+                    cli_model=cli_model,
+                    item_title=title,
+                    iteration=index,
+                    item_id=item_id_value,
+                    progress_callback=progress_callback,
+                )
+            else:
+                exit_code = 0
+                self._emit_progress(
+                    progress_callback,
+                    {
+                        "event": "output_line",
+                        "line": "No coding CLI configured; skipping agent execution.",
+                        "iteration": index,
+                        "item_id": item_id_value,
+                    },
+                )
             self._emit_progress(
                 progress_callback,
                 {

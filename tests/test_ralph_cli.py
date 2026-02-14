@@ -81,3 +81,85 @@ def test_cli_ralph_set_agent_rejects_invalid() -> None:
         result = runner.invoke(cli_main.app, ["ralph", "set-agent", "--cli", "invalid-tool"])
         assert result.exit_code == 1
         assert "Invalid coding CLI" in result.output
+
+
+def test_ralph_run_loop_emits_output_line_when_no_cli() -> None:
+    """When no coding_cli is set, run_loop emits an output_line event."""
+    import asyncio
+
+    from agent_recall.ralph.loop import RalphLoop
+    from agent_recall.storage.files import FileStorage
+    from agent_recall.storage.sqlite import SQLiteStorage
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        prd_path = Path(".agent") / "ralph" / "prd.json"
+        prd_path.parent.mkdir(parents=True, exist_ok=True)
+        prd_path.write_text(
+            json.dumps({"items": [{"id": "T-1", "title": "Test", "passes": False}]})
+        )
+        agent_dir = Path(".agent")
+        storage = SQLiteStorage(agent_dir / "state.db")
+        files = FileStorage(agent_dir)
+        loop = RalphLoop(agent_dir, storage, files)
+
+        # Enable the loop first.
+        loop.enable()
+
+        events: list[dict] = []
+
+        def cb(event: dict) -> None:
+            events.append(event)
+
+        summary = asyncio.run(
+            loop.run_loop(
+                progress_callback=cb,
+                coding_cli=None,
+                cli_model=None,
+            )
+        )
+        assert summary["total_iterations"] == 1
+        output_events = [e for e in events if e.get("event") == "output_line"]
+        assert len(output_events) >= 1
+        assert "No coding CLI configured" in output_events[0]["line"]
+
+
+def test_ralph_run_loop_passes_coding_cli_params() -> None:
+    """run_loop accepts coding_cli and cli_model without error."""
+    import asyncio
+
+    from agent_recall.ralph.loop import RalphLoop
+    from agent_recall.storage.files import FileStorage
+    from agent_recall.storage.sqlite import SQLiteStorage
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        prd_path = Path(".agent") / "ralph" / "prd.json"
+        prd_path.parent.mkdir(parents=True, exist_ok=True)
+        prd_path.write_text(
+            json.dumps({"items": [{"id": "T-2", "title": "Test 2", "passes": False}]})
+        )
+        agent_dir = Path(".agent")
+        storage = SQLiteStorage(agent_dir / "state.db")
+        files = FileStorage(agent_dir)
+        loop = RalphLoop(agent_dir, storage, files)
+        loop.enable()
+
+        events: list[dict] = []
+
+        def cb(event: dict) -> None:
+            events.append(event)
+
+        # Use a non-existent binary — should emit output_line with error.
+        _summary = asyncio.run(
+            loop.run_loop(
+                progress_callback=cb,
+                coding_cli="claude-code",
+                cli_model="claude-sonnet-4-20250514",
+            )
+        )
+        # The agent should have "failed" since the binary isn't on the test PATH.
+        output_events = [e for e in events if e.get("event") == "output_line"]
+        assert len(output_events) >= 1
+        agent_events = [e for e in events if e.get("event") == "agent_complete"]
+        assert len(agent_events) == 1

@@ -35,6 +35,11 @@ def test_palette_contains_ralph_config_action() -> None:
     assert "ralph-config" in action_ids
 
 
+def test_palette_contains_ralph_run_action() -> None:
+    action_ids = {action.action_id for action in get_palette_actions()}
+    assert "ralph-run" in action_ids
+
+
 def test_clean_optional_text_handles_none_variants() -> None:
     assert _clean_optional_text(None) == ""
     assert _clean_optional_text("None") == ""
