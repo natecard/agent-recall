@@ -41,7 +41,7 @@
 		{
 			"id": "WM-002",
 			"category": "functional",
-			"priority": 2,
+			"priority": 1,
 			"title": "Heuristic Extractor",
 			"description": "Create an observation-based extraction module that parses validation output, git diff, PRD state changes, and elapsed time into structured iteration report fields — without any LLM calls. This replaces the old pattern where the agent self-reported its learnings. The system now observes artifacts and extracts facts deterministically.",
 			"user_story": "As the loop harness, I need to extract structured facts from observable build artifacts so iteration reports are populated from evidence rather than agent self-reporting, producing deterministic output from the same input.",
@@ -65,12 +65,12 @@
 				"Deterministic: same input always produces same output."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "WM-003",
 			"category": "functional",
-			"priority": 3,
+			"priority": 2,
 			"title": "Heuristic Forecast Generator",
 			"description": "Create the Layer 2 forecast generator that rebuilds RECENT.md entirely from the last N iteration records using pure heuristics — no LLM, runs instantly. Produces markdown with Trajectory (last 5 outcomes), Current Status, Watch For, and Emerging Pattern sections. RECENT.md is overwritten every iteration, never appended to.",
 			"user_story": "As the Ralph loop, I need RECENT.md rebuilt between every iteration from structured data so the agent receives a concise tactical forecast instead of an ever-growing prose file.",
@@ -99,7 +99,7 @@
 		{
 			"id": "WM-006",
 			"category": "integration",
-			"priority": 4,
+			"priority": 3,
 			"title": "Loop Integration — Bash Loop Lifecycle Update",
 			"description": "Update ralph-agent-recall-loop.sh to use the new Weather Model lifecycle: setup_iteration (create report) → run agent → run validation → finalize_iteration (extract artifacts, finalize report, rebuild forecast, refresh context). Remove old direct memory file append logic. The agent no longer writes to tier files — the system extracts and rebuilds. Post-loop calls synthesize-climate.",
 			"user_story": "As a developer using the bash Ralph loop, I need the loop to follow the Weather Model lifecycle where artifacts are extracted by the system and the forecast is rebuilt between iterations, replacing the old pattern of agent-written tier files.",
@@ -129,7 +129,7 @@
 		{
 			"id": "WM-007",
 			"category": "functional",
-			"priority": 5,
+			"priority": 4,
 			"title": "Agent Prompt Simplification",
 			"description": "Replace the current agent-prompt.md that instructs the agent to write to GUARDRAILS.md, STYLE.md, and RECENT.md with a simplified contract where the agent only works on code and updates current.json with structured outcome fields. Tier files become read-only context injected by the system. Deprecate tier_writer.py usage from the loop iteration path.",
 			"user_story": "As the Ralph loop system, I need the agent to follow a strict read-only contract for tier files and only write structured JSON to current.json, so the system controls all tier file content and prevents bloat.",
@@ -158,7 +158,7 @@
 		{
 			"id": "WM-008",
 			"category": "functional",
-			"priority": 6,
+			"priority": 5,
 			"title": "CLI Commands for Weather Model",
 			"description": "Add CLI commands to the Ralph Typer sub-application for the Weather Model operations: extract-iteration (run heuristic extraction on iteration artifacts), create-report and finalize-report (iteration lifecycle), rebuild-forecast (Layer 2), and synthesize-climate (Layer 3). These are the commands called by the bash loop and available for manual use.",
 			"user_story": "As the bash loop script and as a developer, I need CLI commands for each Weather Model operation so the three-layer architecture can be driven from the shell.",
@@ -187,7 +187,7 @@
 		{
 			"id": "WM-004",
 			"category": "functional",
-			"priority": 7,
+			"priority": 6,
 			"title": "LLM-Enhanced Forecast Generation",
 			"description": "Extend ForecastGenerator in forecast.py with the optional LLM path. Triggered only when consecutive failures exceed the configured threshold AND an LLM provider is available. Uses a small model (e.g., qwen3:1.5b) for quick turnaround. Falls back to heuristic gracefully on any LLM error.",
 			"user_story": "As a developer, when the Ralph loop hits consecutive failures, I need a smarter forecast from a small LLM that can identify deeper patterns — while always falling back to instant heuristics if LLM is unavailable.",
@@ -215,7 +215,7 @@
 		{
 			"id": "WM-005",
 			"category": "functional",
-			"priority": 8,
+			"priority": 7,
 			"title": "Climate Synthesizer (Layer 3)",
 			"description": "Create the Layer 3 climate synthesizer that runs once at loop end to distill all accumulated iteration reports into stable GUARDRAILS.md and STYLE.md content. Extracts failure_reason and gotcha_discovered for guardrails, pattern_that_worked for style. Deduplicates by frequency. Requires LLM for semantic synthesis. Tracks synthesis state to avoid redundant runs.",
 			"user_story": "As a developer, I need accumulated iteration learnings automatically distilled into concise guardrails and style patterns at loop end, so future loops benefit from past experience without files growing unbounded.",

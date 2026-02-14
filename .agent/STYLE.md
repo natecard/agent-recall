@@ -292,3 +292,12 @@
 
 ## 2026-02-14T05:10:00Z Iteration 1 (WM-001)
 - Use ISO-8601 UTC serialization for datetime fields in report JSON models.
+
+## 2026-02-14T04:47:22Z Iteration 2 (WM-002)
+- Prefer one logical change per commit.
+- Keep validation command green before committing: uv run pytest && uv run ruff check . && uv run ty check
+- Start debugging from the first actionable validation line: testpaths: tests
+- Runtime logs: agent_recall/ralph/.runtime/agent-2.log, agent_recall/ralph/.runtime/validate-2.log
+
+## 2026-02-14T06:10:00Z Iteration 1 (WM-002)
+- Use unittest.mock patching to keep subprocess-based helpers deterministic in tests.

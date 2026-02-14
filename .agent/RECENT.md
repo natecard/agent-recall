@@ -489,3 +489,21 @@
 - Outcome: progressed
 - Notes: Added iteration report model/store with JSON serialization, current/archived lifecycle, corrupt file safety, and ordering; added tests for round-trip, lifecycle, and load_recent ordering.
 - Next: Run validation and, if green, proceed to WM-002 (Heuristic Extractor).
+
+## 2026-02-14T04:47:22Z Iteration 2
+- Item: WM-002 - Heuristic Extractor
+- Mode: feature
+- Agent exit code: 130
+- Validation: failed
+- Outcome: validation_failed
+- Validation signal: testpaths: tests
+- Runtime logs: agent_recall/ralph/.runtime/agent-2.log, agent_recall/ralph/.runtime/validate-2.log
+
+## 2026-02-14T06:10:00Z Iteration 1
+- Item: WM-002 - Heuristic Extractor
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Implemented heuristic extraction helpers (outcome, failure reason, validation hint, files changed) with deterministic tests using subprocess stubs.
+- Next: Run validation; if green, move to WM-003 (Heuristic Forecast Generator).

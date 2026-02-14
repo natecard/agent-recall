@@ -359,3 +359,19 @@
 
 ## 2026-02-14T05:10:00Z Iteration 1 (WM-001)
 - Guard iteration report persistence against corrupt JSON by returning None instead of raising.
+
+## 2026-02-14T04:47:22Z HARD FAILURE Iteration 2 (WM-002)
+- Item: Heuristic Extractor
+- Validation command: uv run pytest && uv run ruff check . && uv run ty check
+- Top validation errors:
+  - testpaths: tests
+  - asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+  - tests/test_background_sync.py .. [ 0%]
+  - tests/test_checkpoints.py ......... [ 2%]
+  - tests/test_cli.py .........
+  - !!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+- Primary actionable signal: testpaths: tests
+- Runtime logs: agent_recall/ralph/.runtime/agent-2.log, agent_recall/ralph/.runtime/validate-2.log
+
+## 2026-02-14T06:10:00Z Iteration 1 (WM-002)
+- When calling git in tests, stub subprocess.run to avoid relying on repo state or git availability.
