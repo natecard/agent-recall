@@ -350,3 +350,9 @@
 
 ## 2026-02-13T23:59:59Z Iteration 9 (AR-303)
 - When adding Python-mode Ralph run, keep state updates best-effort and align payload fields with status Mode A expectations.
+
+## 2026-02-14T04:37:49Z Iteration 1 (WM-001)
+- Scope item: Iteration Record Store
+- Keep changes isolated and verifiable before commit.
+- Runtime validation signal: testpaths: tests
+- Runtime logs: agent_recall/ralph/.runtime/agent-1.log, agent_recall/ralph/.runtime/validate-1.log

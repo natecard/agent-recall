@@ -283,3 +283,9 @@
 
 ## 2026-02-13T23:59:59Z Iteration 9 (AR-303)
 - Keep progress callbacks in CLI narrowly focused on rendering while loop logic owns payload structure.
+
+## 2026-02-14T04:37:49Z Iteration 1 (WM-001)
+- Prefer one logical change per commit.
+- Run local checks before commit when available.
+- Start debugging from the first actionable validation line: testpaths: tests
+- Runtime logs: agent_recall/ralph/.runtime/agent-1.log, agent_recall/ralph/.runtime/validate-1.log

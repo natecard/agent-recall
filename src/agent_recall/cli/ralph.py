@@ -667,18 +667,32 @@ def ralph_run(
         cmd.extend(["--validate-cmd", validate_cmd])
 
     try:
-        result = subprocess.run(cmd, cwd=Path.cwd(), check=False)
+        process = subprocess.Popen(
+            cmd,
+            cwd=Path.cwd(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        assert process.stdout is not None  # noqa: S101
+        for line in iter(process.stdout.readline, ""):
+            stripped = line.rstrip("\n")
+            if stripped:
+                console.print(f"[dim]{stripped}[/dim]")
+        process.wait()
+        returncode = process.returncode
     except KeyboardInterrupt:
         console.print("[warning]Ralph loop interrupted.[/warning]")
         raise typer.Exit(130) from None
 
-    if result.returncode == 0:
+    if returncode == 0:
         console.print("[success]✓ Ralph loop completed successfully.[/success]")
-    elif result.returncode == 2:
+    elif returncode == 2:
         console.print("[warning]Ralph loop reached max iterations.[/warning]")
     else:
-        console.print(f"[error]Ralph loop failed (exit {result.returncode}).[/error]")
-    raise typer.Exit(result.returncode)
+        console.print(f"[error]Ralph loop failed (exit {returncode}).[/error]")
+    raise typer.Exit(returncode)
 
 
 @ralph_app.command("select")

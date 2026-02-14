@@ -2147,13 +2147,13 @@ class AgentRecallTextualApp(App[None]):
         self._append_activity("Starting Ralph loop...")
 
         def _ralph_run_worker() -> dict[str, Any]:
-            import asyncio as _asyncio
+            import subprocess
 
             from agent_recall.cli.ralph import (
-                get_ralph_components,
+                get_default_prd_path,
+                get_default_script_path,
                 read_ralph_config,
             )
-            from agent_recall.ralph.loop import RalphLoop
             from agent_recall.storage.files import FileStorage
 
             agent_dir = Path(".agent")
@@ -2173,79 +2173,88 @@ class AgentRecallTextualApp(App[None]):
                 )
                 return {"total_iterations": 0, "passed": 0, "failed": 0}
 
-            selected_value = ralph_cfg.get("selected_prd_ids")
-            selected_ids: list[str] | None = None
-            if isinstance(selected_value, list) and selected_value:
-                selected_ids = [str(x) for x in selected_value if x]
+            coding_cli_value = ralph_cfg.get("coding_cli")
+            if not coding_cli_value or not isinstance(coding_cli_value, str):
+                self.call_from_thread(
+                    self._append_activity,
+                    "No coding CLI configured. Set one via Ralph Configuration.",
+                )
+                return {"total_iterations": 0, "passed": 0, "failed": 0}
+
+            from agent_recall.cli.ralph import CODING_CLIS
+
+            cli_info = CODING_CLIS.get(coding_cli_value)
+            if not cli_info:
+                self.call_from_thread(
+                    self._append_activity, f"Unknown coding CLI: {coding_cli_value}"
+                )
+                return {"total_iterations": 0, "passed": 0, "failed": 0}
+
+            binary = cli_info["binary"]
+            cli_model_value = ralph_cfg.get("cli_model")
+            agent_cmd = binary
+            if isinstance(cli_model_value, str) and cli_model_value:
+                model_flag = cli_info.get("model_flag", "--model")
+                agent_cmd = f"{binary} {model_flag} {cli_model_value}"
+
+            script_path = get_default_script_path()
+            if not script_path.exists():
+                self.call_from_thread(
+                    self._append_activity, f"Ralph loop script not found: {script_path}"
+                )
+                return {"total_iterations": 0, "passed": 0, "failed": 0}
+
+            prd_path = get_default_prd_path()
+            if not prd_path.exists():
+                self.call_from_thread(self._append_activity, f"PRD file not found: {prd_path}")
+                return {"total_iterations": 0, "passed": 0, "failed": 0}
 
             max_iter_value = ralph_cfg.get("max_iterations")
-            max_iterations = (
-                int(max_iter_value) if isinstance(max_iter_value, int | float) else None
-            )
+            max_iterations = int(max_iter_value) if isinstance(max_iter_value, int | float) else 10
 
-            coding_cli_value = ralph_cfg.get("coding_cli")
-            coding_cli = (
-                str(coding_cli_value)
-                if isinstance(coding_cli_value, str) and coding_cli_value
-                else None
-            )
-            cli_model_value = ralph_cfg.get("cli_model")
-            cli_model = (
-                str(cli_model_value)
-                if isinstance(cli_model_value, str) and cli_model_value
-                else None
-            )
+            cmd: list[str] = [
+                str(script_path),
+                "--agent-cmd",
+                agent_cmd,
+                "--max-iterations",
+                str(max_iterations),
+                "--prd-file",
+                str(prd_path),
+            ]
 
-            def progress_callback(event: dict[str, Any]) -> None:
-                event_type = str(event.get("event") or "")
-                if event_type == "output_line":
-                    line = str(event.get("line") or "")
-                    if line:
-                        self.call_from_thread(self._append_activity, line)
-                    return
-                if event_type == "iteration_started":
-                    iteration = event.get("iteration")
-                    item = event.get("item_id")
-                    self.call_from_thread(
-                        self._append_activity, f"Iteration {iteration}: {item} started"
-                    )
-                    self.call_from_thread(setattr, self, "status", f"Ralph: iteration {iteration}")
-                elif event_type == "agent_complete":
-                    exit_code = int(event.get("exit_code") or 0)
-                    if exit_code == 0:
-                        self.call_from_thread(self._append_activity, "✓ Agent complete")
-                    else:
-                        self.call_from_thread(
-                            self._append_activity, f"✗ Agent failed (exit {exit_code})"
-                        )
-                elif event_type == "validation_complete":
-                    success = bool(event.get("success"))
-                    hint = str(event.get("hint") or "")
-                    if success:
-                        self.call_from_thread(self._append_activity, "✓ Validation passed")
-                    else:
-                        msg = hint[:80] if hint else "Validation failed"
-                        self.call_from_thread(self._append_activity, f"✗ {msg}")
-                elif event_type == "iteration_complete":
-                    outcome = str(event.get("outcome") or "")
-                    duration = float(event.get("duration_seconds") or 0)
-                    self.call_from_thread(
-                        self._append_activity,
-                        f"Iteration complete ({outcome}) in {duration:.2f}s",
-                    )
+            validate_cmd_value = ralph_cfg.get("validate_cmd")
+            if isinstance(validate_cmd_value, str) and validate_cmd_value:
+                cmd.extend(["--validate-cmd", validate_cmd_value])
 
-            agent_dir_path, storage, loop_files = get_ralph_components()
-            loop = RalphLoop(agent_dir_path, storage, loop_files)
-            summary: dict[str, int] = _asyncio.run(
-                loop.run_loop(
-                    max_iterations=max_iterations,
-                    selected_prd_ids=selected_ids,
-                    progress_callback=progress_callback,
-                    coding_cli=coding_cli,
-                    cli_model=cli_model,
+            self.call_from_thread(self._append_activity, f"$ {' '.join(cmd)}")
+            self.call_from_thread(setattr, self, "status", "Ralph loop running")
+
+            try:
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=Path.cwd(),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
                 )
-            )
-            return summary
+                assert process.stdout is not None  # noqa: S101
+                for line in iter(process.stdout.readline, ""):
+                    stripped = line.rstrip("\n")
+                    if stripped:
+                        self.call_from_thread(self._append_activity, stripped)
+                process.wait()
+                returncode = process.returncode
+            except OSError as exc:
+                self.call_from_thread(self._append_activity, f"Failed to start ralph loop: {exc}")
+                return {"total_iterations": 0, "passed": 0, "failed": 0}
+
+            return {
+                "total_iterations": max_iterations,
+                "passed": 1 if returncode == 0 else 0,
+                "failed": 0 if returncode == 0 else 1,
+                "returncode": returncode,
+            }
 
         worker = self.run_worker(
             _ralph_run_worker,

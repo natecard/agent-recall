@@ -471,3 +471,12 @@
 - Outcome: in_progress
 - Notes: Added client-side RBAC checks in shared HTTP client (`role` + `allow_promote` gating) with new config defaults and allow/deny tests.
 - Next: Run validation; if green, continue AR-011 with audit trail slice.
+
+## 2026-02-14T04:37:49Z Iteration 1
+- Item: WM-001 - Iteration Record Store
+- Mode: feature
+- Agent exit code: 130
+- Validation: passed
+- Outcome: progressed
+- Validation signal: testpaths: tests
+- Runtime logs: agent_recall/ralph/.runtime/agent-1.log, agent_recall/ralph/.runtime/validate-1.log
