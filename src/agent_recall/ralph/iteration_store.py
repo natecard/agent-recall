@@ -166,6 +166,23 @@ class IterationReportStore:
                 break
         return reports
 
+    def load_all(self) -> list[IterationReport]:
+        if not self.iterations_dir.exists():
+            return []
+        archived = [
+            path
+            for path in self.iterations_dir.glob("*.json")
+            if path.name != self.current_path.name
+        ]
+        archived.sort(key=lambda path: path.name)
+        reports: list[IterationReport] = []
+        for path in archived:
+            report = self._load_report_path(path)
+            if report is None:
+                continue
+            reports.append(report)
+        return reports
+
     def _archive_report(self, report: IterationReport) -> None:
         self.iterations_dir.mkdir(parents=True, exist_ok=True)
         archive_path = self.iterations_dir / f"{report.iteration:03d}.json"

@@ -281,6 +281,15 @@ ralph:
   max_iterations: 10
   sleep_seconds: 2
   compact_mode: always
+  forecast:
+    window: 5
+    use_llm: false
+    llm_on_consecutive_failures: 2
+    llm_model: null
+  synthesis:
+    auto_after_loop: true
+    max_guardrails: 30
+    max_style: 30
 
 adapters:
   enabled: false

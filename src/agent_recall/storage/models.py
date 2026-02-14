@@ -261,6 +261,24 @@ class RalphLoopConfig(BaseModel):
         description="Optional. PRD item IDs to include; None means all items (model decides)",
     )
 
+    class ForecastConfig(BaseModel):
+        """Configuration for Ralph forecast generation."""
+
+        window: int = Field(default=5, ge=0)
+        use_llm: bool = False
+        llm_on_consecutive_failures: int = Field(default=2, ge=1)
+        llm_model: str | None = None
+
+    class SynthesisConfig(BaseModel):
+        """Configuration for Ralph climate synthesis."""
+
+        auto_after_loop: bool = True
+        max_guardrails: int = Field(default=30, ge=1)
+        max_style: int = Field(default=30, ge=1)
+
+    forecast: ForecastConfig = Field(default_factory=ForecastConfig)
+    synthesis: SynthesisConfig = Field(default_factory=SynthesisConfig)
+
 
 class AdapterConfig(BaseModel):
     """Context adapter configuration."""

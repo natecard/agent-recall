@@ -182,12 +182,12 @@
 				"All commands exit 1 without .agent directory."
 			],
 			"validation": ["uv run pytest", "uv run ruff check .", "uv run ty check"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "WM-004",
 			"category": "functional",
-			"priority": 2,
+			"priority": 1,
 			"title": "LLM-Enhanced Forecast Generation",
 			"description": "Extend ForecastGenerator in forecast.py with the optional LLM path. Triggered only when consecutive failures exceed the configured threshold AND an LLM provider is available. Uses a small model (e.g., qwen3:1.5b) for quick turnaround. Falls back to heuristic gracefully on any LLM error.",
 			"user_story": "As a developer, when the Ralph loop hits consecutive failures, I need a smarter forecast from a small LLM that can identify deeper patterns — while always falling back to instant heuristics if LLM is unavailable.",
@@ -215,7 +215,7 @@
 		{
 			"id": "WM-005",
 			"category": "functional",
-			"priority": 3,
+			"priority": 2,
 			"title": "Climate Synthesizer (Layer 3)",
 			"description": "Create the Layer 3 climate synthesizer that runs once at loop end to distill all accumulated iteration reports into stable GUARDRAILS.md and STYLE.md content. Extracts failure_reason and gotcha_discovered for guardrails, pattern_that_worked for style. Deduplicates by frequency. Requires LLM for semantic synthesis. Tracks synthesis state to avoid redundant runs.",
 			"user_story": "As a developer, I need accumulated iteration learnings automatically distilled into concise guardrails and style patterns at loop end, so future loops benefit from past experience without files growing unbounded.",

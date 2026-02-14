@@ -302,6 +302,36 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("cli",),
         ),
         CommandContract(
+            command="ralph create-report",
+            aliases=(),
+            description="Create iteration report (current.json)",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="ralph finalize-report",
+            aliases=(),
+            description="Finalize and archive current report",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="ralph extract-iteration",
+            aliases=(),
+            description="Extract heuristic artifacts for current report",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="ralph rebuild-forecast",
+            aliases=(),
+            description="Rebuild RECENT.md forecast from iteration reports",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="ralph synthesize-climate",
+            aliases=(),
+            description="Synthesize GUARDRAILS.md and STYLE.md from iterations",
+            surfaces=("cli",),
+        ),
+        CommandContract(
             command="ralph config",
             aliases=(),
             description="Open Ralph configuration modal",

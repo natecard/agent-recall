@@ -16,12 +16,20 @@ from rich.table import Table
 
 from agent_recall.cli.theme import DEFAULT_THEME, ThemeManager
 from agent_recall.core.config import load_config
+from agent_recall.core.onboarding import inject_stored_api_keys
+from agent_recall.llm import create_llm_provider, ensure_provider_dependency
+from agent_recall.llm.base import LLMProvider
 from agent_recall.ralph.context_refresh import ContextRefreshHook
+from agent_recall.ralph.extraction import extract_from_artifacts, extract_outcome
+from agent_recall.ralph.forecast import ForecastConfig, ForecastGenerator
+from agent_recall.ralph.iteration_store import IterationOutcome, IterationReportStore
 from agent_recall.ralph.loop import RalphLoop, RalphStateManager, RalphStatus
 from agent_recall.ralph.prd_archive import PRDArchive
+from agent_recall.ralph.synthesis import ClimateSynthesizer, SynthesisConfig
 from agent_recall.storage import create_storage_backend
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage
+from agent_recall.storage.models import LLMConfig
 from agent_recall.storage.remote import resolve_shared_db_path
 from agent_recall.storage.sqlite import SQLiteStorage
 
@@ -184,6 +192,55 @@ def get_files() -> FileStorage:
         except (NotImplementedError, ValueError):
             shared_tiers_dir = None
     return FileStorage(AGENT_DIR, shared_tiers_dir=shared_tiers_dir)
+
+
+def _ensure_agent_dir_exists() -> None:
+    if not AGENT_DIR.exists():
+        _get_theme_manager()
+        console.print("[error].agent directory not found. Run 'agent-recall init'.[/error]")
+        raise typer.Exit(1)
+
+
+def _get_llm() -> LLMProvider:
+    inject_stored_api_keys()
+    files = get_files()
+    config_dict = files.read_config()
+    llm_config = LLMConfig(**config_dict.get("llm", {}))
+    ok, message = ensure_provider_dependency(llm_config.provider, auto_install=True)
+    if not ok:
+        raise RuntimeError(message or "Provider dependency setup failed.")
+    if message:
+        console.print(f"[dim]{message}[/dim]")
+    return create_llm_provider(llm_config)
+
+
+def _read_validation_output(runtime_dir: Path, iteration: int) -> list[str]:
+    log_path = runtime_dir / f"validate-{iteration}.log"
+    if not log_path.exists():
+        return []
+    try:
+        return log_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+
+
+def _read_agent_exit_code(runtime_dir: Path, iteration: int) -> int:
+    log_path = runtime_dir / f"agent-{iteration}.log"
+    if not log_path.exists():
+        return 0
+    try:
+        content = log_path.read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    for line in reversed(content.splitlines()):
+        if "exit code" in line.lower():
+            digits = "".join(ch for ch in line if ch.isdigit())
+            if digits:
+                try:
+                    return int(digits)
+                except ValueError:
+                    return 0
+    return 0
 
 
 def render_ralph_status(_config_dict: dict[str, object]) -> list[str]:
@@ -918,3 +975,154 @@ def ralph_set_agent(
     config_dict = write_ralph_config(files, updates)
     lines = render_ralph_status(config_dict)
     console.print(Panel.fit("\n".join(lines), title="Ralph Agent Updated"))
+
+
+@ralph_app.command("create-report")
+def ralph_create_report(
+    iteration: int = typer.Option(..., "--iteration", "-n", min=1),
+    item_id: str = typer.Option(..., "--item-id"),
+    item_title: str = typer.Option(..., "--item-title"),
+) -> None:
+    """Create a new iteration report (current.json)."""
+    _get_theme_manager()
+    _ensure_agent_dir_exists()
+    if not item_id.strip():
+        console.print("[error]item-id cannot be empty.[/error]")
+        raise typer.Exit(1)
+    store = IterationReportStore(AGENT_DIR / "ralph")
+    report = store.create_for_iteration(iteration, item_id=item_id, item_title=item_title)
+    console.print(
+        "[success]✓ Created report for iteration "
+        f"{report.iteration:03d} ({report.item_id})[/success]"
+    )
+
+
+@ralph_app.command("finalize-report")
+def ralph_finalize_report(
+    validation_exit: int = typer.Option(..., "--validation-exit"),
+    validation_hint: str = typer.Option("", "--validation-hint"),
+) -> None:
+    """Finalize the current iteration report and archive it."""
+    _get_theme_manager()
+    _ensure_agent_dir_exists()
+    store = IterationReportStore(AGENT_DIR / "ralph")
+    report = store.finalize_current(validation_exit, validation_hint or None)
+    if report is None:
+        console.print("[warning]No current report to finalize.[/warning]")
+        return
+    archived_path = store.iterations_dir / f"{report.iteration:03d}.json"
+    console.print(
+        "[success]✓ Archived report to "
+        f"{archived_path} (outcome: {report.outcome or 'UNKNOWN'})[/success]"
+    )
+
+
+@ralph_app.command("extract-iteration")
+def ralph_extract_iteration(
+    iteration: int = typer.Option(..., "--iteration", "-n", min=1),
+    runtime_dir: Path = typer.Option(..., "--runtime-dir"),
+) -> None:
+    """Extract heuristic artifacts and update current.json."""
+    _get_theme_manager()
+    _ensure_agent_dir_exists()
+    if not runtime_dir.exists():
+        console.print(f"[error]Runtime dir not found: {runtime_dir}[/error]")
+        raise typer.Exit(1)
+    store = IterationReportStore(AGENT_DIR / "ralph")
+    report = store.load_current()
+    if report is None:
+        console.print("[warning]No current report to update.[/warning]")
+        return
+    validation_output = _read_validation_output(runtime_dir, iteration)
+    validation_exit = report.validation_exit_code or 0
+    if report.validation_hint is None:
+        report.validation_hint = "\n".join(validation_output) if validation_output else None
+    agent_exit = _read_agent_exit_code(runtime_dir, iteration)
+    artifacts = extract_from_artifacts(
+        validation_exit=validation_exit,
+        validation_output=validation_output,
+        agent_exit=agent_exit,
+        elapsed=0.0,
+        timeout=0.0,
+        repo_dir=Path.cwd(),
+    )
+    outcome = artifacts.get("outcome")
+    if isinstance(outcome, IterationOutcome):
+        report.outcome = outcome
+    elif report.outcome is None:
+        report.outcome = extract_outcome(validation_exit, agent_exit, 0.0, 0.0)
+    failure_reason = artifacts.get("failure_reason")
+    report.failure_reason = (
+        failure_reason if isinstance(failure_reason, str) and failure_reason else None
+    )
+    validation_hint = artifacts.get("validation_hint")
+    report.validation_hint = (
+        validation_hint if isinstance(validation_hint, str) else report.validation_hint
+    )
+    files_changed = artifacts.get("files_changed")
+    if isinstance(files_changed, list):
+        report.files_changed = [str(item) for item in files_changed if item]
+    store.save_current(report)
+    console.print("[success]✓ Updated current report with extracted artifacts[/success]")
+
+
+@ralph_app.command("rebuild-forecast")
+def ralph_rebuild_forecast(
+    use_llm: bool = typer.Option(False, "--use-llm"),
+) -> None:
+    """Rebuild RECENT.md from iteration reports."""
+    _get_theme_manager()
+    _ensure_agent_dir_exists()
+    files = get_files()
+    config = load_config(AGENT_DIR)
+    forecast_cfg = config.ralph.forecast
+    cfg = ForecastConfig(
+        window=forecast_cfg.window,
+        use_llm=forecast_cfg.use_llm if not use_llm else True,
+        llm_on_consecutive_failures=forecast_cfg.llm_on_consecutive_failures,
+        llm_model=forecast_cfg.llm_model,
+    )
+    generator = ForecastGenerator(AGENT_DIR / "ralph", files, config=cfg)
+    llm = None
+    if use_llm or cfg.use_llm:
+        try:
+            llm = _get_llm()
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[warning]LLM unavailable, using heuristic forecast: {exc}[/warning]")
+            llm = None
+    content = generator.write_forecast(llm=llm)
+    console.print(f"[success]✓ Forecast rebuilt ({len(content)} chars)[/success]")
+
+
+@ralph_app.command("synthesize-climate")
+def ralph_synthesize_climate(
+    force: bool = typer.Option(False, "--force"),
+) -> None:
+    """Synthesize GUARDRAILS.md and STYLE.md from iteration reports."""
+    _get_theme_manager()
+    _ensure_agent_dir_exists()
+    config = load_config(AGENT_DIR)
+    llm = ralph_cli_get_llm()
+    synth_cfg = config.ralph.synthesis
+    synthesizer = ClimateSynthesizer(
+        AGENT_DIR / "ralph",
+        get_files(),
+        llm=llm,
+        config=SynthesisConfig(
+            max_guardrails=synth_cfg.max_guardrails,
+            max_style=synth_cfg.max_style,
+            auto_after_loop=synth_cfg.auto_after_loop,
+        ),
+    )
+    if not force and not synthesizer.should_synthesize():
+        console.print("No new iterations since last synthesis.")
+        return
+    results = asyncio.run(synthesizer.synthesize())
+    console.print(
+        "[success]✓ Synthesis complete "
+        f"(guardrails: {results['guardrails']}, style: {results['style']})[/success]"
+    )
+
+
+def ralph_cli_get_llm():
+    return _get_llm()

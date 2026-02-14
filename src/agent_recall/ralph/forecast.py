@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from agent_recall.llm import Message
+from agent_recall.llm.base import LLMProvider
 from agent_recall.ralph.iteration_store import (
     IterationOutcome,
     IterationReport,
     IterationReportStore,
 )
 from agent_recall.storage.files import FileStorage, KnowledgeTier
+
+FORECAST_LLM_PROMPT = (
+    "You are generating a concise Ralph forecast from iteration summaries. "
+    "Respond with Trajectory, Current Status, Watch For, and Emerging Pattern. "
+    "Keep the response under 150 words.\n\n"
+    "Iteration summaries:\n{iteration_summaries}\n\n"
+    "Current item: {current_item}"
+)
 
 
 @dataclass
@@ -82,18 +93,45 @@ class ForecastGenerator:
 
         return "\n".join(lines)
 
-    def generate(self, llm: object | None = None) -> str:
+    def generate(self, llm: LLMProvider | None = None) -> str:
         window = max(self.config.window, 0)
         store = IterationReportStore(self.ralph_dir)
         reports = store.load_recent(count=window)
         if not reports:
             return self._empty_forecast()
+        if self.config.use_llm and llm is not None:
+            consecutive_failures = 0
+            for report in reports:
+                if report.outcome == IterationOutcome.COMPLETED:
+                    break
+                consecutive_failures += 1
+            if consecutive_failures >= self.config.llm_on_consecutive_failures:
+                try:
+                    return asyncio.run(self._generate_with_llm(reports, llm))
+                except Exception:  # noqa: BLE001
+                    return self._generate_heuristic(reports)
         return self._generate_heuristic(reports)
 
-    def write_forecast(self, llm: object | None = None) -> str:
+    def write_forecast(self, llm: LLMProvider | None = None) -> str:
         content = self.generate(llm=llm)
         self.files.write_tier(KnowledgeTier.RECENT, content)
         return content
+
+    async def _generate_with_llm(self, reports: list[IterationReport], llm: LLMProvider) -> str:
+        summaries: list[str] = []
+        for report in reversed(reports):
+            status = "PASS" if report.outcome == IterationOutcome.COMPLETED else "FAIL"
+            hint = report.failure_reason or report.gotcha_discovered or report.validation_hint
+            hint_text = f" - {hint}" if hint else ""
+            summaries.append(f"{status} {report.iteration:03d}{hint_text}")
+        prompt = FORECAST_LLM_PROMPT.format(
+            iteration_summaries="\n".join(summaries),
+            current_item=reports[0].item_id or "unknown",
+        )
+        message = Message(role="user", content=prompt)
+        response = await llm.generate([message], temperature=0.3, max_tokens=400)
+        header = "# Current Situation\n"
+        return header + response.content.strip()
 
 
 def _format_timestamp(value: datetime) -> str:

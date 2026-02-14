@@ -61,3 +61,4 @@
 2026-02-14T09:00:00Z | Iteration 1 | WM-003 | Added heuristic forecast generator (RECENT.md rebuild) with tests for empty/single/mixed outcomes and overwrite behavior; validation green.
 2026-02-14T12:15:00Z | Iteration 2 | WM-006 | Updated bash loop to new Weather Model lifecycle (create-report, extract/finalize, rebuild forecast, refresh context), removed direct tier file updates, added synthesize-climate on exit; validation pending.
 2026-02-14T13:20:00Z | Iteration 3 | WM-007 | Simplified agent prompt contract (read-only tier files, current.json schema, explicit prohibitions) and marked item complete; validation pending.
+2026-02-14T14:30:00Z | Iteration 4 | WM-008 | Added Ralph weather model CLI commands (create/finalize/extract/forecast/synthesize) with forecast + synthesis wiring, config defaults, command contract updates, and tests; validation pending.

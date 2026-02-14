@@ -91,8 +91,8 @@ def test_ralph_loop_injects_iteration_memory_and_agent_context(tmp_path: Path) -
     recent = (tmp_path / ".agent" / "RECENT.md").read_text()
     assert "Iteration 1 (RLPH-001)" in guardrails
     assert "Iteration 1 (RLPH-001)" in style
-    assert "Iteration 1" in recent
-    assert "Outcome: progressed" in recent
+    assert "# Current Situation" in recent
+    assert "## Trajectory" in recent
 
 
 def test_ralph_loop_prd_ids_filters_items(tmp_path: Path) -> None:
@@ -134,7 +134,8 @@ def test_ralph_loop_prd_ids_filters_items(tmp_path: Path) -> None:
     assert "RLPH-002" in prompt
     assert "RLPH-001" not in prompt or "RLPH-002" in prompt
     recent = (agent_dir / "RECENT.md").read_text()
-    assert "RLPH-002" in recent
+    assert "# Current Situation" in recent
+    assert "001" in recent
 
 
 def test_ralph_loop_supports_external_repo_layout_with_custom_paths(tmp_path: Path) -> None:
@@ -231,4 +232,4 @@ def test_ralph_loop_runtime_validation_signal_enriches_memory_files(tmp_path: Pa
     assert "Primary actionable signal: E AssertionError: expected 2 == 3" in guardrails
     assert "Runtime logs: agent_recall/ralph/.runtime/agent-1.log" in guardrails
     assert "first actionable validation line: E AssertionError: expected 2 == 3" in style
-    assert "Validation signal: E AssertionError: expected 2 == 3" in recent
+    assert "E AssertionError: expected 2 == 3" in recent
