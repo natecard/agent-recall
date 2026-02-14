@@ -310,3 +310,6 @@
 
 ## 2026-02-14T13:20:00Z Iteration 3 (WM-007)
 - Keep prompt templates parameterized with item_id, item_title, description, and validation_command placeholders.
+
+## 2026-02-14T16:25:00Z Iteration 5 (WM-004)
+- Use small stub LLM providers in tests to assert prompts and generation options deterministically.

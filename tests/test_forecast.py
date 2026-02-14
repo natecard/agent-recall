@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agent_recall.ralph.forecast import ForecastGenerator
+from agent_recall.llm.base import LLMProvider, LLMResponse
+from agent_recall.ralph.forecast import ForecastConfig, ForecastGenerator
 from agent_recall.ralph.iteration_store import (
     IterationOutcome,
     IterationReport,
@@ -22,6 +24,39 @@ def json_dumps(report: IterationReport) -> str:
     import json
 
     return json.dumps(report.to_dict(), indent=2)
+
+
+class StubLLM(LLMProvider):
+    def __init__(self, content: str = "LLM output", raise_error: bool = False) -> None:
+        self._content = content
+        self._raise_error = raise_error
+        self.last_messages: list | None = None
+        self.last_temperature: float | None = None
+        self.last_max_tokens: int | None = None
+
+    @property
+    def provider_name(self) -> str:
+        return "stub"
+
+    @property
+    def model_name(self) -> str:
+        return "stub-model"
+
+    async def generate(
+        self,
+        messages: list,
+        temperature: float = 0.3,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        self.last_messages = list(messages)
+        self.last_temperature = temperature
+        self.last_max_tokens = max_tokens
+        if self._raise_error:
+            raise RuntimeError("LLM failed")
+        return LLMResponse(content=self._content, model=self.model_name)
+
+    def validate(self) -> tuple[bool, str]:
+        return (True, "")
 
 
 def test_generate_empty_returns_placeholder(tmp_path: Path) -> None:
@@ -137,6 +172,118 @@ def test_write_forecast_overwrites_recent(tmp_path: Path) -> None:
     assert recent_path.exists()
     assert recent_path.read_text() == content
     assert "## Trajectory" in files.read_tier(KnowledgeTier.RECENT)
+
+
+def test_generate_uses_llm_on_consecutive_failures(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "ralph"
+    store = IterationReportStore(ralph_dir)
+    for iteration, outcome in [
+        (1, IterationOutcome.COMPLETED),
+        (2, IterationOutcome.VALIDATION_FAILED),
+        (3, IterationOutcome.BLOCKED),
+    ]:
+        report = IterationReport(
+            iteration=iteration,
+            item_id="WM-004",
+            item_title="Forecast",
+            started_at=datetime(2026, 2, 14, 12, 0, 0, tzinfo=UTC),
+            outcome=outcome,
+            failure_reason=f"fail {iteration}",
+        )
+        _write_report(store, report)
+    files = FileStorage(tmp_path)
+    config = ForecastConfig(window=5, use_llm=True, llm_on_consecutive_failures=2)
+    generator = ForecastGenerator(ralph_dir, files, config=config)
+    llm = StubLLM(content="LLM forecast")
+
+    content = generator.generate(llm=llm)
+
+    assert content.startswith("# Current Situation\n")
+    assert "LLM forecast" in content
+    assert llm.last_messages is not None
+
+
+def test_generate_skips_llm_below_threshold(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "ralph"
+    store = IterationReportStore(ralph_dir)
+    for iteration, outcome in [
+        (1, IterationOutcome.COMPLETED),
+        (2, IterationOutcome.VALIDATION_FAILED),
+    ]:
+        report = IterationReport(
+            iteration=iteration,
+            item_id="WM-004",
+            item_title="Forecast",
+            started_at=datetime(2026, 2, 14, 12, 0, 0, tzinfo=UTC),
+            outcome=outcome,
+            validation_hint=f"hint {iteration}",
+        )
+        _write_report(store, report)
+    files = FileStorage(tmp_path)
+    config = ForecastConfig(window=5, use_llm=True, llm_on_consecutive_failures=2)
+    generator = ForecastGenerator(ralph_dir, files, config=config)
+    llm = StubLLM(content="LLM forecast")
+
+    content = generator.generate(llm=llm)
+
+    assert "## Trajectory" in content
+    assert "LLM forecast" not in content
+
+
+def test_generate_llm_fallback_on_error(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "ralph"
+    store = IterationReportStore(ralph_dir)
+    report = IterationReport(
+        iteration=1,
+        item_id="WM-004",
+        item_title="Forecast",
+        started_at=datetime(2026, 2, 14, 12, 0, 0, tzinfo=UTC),
+        outcome=IterationOutcome.VALIDATION_FAILED,
+        validation_hint="failed",
+    )
+    _write_report(store, report)
+    files = FileStorage(tmp_path)
+    config = ForecastConfig(window=5, use_llm=True, llm_on_consecutive_failures=1)
+    generator = ForecastGenerator(ralph_dir, files, config=config)
+    llm = StubLLM(raise_error=True)
+
+    content = generator.generate(llm=llm)
+
+    assert "## Trajectory" in content
+
+
+def test_generate_with_llm_prompt_includes_pass_fail(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "ralph"
+    files = FileStorage(tmp_path)
+    generator = ForecastGenerator(ralph_dir, files)
+    reports = [
+        IterationReport(
+            iteration=2,
+            item_id="WM-004",
+            item_title="Forecast",
+            started_at=datetime(2026, 2, 14, 12, 0, 0, tzinfo=UTC),
+            outcome=IterationOutcome.VALIDATION_FAILED,
+            failure_reason="boom",
+        ),
+        IterationReport(
+            iteration=1,
+            item_id="WM-004",
+            item_title="Forecast",
+            started_at=datetime(2026, 2, 14, 12, 0, 0, tzinfo=UTC),
+            outcome=IterationOutcome.COMPLETED,
+        ),
+    ]
+    llm = StubLLM(content="LLM forecast")
+
+    asyncio.run(generator._generate_with_llm(reports, llm))
+
+    assert llm.last_messages is not None
+    prompt = llm.last_messages[0].content
+    assert "PASS 001" in prompt
+    assert "FAIL 002 - boom" in prompt
+    assert "Current item: WM-004" in prompt
+    assert llm.last_temperature == 0.3
+    assert llm.last_max_tokens == 400
 
 
 def _extract_section(content: str, header: str) -> list[str]:

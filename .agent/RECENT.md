@@ -534,3 +534,12 @@
 - Outcome: progressed
 - Notes: Rewrote Ralph agent prompt with read-only tier file contract, explicit current.json schema, task selection order, and prohibitions; kept placeholders for item context and validation command.
 - Next: Run validation; if green, move to WM-008 (Weather Model CLI commands).
+
+## 2026-02-14T16:25:00Z Iteration 5
+- Item: WM-004 - LLM-Enhanced Forecast Generation
+- Mode: feature
+- Agent exit code: 0
+- Validation: passed
+- Outcome: completed
+- Notes: Enabled LLM forecast trigger on consecutive failures with prompt construction, temperature/max token settings, and error fallback to heuristics; added tests for LLM triggering, fallback, and prompt content; added forecast/synthesis defaults to config template.
+- Next: Move to WM-005 (Climate Synthesizer) and ensure LLM-required synthesis path is wired and tested.

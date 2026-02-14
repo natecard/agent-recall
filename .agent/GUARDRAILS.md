@@ -384,3 +384,7 @@
 
 ## 2026-02-14T13:20:00Z Iteration 3 (WM-007)
 - Keep agent prompts explicit about read-only tier files to prevent accidental writes.
+
+## 2026-02-14T16:25:00Z Iteration 5 (WM-004)
+- Keep forecast LLM fallback paths wrapped in try/except so heuristic output remains available.
+- Add LLM forecast config defaults to templates to avoid drift between config and CLI.
