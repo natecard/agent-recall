@@ -304,3 +304,6 @@
 
 ## 2026-02-14T09:00:00Z Iteration 1 (WM-003)
 - Keep heuristic reports ordered newest-first in storage and reverse for oldest-to-newest display.
+
+## 2026-02-14T12:15:00Z Iteration 2 (WM-006)
+- Gate uv-driven loop steps behind `command -v uv` and keep failures non-fatal with warnings.

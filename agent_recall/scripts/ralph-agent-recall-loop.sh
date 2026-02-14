@@ -88,6 +88,36 @@ LOCK_FILE="$RUNTIME_DIR/loop.lock"
 LOCK_ACQUIRED=0
 ARCHIVE_ONLY=0
 
+ensure_memory_files() {
+  mkdir -p "$(dirname "$GUARDRAILS_FILE")"
+  mkdir -p "$(dirname "$STYLE_FILE")"
+  mkdir -p "$(dirname "$RECENT_FILE")"
+
+  if [[ ! -f $GUARDRAILS_FILE ]]; then
+    cat >"$GUARDRAILS_FILE" <<'EOF_G'
+# Guardrails
+
+Rules and warnings learned during Ralph iterations.
+EOF_G
+  fi
+
+  if [[ ! -f $STYLE_FILE ]]; then
+    cat >"$STYLE_FILE" <<'EOF_S'
+# Style
+
+Patterns and preferences learned during Ralph iterations.
+EOF_S
+  fi
+
+  if [[ ! -f $RECENT_FILE ]]; then
+    cat >"$RECENT_FILE" <<'EOF_R'
+# Recent
+
+Recent Ralph iteration summaries.
+EOF_R
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
   --agent-cmd)
@@ -249,36 +279,6 @@ file_hash() {
   cksum "$file" | awk '{print $1 ":" $2}'
 }
 
-ensure_memory_files() {
-  mkdir -p "$(dirname "$GUARDRAILS_FILE")"
-  mkdir -p "$(dirname "$STYLE_FILE")"
-  mkdir -p "$(dirname "$RECENT_FILE")"
-
-  if [[ ! -f $GUARDRAILS_FILE ]]; then
-    cat >"$GUARDRAILS_FILE" <<'EOF_G'
-# Guardrails
-
-Rules and warnings learned during Ralph iterations.
-EOF_G
-  fi
-
-  if [[ ! -f $STYLE_FILE ]]; then
-    cat >"$STYLE_FILE" <<'EOF_S'
-# Style
-
-Patterns and preferences learned during Ralph iterations.
-EOF_S
-  fi
-
-  if [[ ! -f $RECENT_FILE ]]; then
-    cat >"$RECENT_FILE" <<'EOF_R'
-# Recent
-
-Recent Ralph iteration summaries.
-EOF_R
-  fi
-}
-
 if [[ -z $AGENT_CMD ]]; then
   echo "Error: --agent-cmd (or RALPH_AGENT_CMD) is required." >&2
   exit 1
@@ -423,7 +423,7 @@ acquire_lock
 if [[ -n $PRD_IDS ]]; then
   FILTERED_PRD="$RUNTIME_DIR/prd-filtered.json"
   ids_json="$(echo "$PRD_IDS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' | jq -R . | jq -s .)"
-  if ! jq --argjson ids "$ids_json" '.items = [.items[]? | select(.id as $id | $ids | index($id))]' "$PRD_FILE" > "$FILTERED_PRD"; then
+  if ! jq --argjson ids "$ids_json" '.items = [.items[]? | select(.id as $id | $ids | index($id))]' "$PRD_FILE" >"$FILTERED_PRD"; then
     echo "Error: Failed to filter PRD by --prd-ids." >&2
     exit 1
   fi
@@ -614,70 +614,6 @@ log_has_exact_marker_line() {
   grep -Fxq "$marker" "$log_file"
 }
 
-run_notify() {
-  local status="$1"
-  local iteration="$2"
-
-  if [[ -z $NOTIFY_CMD ]]; then
-    return 0
-  fi
-
-  local cmd="$NOTIFY_CMD"
-  cmd="${cmd//\{iterations\}/$iteration}"
-  cmd="${cmd//\{status\}/$status}"
-
-  set +e
-  bash -lc "$cmd" >/dev/null 2>&1
-  set -e
-}
-
-validation_log_path() {
-  local iteration="$1"
-  printf '%s/validate-%s.log' "$RUNTIME_DIR" "$iteration"
-}
-
-agent_log_path() {
-  local iteration="$1"
-  printf '%s/agent-%s.log' "$RUNTIME_DIR" "$iteration"
-}
-
-normalize_runtime_line() {
-  local value="$1"
-  printf '%s\n' "$value" | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
-}
-
-extract_actionable_validation_lines() {
-  local iteration="$1"
-  local max_lines="${2:-6}"
-  local log_file
-  log_file="$(validation_log_path "$iteration")"
-
-  if [[ ! -s $log_file ]]; then
-    return 0
-  fi
-
-  local filtered
-  filtered="$(
-    sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//' "$log_file" \
-      | sed '/^$/d' \
-      | grep -Eiv '^(=+|-+|=+.*=+)$' \
-      | grep -Eiv '(test session starts|test session ends|^platform |^rootdir:|^configfile:|^plugins:|^collected [0-9]+ items?)' \
-      | head -n "$max_lines" || true
-  )"
-
-  if [[ -n $filtered ]]; then
-    printf '%s\n' "$filtered"
-    return 0
-  fi
-
-  sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//' "$log_file" | sed '/^$/d' | head -n "$max_lines"
-}
-
-extract_validation_hint() {
-  local iteration="$1"
-  extract_actionable_validation_lines "$iteration" 1 | head -n 1
-}
-
 append_guardrail_note() {
   local iteration="$1"
   local item_id="$2"
@@ -861,6 +797,70 @@ enforce_memory_updates() {
   fi
 }
 
+run_notify() {
+  local status="$1"
+  local iteration="$2"
+
+  if [[ -z $NOTIFY_CMD ]]; then
+    return 0
+  fi
+
+  local cmd="$NOTIFY_CMD"
+  cmd="${cmd//\{iterations\}/$iteration}"
+  cmd="${cmd//\{status\}/$status}"
+
+  set +e
+  bash -lc "$cmd" >/dev/null 2>&1
+  set -e
+}
+
+validation_log_path() {
+  local iteration="$1"
+  printf '%s/validate-%s.log' "$RUNTIME_DIR" "$iteration"
+}
+
+agent_log_path() {
+  local iteration="$1"
+  printf '%s/agent-%s.log' "$RUNTIME_DIR" "$iteration"
+}
+
+normalize_runtime_line() {
+  local value="$1"
+  printf '%s\n' "$value" | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
+}
+
+extract_actionable_validation_lines() {
+  local iteration="$1"
+  local max_lines="${2:-6}"
+  local log_file
+  log_file="$(validation_log_path "$iteration")"
+
+  if [[ ! -s $log_file ]]; then
+    return 0
+  fi
+
+  local filtered
+  filtered="$(
+    sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//' "$log_file" \
+      | sed '/^$/d' \
+      | grep -Eiv '^(=+|-+|=+.*=+)$' \
+      | grep -Eiv '(test session starts|test session ends|^platform |^rootdir:|^configfile:|^plugins:|^collected [0-9]+ items?)' \
+      | head -n "$max_lines" || true
+  )"
+
+  if [[ -n $filtered ]]; then
+    printf '%s\n' "$filtered"
+    return 0
+  fi
+
+  sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//' "$log_file" | sed '/^$/d' | head -n "$max_lines"
+}
+
+extract_validation_hint() {
+  local iteration="$1"
+  extract_actionable_validation_lines "$iteration" 1 | head -n 1
+}
+
 run_compaction() {
   local iteration="$1"
   local should_run="$2"
@@ -884,25 +884,55 @@ run_compaction() {
   fi
 }
 
-run_refresh_context() {
+setup_iteration() {
   local iteration="$1"
   local item_id="$2"
   local item_title="$3"
 
   if ! command -v uv >/dev/null 2>&1; then
+    echo "Warning: uv not available; skipping create-report." >&2
     return 0
   fi
 
-  set +e
-  local refresh_output
-  refresh_output="$(uv run agent-recall ralph refresh-context --task "${item_title:-}" --item "${item_id:-}" --iteration "$iteration" 2>&1)"
-  local refresh_exit=$?
-  set -e
+  uv run agent-recall ralph create-report --iteration "$iteration" --item-id "${item_id:-UNKNOWN}" --item-title "${item_title:-Untitled}" \
+    || {
+      echo "Warning: create-report failed; continuing." >&2
+      true
+    }
+}
 
-  printf '%s\n' "$refresh_output" >"$RUNTIME_DIR/refresh-${iteration}.log"
-  if [[ $refresh_exit -ne 0 ]]; then
-    echo "Warning: context refresh failed; continuing."
+finalize_iteration() {
+  local iteration="$1"
+  local item_id="$2"
+  local item_title="$3"
+  local validation_exit="$4"
+  local validation_hint="$5"
+
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "Warning: uv not available; skipping finalize/report/forecast/refresh." >&2
+    return 0
   fi
+
+  uv run agent-recall ralph extract-iteration --iteration "$iteration" --runtime-dir "$RUNTIME_DIR" \
+    || {
+      echo "Warning: extract-iteration failed; continuing." >&2
+      true
+    }
+  uv run agent-recall ralph finalize-report --validation-exit "$validation_exit" --validation-hint "${validation_hint:-}" \
+    || {
+      echo "Warning: finalize-report failed; continuing." >&2
+      true
+    }
+  uv run agent-recall ralph rebuild-forecast \
+    || {
+      echo "Warning: rebuild-forecast failed; continuing." >&2
+      true
+    }
+  uv run agent-recall ralph refresh-context --task "${item_title:-}" --item "${item_id:-}" --iteration "$iteration" \
+    || {
+      echo "Warning: refresh-context failed; continuing." >&2
+      true
+    }
 }
 
 run_archive_completed() {
@@ -924,12 +954,28 @@ run_archive_completed() {
   fi
 }
 
+run_synthesize_climate() {
+  local iteration="$1"
+
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "Warning: uv not available; skipping synthesize-climate." >&2
+    return 0
+  fi
+
+  uv run agent-recall ralph synthesize-climate \
+    || {
+      echo "Warning: synthesize-climate failed; continuing." >&2
+      true
+    }
+}
+
 if all_done; then
   echo "PRD already complete."
   run_validation "initial" || true
   if [[ $LAST_VALIDATE_EXIT -eq 0 ]]; then
     echo "Validation is green. Nothing to do."
     run_archive_completed "0"
+    run_synthesize_climate "0"
     run_notify "complete" "0"
     exit 0
   fi
@@ -983,6 +1029,18 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   PRE_GUARD_HASH="$(file_hash "$GUARDRAILS_FILE")"
   PRE_STYLE_HASH="$(file_hash "$STYLE_FILE")"
   PRE_RECENT_HASH="$(file_hash "$RECENT_FILE")"
+  ITERATION_ITEM_ID=""
+  ITERATION_ITEM_TITLE=""
+  if [[ $WORK_MODE == "feature" ]]; then
+    SELECTED_ITEM="$(next_item_json)"
+    if [[ -n $SELECTED_ITEM ]]; then
+      ITERATION_ITEM_ID="$(printf '%s\n' "$SELECTED_ITEM" | jq -r '.id // empty')"
+      ITERATION_ITEM_TITLE="$(printf '%s\n' "$SELECTED_ITEM" | jq -r '.title // .description // empty')"
+    fi
+  else
+    ITERATION_ITEM_ID="$(printf '%s\n' "$NEXT_ITEM" | jq -r '.id // empty')"
+    ITERATION_ITEM_TITLE="$(printf '%s\n' "$NEXT_ITEM" | jq -r '.title // .description // empty')"
+  fi
 
   PROMPT_FILE="$RUNTIME_DIR/prompt-${i}.md"
   AGENT_LOG="$RUNTIME_DIR/agent-${i}.log"
@@ -1037,17 +1095,29 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     echo "## Agent Recall Memory Context"
     echo "### GUARDRAILS.md"
     echo '```md'
-    tail -n "$MEMORY_TAIL_LINES" "$GUARDRAILS_FILE"
+    if [[ -f $GUARDRAILS_FILE ]]; then
+      tail -n "$MEMORY_TAIL_LINES" "$GUARDRAILS_FILE"
+    else
+      echo "(missing)"
+    fi
     echo '```'
 
     echo "### STYLE.md"
     echo '```md'
-    tail -n "$MEMORY_TAIL_LINES" "$STYLE_FILE"
+    if [[ -f $STYLE_FILE ]]; then
+      tail -n "$MEMORY_TAIL_LINES" "$STYLE_FILE"
+    else
+      echo "(missing)"
+    fi
     echo '```'
 
     echo "### RECENT.md"
     echo '```md'
-    tail -n "$MEMORY_TAIL_LINES" "$RECENT_FILE"
+    if [[ -f $RECENT_FILE ]]; then
+      tail -n "$MEMORY_TAIL_LINES" "$RECENT_FILE"
+    else
+      echo "(missing)"
+    fi
     echo '```'
 
     echo ""
@@ -1106,6 +1176,8 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     printf '   %s\n' "$ABORT_MARKER"
   } >"$PROMPT_FILE"
 
+  setup_iteration "$i" "$ITERATION_ITEM_ID" "$ITERATION_ITEM_TITLE"
+
   set +e
   run_agent "$PROMPT_FILE" "$AGENT_LOG"
   AGENT_EXIT=$?
@@ -1149,6 +1221,8 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
 
   run_validation "$i" || true
   VALIDATION_HINT="$(extract_validation_hint "$i")"
+
+  finalize_iteration "$i" "$ITERATION_ITEM_ID" "$ITERATION_ITEM_TITLE" "$LAST_VALIDATE_EXIT" "$VALIDATION_HINT"
 
   HAS_COMPLETE=0
   if [[ $AGENT_OUTPUT_MODE == "stream-json" ]]; then
@@ -1194,12 +1268,9 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   fi
   run_compaction "$i" "$SHOULD_COMPACT"
 
-  ITEM_ID="$(printf '%s\n' "$MEMORY_ITEM" | jq -r '.id // empty')"
-  ITEM_TITLE="$(printf '%s\n' "$MEMORY_ITEM" | jq -r '.title // .description // empty')"
-  run_refresh_context "$i" "$ITEM_ID" "$ITEM_TITLE"
-
   if [[ $ABORT_SEEN -eq 1 ]]; then
     echo "Abort marker seen. Exiting with failure."
+    run_synthesize_climate "$i"
     run_notify "aborted" "$i"
     exit 1
   fi
@@ -1208,6 +1279,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     if [[ $LAST_VALIDATE_EXIT -eq 0 ]]; then
       echo "All PRD items passed. Exiting."
       run_archive_completed "$i"
+      run_synthesize_climate "$i"
       run_notify "complete" "$i"
       exit 0
     fi
@@ -1217,6 +1289,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   if [[ $HAS_COMPLETE -eq 1 ]]; then
     if [[ $LAST_VALIDATE_EXIT -eq 0 ]]; then
       echo "Completion marker seen and validation green. Exiting early."
+      run_synthesize_climate "$i"
       run_notify "complete" "$i"
       exit 0
     fi

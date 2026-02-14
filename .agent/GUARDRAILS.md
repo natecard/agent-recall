@@ -360,6 +360,9 @@
 ## 2026-02-14T05:10:00Z Iteration 1 (WM-001)
 - Guard iteration report persistence against corrupt JSON by returning None instead of raising.
 
+## 2026-02-14T12:15:00Z Iteration 2 (WM-006)
+- Remove direct tier file writes from bash loop; Weather Model lifecycle handles memory via extraction/forecast/synthesis.
+
 ## 2026-02-14T04:47:22Z HARD FAILURE Iteration 2 (WM-002)
 - Item: Heuristic Extractor
 - Validation command: uv run pytest && uv run ruff check . && uv run ty check

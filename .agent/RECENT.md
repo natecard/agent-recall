@@ -516,3 +516,12 @@
 - Outcome: progressed
 - Notes: Added ForecastGenerator with heuristic RECENT.md rebuild (trajectory/status/watch/pattern) and tests for empty/single/mixed outcomes plus overwrite behavior.
 - Next: Implement WM-006 loop lifecycle integration.
+
+## 2026-02-14T12:15:00Z Iteration 2
+- Item: WM-006 - Loop Integration — Bash Loop Lifecycle Update
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Updated loop to create iteration reports before agent, extract/finalize/rebuild/refresh after validation, removed direct tier file writes, added synthesize-climate on exit, and guarded uv calls with warnings.
+- Next: Run validation; if green, move to WM-007 (Agent Prompt Simplification).
