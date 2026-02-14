@@ -381,3 +381,6 @@
 
 ## 2026-02-14T09:00:00Z Iteration 1 (WM-003)
 - Keep forecast generation deterministic by deriving RECENT.md only from iteration JSON reports; do not append to tier files.
+
+## 2026-02-14T13:20:00Z Iteration 3 (WM-007)
+- Keep agent prompts explicit about read-only tier files to prevent accidental writes.

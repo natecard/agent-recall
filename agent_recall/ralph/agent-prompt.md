@@ -4,11 +4,16 @@ You are running an autonomous Ralph loop for Agent Recall.
 
 The loop injects current PRD data, recent progress, memory files, recent Ralph commits, and the CI gate command.
 
-## Task Breakdown
+## Context Provided
 
-Parse unpassed PRD items and break candidate work into the smallest practical tasks.
+- Read-only tier files: `.agent/GUARDRAILS.md`, `.agent/STYLE.md`, `.agent/RECENT.md`
+- PRD state with unpassed items
+- Iteration report path: `{current_report_path}`
+- Current task: `{item_id} - {item_title}`
+- Task description: `{description}`
+- Validation command: `{validation_command}`
 
-A PRD item can contain multiple steps. You should still complete only one tightly scoped task this iteration.
+Tier files are read-only context. Do not write to them.
 
 ## Task Selection
 
@@ -26,11 +31,9 @@ After selecting the task:
 - Re-rank unpassed PRD items by setting numeric `priority` values.
 - Keep only one selected item in active implementation scope.
 
-## Exploration
+## Execution
 
 Explore the codebase before editing. Pull in only the context needed to complete the selected task safely.
-
-## Execution
 
 Complete the selected task.
 
@@ -38,24 +41,32 @@ If the task is larger than expected, print `HANG ON A SECOND`, then reduce scope
 
 Do not start a second feature in the same iteration.
 
+## Required Output
+
+Update `{current_report_path}` with this JSON schema (agent-writable fields only):
+
+```json
+{
+  "outcome": "COMPLETED|VALIDATION_FAILED|SCOPE_REDUCED|BLOCKED|TIMEOUT",
+  "summary": "string",
+  "failure_reason": "string|null",
+  "gotcha_discovered": "string|null",
+  "pattern_that_worked": "string|null",
+  "scope_change": "string|null"
+}
+```
+
+## What NOT To Do
+
+❌ Do NOT write to `.agent/GUARDRAILS.md`, `.agent/STYLE.md`, or `.agent/RECENT.md`.
+❌ Do NOT append to `agent_recall/ralph/progress.txt`.
+❌ Do NOT start a second feature.
+
 ## Feedback Loops
 
 Before commit, run the validation command provided in loop context and keep it green.
 
 If validation fails, fix or reduce scope until passing.
-
-## Required State Updates
-
-- Append a timestamped, concise entry to `agent_recall/ralph/progress.txt` (append-only).
-- Update `agent_recall/ralph/prd.json`:
-  - Adjust priorities to reflect current ordering.
-  - Set `passes: true` only when acceptance criteria are truly complete.
-- Update all memory files every iteration:
-  - `.agent/GUARDRAILS.md`: specific do/don't rules from failures, risks, or near-misses.
-  - `.agent/STYLE.md`: concrete coding patterns/preferences that worked.
-  - `.agent/RECENT.md`: what changed, why, and what the next iteration should know.
-
-Keep entries short, specific, and actionable.
 
 ## Commit
 

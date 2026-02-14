@@ -307,3 +307,6 @@
 
 ## 2026-02-14T12:15:00Z Iteration 2 (WM-006)
 - Gate uv-driven loop steps behind `command -v uv` and keep failures non-fatal with warnings.
+
+## 2026-02-14T13:20:00Z Iteration 3 (WM-007)
+- Keep prompt templates parameterized with item_id, item_title, description, and validation_command placeholders.
