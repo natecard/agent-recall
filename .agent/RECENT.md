@@ -507,3 +507,12 @@
 - Outcome: progressed
 - Notes: Implemented heuristic extraction helpers (outcome, failure reason, validation hint, files changed) with deterministic tests using subprocess stubs.
 - Next: Run validation; if green, move to WM-003 (Heuristic Forecast Generator).
+
+## 2026-02-14T09:00:00Z Iteration 1
+- Item: WM-003 - Heuristic Forecast Generator
+- Mode: feature
+- Agent exit code: 0
+- Validation: passed
+- Outcome: progressed
+- Notes: Added ForecastGenerator with heuristic RECENT.md rebuild (trajectory/status/watch/pattern) and tests for empty/single/mixed outcomes plus overwrite behavior.
+- Next: Implement WM-006 loop lifecycle integration.

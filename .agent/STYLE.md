@@ -301,3 +301,6 @@
 
 ## 2026-02-14T06:10:00Z Iteration 1 (WM-002)
 - Use unittest.mock patching to keep subprocess-based helpers deterministic in tests.
+
+## 2026-02-14T09:00:00Z Iteration 1 (WM-003)
+- Keep heuristic reports ordered newest-first in storage and reverse for oldest-to-newest display.

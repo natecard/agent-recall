@@ -375,3 +375,6 @@
 
 ## 2026-02-14T06:10:00Z Iteration 1 (WM-002)
 - When calling git in tests, stub subprocess.run to avoid relying on repo state or git availability.
+
+## 2026-02-14T09:00:00Z Iteration 1 (WM-003)
+- Keep forecast generation deterministic by deriving RECENT.md only from iteration JSON reports; do not append to tier files.
