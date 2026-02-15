@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_recall.ingest import get_default_ingesters, get_ingester
+from agent_recall.ingest import LogWatcher, get_default_ingesters, get_ingester
 from agent_recall.ingest.base import RawMessage, RawSession
 from agent_recall.ingest.claude_code import ClaudeCodeIngester
 from agent_recall.ingest.codex import CodexIngester
@@ -423,6 +423,92 @@ class TestClaudeCodeIngester:
         assert session.title == "test session"
         assert len(session.messages[0].tool_calls) == 1
         assert session.messages[0].tool_calls[0].tool == "Read"
+
+
+class TestLogWatcher:
+    def _write_jsonl(self, path: Path, events: list[dict]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(json.dumps(event) for event in events) + "\n")
+
+    def test_watcher_reads_new_lines(self, tmp_path: Path) -> None:
+        sessions_dir = tmp_path / "sessions"
+        session_file = sessions_dir / "session.jsonl"
+
+        self._write_jsonl(
+            session_file,
+            [
+                {"role": "user", "content": "Hello", "timestamp": "2024-01-01T00:00:00Z"},
+                {
+                    "role": "assistant",
+                    "content": "Hi",
+                    "timestamp": "2024-01-01T00:00:01Z",
+                },
+            ],
+        )
+
+        watcher = LogWatcher(
+            sessions_dir=sessions_dir,
+            poll_interval=0.01,
+            start_at_end=False,
+        )
+
+        first = watcher.poll()
+        assert len(first) == 2
+        assert first[0].role == "user"
+        assert "Hello" in first[0].content
+
+        with session_file.open("a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "role": "assistant",
+                        "content": "Next",
+                        "timestamp": "2024-01-01T00:00:02Z",
+                    }
+                )
+                + "\n"
+            )
+
+        second = watcher.poll()
+        assert len(second) == 1
+        assert second[0].role == "assistant"
+        assert "Next" in second[0].content
+
+    def test_watcher_handles_rotation(self, tmp_path: Path) -> None:
+        sessions_dir = tmp_path / "sessions"
+        session_file = sessions_dir / "session.jsonl"
+
+        self._write_jsonl(
+            session_file,
+            [
+                {"role": "user", "content": "Hello", "timestamp": "2024-01-01T00:00:00Z"},
+            ],
+        )
+
+        watcher = LogWatcher(
+            sessions_dir=sessions_dir,
+            poll_interval=0.01,
+            start_at_end=False,
+        )
+
+        assert len(watcher.poll()) == 1
+
+        session_file.unlink()
+        new_file = sessions_dir / "session.jsonl"
+        self._write_jsonl(
+            new_file,
+            [
+                {
+                    "role": "assistant",
+                    "content": "Rotated",
+                    "timestamp": "2024-01-01T00:00:03Z",
+                }
+            ],
+        )
+
+        rotated = watcher.poll()
+        assert len(rotated) == 1
+        assert "Rotated" in rotated[0].content
 
 
 class TestOpenCodeIngester:

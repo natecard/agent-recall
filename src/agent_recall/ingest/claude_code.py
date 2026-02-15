@@ -126,6 +126,15 @@ class ClaudeCodeIngester(SessionIngester):
 
         return sorted(sessions, key=lambda session: session.stat().st_mtime)
 
+    def get_sessions_dir(self) -> Path | None:
+        project_dir = self._find_project_dir()
+        if not project_dir:
+            return None
+        sessions_dir = project_dir / "sessions"
+        if not sessions_dir.exists():
+            return None
+        return sessions_dir
+
     def get_session_id(self, path: Path) -> str:
         return f"claude-code-{path.stem}"
 
@@ -153,26 +162,9 @@ class ClaudeCodeIngester(SessionIngester):
                     started_at = timestamp if started_at is None else min(started_at, timestamp)
                     ended_at = timestamp if ended_at is None else max(ended_at, timestamp)
 
-                event_type = str(event.get("type", "message")).lower()
-                if event_type not in {"message", "assistant", "user", "human", "text"}:
-                    if event_type != "tool_result" and "tool_result" not in event:
-                        continue
-
-                role = self._extract_role(event)
-                content = self._extract_content(event)
-                tool_calls = self._extract_tool_calls(event)
-
-                if len(content.strip()) < 3 and not tool_calls:
-                    continue
-
-                messages.append(
-                    RawMessage(
-                        role=role,
-                        content=content if content else "[tool-result]",
-                        timestamp=timestamp,
-                        tool_calls=tool_calls,
-                    )
-                )
+                message = self.parse_event(event, timestamp=timestamp)
+                if message is not None:
+                    messages.append(message)
 
         messages.sort(
             key=lambda message: message.timestamp.timestamp() if message.timestamp else 0.0
@@ -186,6 +178,33 @@ class ClaudeCodeIngester(SessionIngester):
             started_at=started_at or datetime.fromtimestamp(path.stat().st_mtime, tz=UTC),
             ended_at=ended_at,
             messages=messages,
+        )
+
+    def parse_event(
+        self,
+        event: dict[str, Any],
+        *,
+        timestamp: datetime | None = None,
+    ) -> RawMessage | None:
+        if timestamp is None:
+            timestamp = self._extract_timestamp(event)
+        event_type = str(event.get("type", "message")).lower()
+        if event_type not in {"message", "assistant", "user", "human", "text"}:
+            if event_type != "tool_result" and "tool_result" not in event:
+                return None
+
+        role = self._extract_role(event)
+        content = self._extract_content(event)
+        tool_calls = self._extract_tool_calls(event)
+
+        if len(content.strip()) < 2 and not tool_calls:
+            return None
+
+        return RawMessage(
+            role=role,
+            content=content if content else "[tool-result]",
+            timestamp=timestamp,
+            tool_calls=tool_calls,
         )
 
     @staticmethod

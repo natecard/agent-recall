@@ -47,6 +47,7 @@ hooks_app = typer.Typer(help="Manage Ralph Claude Code hooks")
 
 AGENT_DIR = Path(".agent")
 DB_PATH = AGENT_DIR / "state.db"
+DEFAULT_WATCH_POLL_SECONDS = 0.5
 
 CODING_CLIS: dict[str, dict[str, str]] = {
     "claude-code": {"binary": "claude", "model_flag": "--model"},
@@ -1032,6 +1033,55 @@ def ralph_set_agent(
     config_dict = write_ralph_config(files, updates)
     lines = render_ralph_status(config_dict)
     console.print(Panel.fit("\n".join(lines), title="Ralph Agent Updated"))
+
+
+@ralph_app.command("watch")
+def ralph_watch(
+    poll_seconds: float = typer.Option(
+        DEFAULT_WATCH_POLL_SECONDS,
+        "--poll-seconds",
+        min=0.1,
+        help="Polling interval for log watcher",
+    ),
+    max_events: int | None = typer.Option(
+        None,
+        "--max-events",
+        min=1,
+        help="Stop after emitting N events",
+    ),
+    max_seconds: float | None = typer.Option(
+        None,
+        "--max-seconds",
+        min=1.0,
+        help="Stop after N seconds",
+    ),
+    start_at_end: bool = typer.Option(
+        True,
+        "--start-at-end/--start-at-beginning",
+        help="Begin watching at end of log to only capture new events",
+    ),
+) -> None:
+    """Watch Claude Code logs and emit live activity lines."""
+    _get_theme_manager()
+    from agent_recall.ingest.log_watcher import LogWatcher
+
+    watcher = LogWatcher(
+        project_path=Path.cwd(),
+        poll_interval=poll_seconds,
+        start_at_end=start_at_end,
+    )
+
+    def on_message(message: Any) -> None:
+        timestamp = message.timestamp.isoformat() if message.timestamp else ""
+        preview = _truncate(" ".join(message.content.split()), 160)
+        console.print(f"[dim]{timestamp}[/dim] {message.role}: {preview}")
+
+    count = watcher.watch(
+        on_message=on_message,
+        max_events=max_events,
+        max_seconds=max_seconds,
+    )
+    console.print(f"[success]✓ Watched {count} new event(s)[/success]")
 
 
 @hooks_app.command("install")

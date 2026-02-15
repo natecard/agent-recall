@@ -284,6 +284,12 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("cli",),
         ),
         CommandContract(
+            command="ralph watch",
+            aliases=(),
+            description="Watch Claude Code logs and emit live activity",
+            surfaces=("cli",),
+        ),
+        CommandContract(
             command="ralph select",
             aliases=(),
             description="Choose which PRD items to include in the Ralph loop",

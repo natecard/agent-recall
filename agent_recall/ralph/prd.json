@@ -33,7 +33,7 @@
 		},
 		{
 			"id": "AR-702",
-			"priority": 2,
+			"priority": 1,
 			"title": "Live Session Log Watcher",
 			"description": "Add a file watcher (using watchdog or polling) that monitors Claude Code's JSONL session logs in real-time. When the developer runs Claude Code independently, Ralph can ingest tool calls, decisions, and output as they happen — feeding the Weather Model and updating the TUI activity console live.",
 			"user_story": "As a developer running Claude Code in my normal terminal, I want Ralph to automatically observe what the AI is doing so that my GUARDRAILS and RECENT files stay fresh without me needing to manually sync.",
@@ -53,11 +53,11 @@
 				"Tests cover file watching, parsing, and edge cases"
 			],
 			"validation_commands": ["uv run pytest tests/ -k watch -x --tb=short"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "AR-703",
-			"priority": 5,
+			"priority": 4,
 			"title": "Embedded Terminal Panel",
 			"description": "Add a split-pane terminal emulator to the TUI using Textual's Terminal widget backed by pyte. The developer can run their coding CLI inside the TUI while seeing the dashboard, activity log, and iteration status alongside it. Ralph can read the PTY output for automatic ingestion.",
 			"user_story": "As a developer, I want to run Claude Code inside the Ralph TUI so that I can see my dashboard, guardrails, and forecast alongside the AI's work in a single terminal window.",
@@ -81,7 +81,7 @@
 		},
 		{
 			"id": "AR-704",
-			"priority": 3,
+			"priority": 2,
 			"title": "Iteration Diff Viewer",
 			"description": "After each Ralph iteration, capture the git diff and display it in the TUI as a scrollable, syntax-highlighted panel. Developers can review what changed without leaving the TUI.",
 			"user_story": "As a developer, I want to see exactly what Ralph's AI agent changed after each iteration so that I can quickly review and approve the changes.",
@@ -103,7 +103,7 @@
 		},
 		{
 			"id": "AR-705",
-			"priority": 6,
+			"priority": 5,
 			"title": "Token & Cost Tracking Dashboard",
 			"description": "Track token usage and estimated API costs for each Ralph iteration. Display cumulative and per-item costs in the TUI dashboard. Support budget limits that pause the Ralph loop when exceeded.",
 			"user_story": "As a developer, I want to know how much each PRD item costs in API tokens so that I can make informed decisions about when to let Ralph run autonomously vs. manually.",
@@ -126,7 +126,7 @@
 		},
 		{
 			"id": "AR-706",
-			"priority": 4,
+			"priority": 3,
 			"title": "Desktop Notifications",
 			"description": "Send OS-level notifications when key Ralph events occur: iteration complete, validation failure, loop finished, budget exceeded. Support macOS (osascript), Linux (notify-send), and Claude Code's Notification hook.",
 			"user_story": "As a developer running Ralph in the background, I want desktop notifications so that I know immediately when something needs my attention.",
@@ -148,7 +148,7 @@
 		},
 		{
 			"id": "AR-707",
-			"priority": 7,
+			"priority": 6,
 			"title": "OpenCode Plugin Integration",
 			"description": "Implement Ralph as an OpenCode plugin that subscribes to session lifecycle events (session start, idle, tool use). This enables the same hook-based workflow that Claude Code provides, but for the OpenCode ecosystem.",
 			"user_story": "As a developer using OpenCode, I want Ralph to react to my coding sessions just like it does with Claude Code hooks.",
@@ -170,7 +170,7 @@
 		},
 		{
 			"id": "AR-708",
-			"priority": 8,
+			"priority": 7,
 			"title": "Iteration Timeline View",
 			"description": "Add a structured timeline panel to the TUI that visualizes iteration history with outcomes, durations, key decisions, and gotchas. Replace the plain-text progress.txt with an interactive, scrollable timeline.",
 			"user_story": "As a developer, I want a visual timeline of Ralph's iterations so that I can quickly spot patterns, identify blockers, and understand the trajectory of my project.",

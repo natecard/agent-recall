@@ -6,6 +6,7 @@ from agent_recall.ingest.base import RawMessage, RawSession, RawToolCall, Sessio
 from agent_recall.ingest.claude_code import ClaudeCodeIngester
 from agent_recall.ingest.codex import CodexIngester
 from agent_recall.ingest.cursor import CursorIngester
+from agent_recall.ingest.log_watcher import LogWatcher
 from agent_recall.ingest.opencode import OpenCodeIngester
 from agent_recall.ingest.sources import VALID_SOURCE_NAMES, normalize_source_name
 
@@ -18,6 +19,7 @@ __all__ = [
     "ClaudeCodeIngester",
     "OpenCodeIngester",
     "CodexIngester",
+    "LogWatcher",
     "VALID_SOURCE_NAMES",
     "normalize_source_name",
     "get_default_ingesters",

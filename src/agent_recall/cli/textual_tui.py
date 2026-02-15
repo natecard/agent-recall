@@ -384,6 +384,14 @@ def get_palette_actions() -> list[PaletteAction]:
             keywords="ralph hooks uninstall claude settings",
         ),
         PaletteAction(
+            "ralph-watch",
+            "Watch Claude Logs",
+            "Stream Claude Code JSONL events in the activity panel",
+            "Settings",
+            shortcut="ralph watch",
+            keywords="ralph watch claude logs live",
+        ),
+        PaletteAction(
             "quit",
             "Quit",
             "Exit the TUI",
@@ -2107,6 +2115,7 @@ class AgentRecallTextualApp(App[None]):
             "ralph-select": "ralph select",
             "ralph-hooks-install": "ralph hooks install",
             "ralph-hooks-uninstall": "ralph hooks uninstall",
+            "ralph-watch": "ralph watch",
             "sources": "sources",
             "sessions": "sessions",
         }
