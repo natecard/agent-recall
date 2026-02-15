@@ -1,6 +1,9 @@
 - Start debugging from the first actionable validation line: testpaths: tests
 - Runtime logs: agent_recall/ralph/.runtime/agent-4.log, agent_recall/ralph/.runtime/validate-4.log
 
+## 2026-02-15T14:10:00Z Iteration 1 (AR-701)
+- Prefer subcommands over hyphenated command names for CLI ergonomics.
+
 ## 2026-02-12T21:30:00Z Iteration 1 (AR-006)
 - Use fcntl.flock with LOCK_EX | LOCK_NB for non-blocking exclusive file locks in Unix environments.
 - Store background sync status in SQLite for persistence across process restarts.

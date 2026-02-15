@@ -64,3 +64,4 @@
 2026-02-14T14:30:00Z | Iteration 4 | WM-008 | Added Ralph weather model CLI commands (create/finalize/extract/forecast/synthesize) with forecast + synthesis wiring, config defaults, command contract updates, and tests; validation pending.
 2026-02-14T16:25:00Z | Iteration 5 | WM-004 | Enabled LLM forecast path with consecutive-failure trigger, prompt construction, async fallback, and forecast config defaults; added tests for LLM triggering, fallback, and prompt content; validation pending.
 2026-02-14T17:45:00Z | Iteration 6 | WM-005 | Completed climate synthesizer tests (candidate extraction, dedupe, state tracking, synthesis defaults) and enforced LLM-required synthesis errors; validation pending.
+2026-02-15T14:10:00Z | Iteration 1 | AR-701 | Added Claude Code hook integration: CLI hooks install/uninstall, hook script generators, pre-iteration hook install for Claude, TUI palette actions, and hook tests; validation pending.

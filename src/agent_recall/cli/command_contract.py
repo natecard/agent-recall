@@ -302,6 +302,18 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("cli",),
         ),
         CommandContract(
+            command="ralph hooks install",
+            aliases=(),
+            description="Install Claude Code hooks for Ralph guardrails",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="ralph hooks uninstall",
+            aliases=(),
+            description="Remove Claude Code hooks installed by Ralph",
+            surfaces=("cli",),
+        ),
+        CommandContract(
             command="ralph create-report",
             aliases=(),
             description="Create iteration report (current.json)",

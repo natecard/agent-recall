@@ -3,6 +3,9 @@
 - Keep decision/exploration/narrative additions scoped to chunk indexing; do not mix them into GUARDRAILS/STYLE synthesis prompts.
 - Preserve duplicate protection (`indexed_entry_ids` + `has_chunk`) when expanding indexed label sets.
 
+## 2026-02-15T14:10:00Z Iteration 1 (AR-701)
+- Keep hook scripts idempotent and avoid overwriting user hooks outside Ralph entries.
+
 ## 2026-02-12T21:30:45Z Iteration 2 (AR-004)
 - Clamp non-style confidence thresholds to `[0.0, 1.0]` and fall back to defaults on invalid config values to avoid compaction crashes.
 - Run lint before full validation when adding config-heavy helpers; long `dict.get(...)` lines can fail `ruff` even when tests pass.

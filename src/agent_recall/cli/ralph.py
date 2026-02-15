@@ -23,18 +23,27 @@ from agent_recall.llm.base import LLMProvider
 from agent_recall.ralph.context_refresh import ContextRefreshHook
 from agent_recall.ralph.extraction import extract_from_artifacts, extract_outcome
 from agent_recall.ralph.forecast import ForecastConfig, ForecastGenerator
+from agent_recall.ralph.hooks import (
+    build_hook_command,
+    generate_post_tool_script,
+    generate_pre_tool_script,
+    get_hook_paths,
+    install_hooks,
+    uninstall_hooks,
+)
 from agent_recall.ralph.iteration_store import IterationOutcome, IterationReportStore
 from agent_recall.ralph.loop import RalphLoop, RalphStateManager, RalphStatus
 from agent_recall.ralph.prd_archive import PRDArchive
 from agent_recall.ralph.synthesis import ClimateSynthesizer, SynthesisConfig
 from agent_recall.storage import create_storage_backend
 from agent_recall.storage.base import Storage
-from agent_recall.storage.files import FileStorage
+from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.models import LLMConfig
 from agent_recall.storage.remote import resolve_shared_db_path
 from agent_recall.storage.sqlite import SQLiteStorage
 
 ralph_app = typer.Typer(help="Manage Ralph loop configuration")
+hooks_app = typer.Typer(help="Manage Ralph Claude Code hooks")
 
 AGENT_DIR = Path(".agent")
 DB_PATH = AGENT_DIR / "state.db"
@@ -120,6 +129,10 @@ def get_default_script_path() -> Path:
         if candidate.exists():
             return candidate
     return candidates[0]
+
+
+def get_claude_settings_path() -> Path:
+    return Path.home() / ".claude" / "settings.json"
 
 
 def load_prd_items(prd_path: Path) -> list[dict[str, Any]]:
@@ -739,6 +752,16 @@ def ralph_run(
     console.print(f"[dim]PRD: {prd_path}[/dim]")
     console.print(f"[dim]Max iterations: {max_iterations}[/dim]")
 
+    pre_iteration_cmd: str | None = None
+    if AGENT_DIR.exists():
+        try:
+            files = get_files()
+            ralph_cfg = read_ralph_config(files)
+            if ralph_cfg.get("coding_cli") == "claude-code":
+                pre_iteration_cmd = "uv run agent-recall ralph hooks install"
+        except Exception:  # noqa: BLE001
+            pre_iteration_cmd = None
+
     cmd = [
         str(script_path),
         "--agent-cmd",
@@ -754,6 +777,8 @@ def ralph_run(
     ]
     if validate_cmd:
         cmd.extend(["--validate-cmd", validate_cmd])
+    if pre_iteration_cmd:
+        cmd.extend(["--pre-iteration-cmd", pre_iteration_cmd])
 
     try:
         process = subprocess.Popen(
@@ -1007,6 +1032,56 @@ def ralph_set_agent(
     config_dict = write_ralph_config(files, updates)
     lines = render_ralph_status(config_dict)
     console.print(Panel.fit("\n".join(lines), title="Ralph Agent Updated"))
+
+
+@hooks_app.command("install")
+def ralph_hooks_install(
+    settings_path: Path | None = typer.Option(
+        None,
+        "--settings-path",
+        help="Path to Claude Code settings.json (default: ~/.claude/settings.json)",
+    ),
+) -> None:
+    """Install Claude Code PreToolUse/PostToolUse hooks for Ralph."""
+    _get_theme_manager()
+    _ensure_agent_dir_exists()
+    files = get_files()
+    guardrails_text = files.read_tier(KnowledgeTier.GUARDRAILS)
+    hook_paths = get_hook_paths(AGENT_DIR)
+    generate_pre_tool_script(guardrails_text, hook_paths.pre_tool_path)
+    generate_post_tool_script(hook_paths.post_tool_path, hook_paths.events_path)
+    pre_cmd = build_hook_command(hook_paths.pre_tool_path)
+    post_cmd = build_hook_command(hook_paths.post_tool_path)
+    settings_file = settings_path or get_claude_settings_path()
+    install_hooks(settings_file, pre_cmd, post_cmd)
+    console.print(
+        "[success]✓ Claude Code hooks installed[/success]\n"
+        f"  PreToolUse: {hook_paths.pre_tool_path}\n"
+        f"  PostToolUse: {hook_paths.post_tool_path}\n"
+        f"  Settings: {settings_file}"
+    )
+
+
+@hooks_app.command("uninstall")
+def ralph_hooks_uninstall(
+    settings_path: Path | None = typer.Option(
+        None,
+        "--settings-path",
+        help="Path to Claude Code settings.json (default: ~/.claude/settings.json)",
+    ),
+) -> None:
+    """Remove Ralph Claude Code hook entries."""
+    _get_theme_manager()
+    _ensure_agent_dir_exists()
+    settings_file = settings_path or get_claude_settings_path()
+    changed = uninstall_hooks(settings_file)
+    if changed:
+        console.print(f"[success]✓ Removed Ralph hooks from {settings_file}[/success]")
+    else:
+        console.print("No Ralph hooks found to remove.")
+
+
+ralph_app.add_typer(hooks_app, name="hooks")
 
 
 @ralph_app.command("create-report")

@@ -29,7 +29,7 @@
 				"Tests cover hook config generation, guardrail pattern matching, and event logging"
 			],
 			"validation_commands": ["uv run pytest tests/ -k hook -x --tb=short"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "AR-702",
@@ -57,7 +57,7 @@
 		},
 		{
 			"id": "AR-703",
-			"priority": 3,
+			"priority": 5,
 			"title": "Embedded Terminal Panel",
 			"description": "Add a split-pane terminal emulator to the TUI using Textual's Terminal widget backed by pyte. The developer can run their coding CLI inside the TUI while seeing the dashboard, activity log, and iteration status alongside it. Ralph can read the PTY output for automatic ingestion.",
 			"user_story": "As a developer, I want to run Claude Code inside the Ralph TUI so that I can see my dashboard, guardrails, and forecast alongside the AI's work in a single terminal window.",
@@ -81,7 +81,7 @@
 		},
 		{
 			"id": "AR-704",
-			"priority": 4,
+			"priority": 3,
 			"title": "Iteration Diff Viewer",
 			"description": "After each Ralph iteration, capture the git diff and display it in the TUI as a scrollable, syntax-highlighted panel. Developers can review what changed without leaving the TUI.",
 			"user_story": "As a developer, I want to see exactly what Ralph's AI agent changed after each iteration so that I can quickly review and approve the changes.",
@@ -103,7 +103,7 @@
 		},
 		{
 			"id": "AR-705",
-			"priority": 5,
+			"priority": 6,
 			"title": "Token & Cost Tracking Dashboard",
 			"description": "Track token usage and estimated API costs for each Ralph iteration. Display cumulative and per-item costs in the TUI dashboard. Support budget limits that pause the Ralph loop when exceeded.",
 			"user_story": "As a developer, I want to know how much each PRD item costs in API tokens so that I can make informed decisions about when to let Ralph run autonomously vs. manually.",
@@ -126,7 +126,7 @@
 		},
 		{
 			"id": "AR-706",
-			"priority": 6,
+			"priority": 4,
 			"title": "Desktop Notifications",
 			"description": "Send OS-level notifications when key Ralph events occur: iteration complete, validation failure, loop finished, budget exceeded. Support macOS (osascript), Linux (notify-send), and Claude Code's Notification hook.",
 			"user_story": "As a developer running Ralph in the background, I want desktop notifications so that I know immediately when something needs my attention.",

@@ -1,6 +1,14 @@
 - Notes: Completed AR-003 step 4 by wiring retrieval config (`backend`, `top_k`, `fusion_k`, `rerank_enabled`, `rerank_candidate_k`) into `start`, `context`, `refresh-context`, and `retrieve`; added CLI overrides for context/retrieve and retrieval wiring tests.
 - Next: Move to AR-004 and start with tracer-bullet indexing policy for decision/exploration labels.
 
+## 2026-02-15T14:10:00Z Iteration 1
+- Item: AR-701 - Claude Code Hook Integration
+- Mode: feature
+- Agent exit code: 0
+- Validation: passed
+- Outcome: completed
+- Notes: Added hook script generators, CLI hooks install/uninstall (subcommand), pre-iteration hook install for Claude, TUI actions, and hook tests; fixed Ralph CLI agent-dir guard.
+
 ## 2026-02-13T00:20:00Z Iteration 7
 - Item: AR-303 - Implement Ralph run command with dual-mode execution
 - Mode: feature

@@ -368,6 +368,22 @@ def get_palette_actions() -> list[PaletteAction]:
             keywords="ralph config setup agent coding cli model",
         ),
         PaletteAction(
+            "ralph-hooks-install",
+            "Install Claude Hooks",
+            "Install Claude Code hooks for Ralph guardrails",
+            "Settings",
+            shortcut="ralph hooks install",
+            keywords="ralph hooks install claude settings",
+        ),
+        PaletteAction(
+            "ralph-hooks-uninstall",
+            "Remove Claude Hooks",
+            "Remove Claude Code hooks installed by Ralph",
+            "Settings",
+            shortcut="ralph hooks uninstall",
+            keywords="ralph hooks uninstall claude settings",
+        ),
+        PaletteAction(
             "quit",
             "Quit",
             "Exit the TUI",
@@ -2089,6 +2105,8 @@ class AgentRecallTextualApp(App[None]):
             "ralph-disable": "ralph disable",
             "ralph-status": "ralph status",
             "ralph-select": "ralph select",
+            "ralph-hooks-install": "ralph hooks install",
+            "ralph-hooks-uninstall": "ralph hooks uninstall",
             "sources": "sources",
             "sessions": "sessions",
         }

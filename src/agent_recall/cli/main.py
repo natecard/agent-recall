@@ -218,7 +218,7 @@ SOURCE_CHOICES_TEXT = ", ".join(VALID_SOURCE_NAMES)
 INITIAL_GUARDRAILS = """# Guardrails
 
 Rules and warnings for this codebase. Entries added automatically from agent sessions.
-"""
+    """
 
 INITIAL_STYLE = """# Style Guide
 
