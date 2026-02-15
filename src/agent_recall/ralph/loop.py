@@ -13,6 +13,7 @@ from typing import Any
 
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage
+from agent_recall.storage.models import RalphNotificationEvent
 
 # CLI binary lookup for Ralph-supported coding agents.
 _CODING_CLI_BINARIES: dict[str, str] = {
@@ -128,6 +129,22 @@ class RalphLoop:
             progress_callback(payload)
         except Exception:  # noqa: BLE001
             return
+
+    def _emit_notification(
+        self,
+        progress_callback: Callable[[dict[str, Any]], None] | None,
+        event: RalphNotificationEvent,
+        *,
+        iteration: int | None = None,
+    ) -> None:
+        self._emit_progress(
+            progress_callback,
+            {
+                "event": "notification",
+                "notification_event": event.value,
+                "iteration": iteration,
+            },
+        )
 
     async def _run_agent_subprocess(
         self,
@@ -343,6 +360,12 @@ class RalphLoop:
                     "hint": validation_hint,
                 },
             )
+            if not validation_success:
+                self._emit_notification(
+                    progress_callback,
+                    RalphNotificationEvent.VALIDATION_FAILED,
+                    iteration=index,
+                )
 
             duration_seconds = time.monotonic() - start_time
             if exit_code == 0 and validation_success:
@@ -361,6 +384,11 @@ class RalphLoop:
                     "outcome": outcome,
                     "duration_seconds": duration_seconds,
                 },
+            )
+            self._emit_notification(
+                progress_callback,
+                RalphNotificationEvent.ITERATION_COMPLETE,
+                iteration=index,
             )
 
         total_iterations += len(candidates)
@@ -405,6 +433,11 @@ class RalphLoop:
 
         state.total_iterations = total_iterations
         self.state.save(state)
+
+        self._emit_notification(
+            progress_callback,
+            RalphNotificationEvent.LOOP_FINISHED,
+        )
 
         return {
             "total_iterations": len(candidates),

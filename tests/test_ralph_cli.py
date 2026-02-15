@@ -7,6 +7,8 @@ from typer.testing import CliRunner
 
 import agent_recall.cli.main as cli_main
 from agent_recall.cli.ralph import build_agent_cmd_from_ralph_config
+from agent_recall.ralph.notifications import build_notification_content
+from agent_recall.storage.models import RalphNotificationEvent
 
 runner = CliRunner()
 
@@ -92,6 +94,14 @@ def test_build_agent_cmd_from_ralph_config_with_model() -> None:
 def test_build_agent_cmd_from_ralph_config_missing_cli_returns_none() -> None:
     cmd = build_agent_cmd_from_ralph_config({"cli_model": "gpt-5.3-codex"})
     assert cmd is None
+
+
+def test_build_notification_content_iteration_complete() -> None:
+    info = build_notification_content(
+        RalphNotificationEvent.ITERATION_COMPLETE,
+        iteration=2,
+    )
+    assert "Iteration 2" in info.message
 
 
 def test_ralph_run_loop_emits_output_line_when_no_cli() -> None:

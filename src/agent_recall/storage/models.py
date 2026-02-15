@@ -249,6 +249,15 @@ class ThemeConfig(BaseModel):
     name: str = "dark+"
 
 
+class RalphNotificationEvent(StrEnum):
+    """Events that can trigger Ralph notifications."""
+
+    ITERATION_COMPLETE = "iteration_complete"
+    VALIDATION_FAILED = "validation_failed"
+    LOOP_FINISHED = "loop_finished"
+    BUDGET_EXCEEDED = "budget_exceeded"
+
+
 class RalphLoopConfig(BaseModel):
     """Configuration for Ralph loop control and defaults."""
 
@@ -260,6 +269,18 @@ class RalphLoopConfig(BaseModel):
         default=None,
         description="Optional. PRD item IDs to include; None means all items (model decides)",
     )
+
+    class NotificationConfig(BaseModel):
+        """Notification preferences for Ralph loop events."""
+
+        enabled: bool = False
+        events: list[RalphNotificationEvent] = Field(
+            default_factory=lambda: [
+                RalphNotificationEvent.ITERATION_COMPLETE,
+                RalphNotificationEvent.VALIDATION_FAILED,
+                RalphNotificationEvent.LOOP_FINISHED,
+            ]
+        )
 
     class ForecastConfig(BaseModel):
         """Configuration for Ralph forecast generation."""
@@ -278,6 +299,7 @@ class RalphLoopConfig(BaseModel):
 
     forecast: ForecastConfig = Field(default_factory=ForecastConfig)
     synthesis: SynthesisConfig = Field(default_factory=SynthesisConfig)
+    notifications: NotificationConfig = Field(default_factory=NotificationConfig)
 
 
 class AdapterConfig(BaseModel):

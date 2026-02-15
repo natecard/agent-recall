@@ -11,6 +11,7 @@ from typing import Any
 
 RALPH_PRE_HOOK_NAME = "ralph-pre-tool-use"
 RALPH_POST_HOOK_NAME = "ralph-post-tool-use"
+RALPH_NOTIFICATION_HOOK_NAME = "ralph-notification"
 
 DEFAULT_BLOCK_PATTERNS = [
     r"rm\s+-rf\s+/",
@@ -30,6 +31,7 @@ class HookPaths:
     hooks_dir: Path
     pre_tool_path: Path
     post_tool_path: Path
+    notification_path: Path
     events_path: Path
 
 
@@ -39,6 +41,7 @@ def get_hook_paths(agent_dir: Path) -> HookPaths:
         hooks_dir=hooks_dir,
         pre_tool_path=hooks_dir / "pre_tool_use.py",
         post_tool_path=hooks_dir / "post_tool_use.py",
+        notification_path=hooks_dir / "notification.py",
         events_path=agent_dir / "ralph" / "tool_events.jsonl",
     )
 
@@ -285,6 +288,70 @@ if __name__ == "__main__":
     output_path.write_text(script, encoding="utf-8")
 
 
+def generate_notification_script(output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    script = """#!/usr/bin/env python3
+import json
+import platform
+import subprocess
+import sys
+
+
+def _load_payload():
+    raw = sys.stdin.read()
+    if not raw.strip():
+        return {}
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {"raw": raw}
+
+
+def _notification_content(payload):
+    title = payload.get("title") or payload.get("heading") or "Ralph notification"
+    message = payload.get("message") or payload.get("content") or payload.get("text") or ""
+    return str(title), str(message)
+
+
+def _run_command(cmd):
+    try:
+        result = subprocess.run(
+            cmd,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
+def _notify_macos(title, message):
+    script = "display notification " + json.dumps(message) + " with title " + json.dumps(title)
+    return _run_command(["osascript", "-e", script])
+
+
+def _notify_linux(title, message):
+    return _run_command(["notify-send", title, message])
+
+
+def main():
+    payload = _load_payload()
+    title, message = _notification_content(payload)
+    system = platform.system()
+    if system == "Darwin":
+        return 0 if _notify_macos(title, message) else 1
+    if system == "Linux":
+        return 0 if _notify_linux(title, message) else 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
+    output_path.write_text(script, encoding="utf-8")
+
+
 def _load_settings(settings_path: Path) -> dict[str, Any]:
     if not settings_path.exists():
         return {}
@@ -323,7 +390,12 @@ def _upsert_hook_entry(hook_list: list[dict[str, Any]], entry: dict[str, Any], n
     return True
 
 
-def install_hooks(settings_path: Path, pre_command: str, post_command: str) -> bool:
+def install_hooks(
+    settings_path: Path,
+    pre_command: str,
+    post_command: str,
+    notification_command: str | None = None,
+) -> bool:
     settings = _load_settings(settings_path)
     pre_entry = {
         "name": RALPH_PRE_HOOK_NAME,
@@ -339,6 +411,14 @@ def install_hooks(settings_path: Path, pre_command: str, post_command: str) -> b
     post_list = _ensure_hook_list(settings, "PostToolUse")
     _upsert_hook_entry(pre_list, pre_entry, RALPH_PRE_HOOK_NAME)
     _upsert_hook_entry(post_list, post_entry, RALPH_POST_HOOK_NAME)
+    if notification_command:
+        notification_entry = {
+            "name": RALPH_NOTIFICATION_HOOK_NAME,
+            "type": "command",
+            "command": notification_command,
+        }
+        notification_list = _ensure_hook_list(settings, "Notification")
+        _upsert_hook_entry(notification_list, notification_entry, RALPH_NOTIFICATION_HOOK_NAME)
     _write_settings(settings_path, settings)
     return True
 
@@ -352,6 +432,7 @@ def uninstall_hooks(settings_path: Path) -> bool:
     for hook_name, target in [
         ("PreToolUse", RALPH_PRE_HOOK_NAME),
         ("PostToolUse", RALPH_POST_HOOK_NAME),
+        ("Notification", RALPH_NOTIFICATION_HOOK_NAME),
     ]:
         hook_list = hooks.get(hook_name)
         if not isinstance(hook_list, list):

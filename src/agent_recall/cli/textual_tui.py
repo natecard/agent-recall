@@ -26,6 +26,8 @@ from textual.worker import Worker, WorkerState
 from agent_recall.cli.command_contract import get_command_contract
 from agent_recall.core.onboarding import API_KEY_ENV_BY_PROVIDER
 from agent_recall.ingest.sources import SOURCE_DEFINITIONS
+from agent_recall.ralph.notifications import dispatch_notification
+from agent_recall.storage.models import RalphNotificationEvent
 
 DiscoverModelsFn = Callable[[str, str | None, str | None], tuple[list[str], str | None]]
 ThemeDefaultsFn = Callable[[], tuple[list[str], str]]
@@ -171,6 +173,30 @@ def _is_knowledge_run_command(command: str) -> bool:
     if action == "sync" and "--no-compact" not in parts:
         return True
     return False
+
+
+def _read_notification_config(
+    ralph_config: dict[str, Any],
+) -> tuple[bool, list[RalphNotificationEvent]]:
+    notifications = ralph_config.get("notifications")
+    if not isinstance(notifications, dict):
+        return False, []
+    enabled = bool(notifications.get("enabled"))
+    events_raw = notifications.get("events")
+    if not isinstance(events_raw, list):
+        return enabled, []
+    parsed: list[RalphNotificationEvent] = []
+    for value in events_raw:
+        if isinstance(value, RalphNotificationEvent):
+            parsed.append(value)
+            continue
+        if not isinstance(value, str):
+            continue
+        try:
+            parsed.append(RalphNotificationEvent(value))
+        except ValueError:
+            continue
+    return enabled, parsed
 
 
 @dataclass(frozen=True)
@@ -399,6 +425,14 @@ def get_palette_actions() -> list[PaletteAction]:
             "Settings",
             shortcut="ralph view-diff",
             keywords="ralph diff viewer iteration changes",
+        ),
+        PaletteAction(
+            "ralph-notifications",
+            "Toggle Notifications",
+            "Enable or disable Ralph desktop notifications",
+            "Settings",
+            shortcut="ralph notifications",
+            keywords="ralph notify notifications alert",
         ),
         PaletteAction(
             "quit",
@@ -2133,6 +2167,9 @@ class AgentRecallTextualApp(App[None]):
         if action_id == "ralph-view-diff":
             self.action_open_diff_viewer()
             return
+        if action_id == "ralph-notifications":
+            self.action_toggle_ralph_notifications()
+            return
         if action_id == "theme":
             self.action_open_theme_modal()
             return
@@ -2241,6 +2278,30 @@ class AgentRecallTextualApp(App[None]):
             self._apply_ralph_config_modal_result,
         )
 
+    def action_toggle_ralph_notifications(self) -> None:
+        """Toggle Ralph desktop notifications on/off."""
+        try:
+            from agent_recall.cli.ralph import read_ralph_config, write_ralph_config
+            from agent_recall.storage.files import FileStorage
+
+            agent_dir = Path(".agent")
+            if not agent_dir.exists():
+                self._append_activity("Not initialized. Run 'agent-recall init' first.")
+                return
+            files = FileStorage(agent_dir)
+            ralph_cfg = read_ralph_config(files)
+            notifications = ralph_cfg.get("notifications")
+            if not isinstance(notifications, dict):
+                notifications = {}
+            current = bool(notifications.get("enabled"))
+            notifications["enabled"] = not current
+            updates: dict[str, object] = {"notifications": dict(notifications)}
+            write_ralph_config(files, updates)
+            state = "enabled" if notifications["enabled"] else "disabled"
+            self._append_activity(f"Ralph notifications {state}.")
+        except Exception as exc:  # noqa: BLE001
+            self._append_activity(f"Failed to update notifications: {exc}")
+
     def action_run_ralph_loop(self) -> None:
         """Run the Ralph loop with live output streaming to the activity console."""
         self.status = "Ralph loop starting"
@@ -2264,6 +2325,7 @@ class AgentRecallTextualApp(App[None]):
 
             files = FileStorage(agent_dir)
             ralph_cfg = read_ralph_config(files)
+            notify_enabled, notify_events = _read_notification_config(ralph_cfg)
 
             enabled_value = ralph_cfg.get("enabled")
             if not (isinstance(enabled_value, bool) and enabled_value):
@@ -2346,6 +2408,12 @@ class AgentRecallTextualApp(App[None]):
             except OSError as exc:
                 self.call_from_thread(self._append_activity, f"Ralph loop failed: {exc}")
                 return {"total_iterations": 0, "passed": 0, "failed": 0}
+            if notify_enabled:
+                dispatch_notification(
+                    RalphNotificationEvent.LOOP_FINISHED,
+                    enabled=notify_enabled,
+                    enabled_events=notify_events,
+                )
             return {"total_iterations": 0, "passed": 0, "failed": 0, "exit_code": exit_code}
 
         worker = self.run_worker(
@@ -2469,6 +2537,11 @@ class AgentRecallTextualApp(App[None]):
         if action == "ralph" and second == "view-diff":
             self.action_open_diff_viewer()
             self.status = "View iteration diff"
+            return True
+
+        if action == "ralph" and second in {"notify", "notifications"}:
+            self.action_toggle_ralph_notifications()
+            self.status = "Ralph notifications"
             return True
 
         if action == "ralph" and second == "config":

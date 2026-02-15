@@ -25,6 +25,7 @@ from agent_recall.ralph.extraction import extract_from_artifacts, extract_git_di
 from agent_recall.ralph.forecast import ForecastConfig, ForecastGenerator
 from agent_recall.ralph.hooks import (
     build_hook_command,
+    generate_notification_script,
     generate_post_tool_script,
     generate_pre_tool_script,
     get_hook_paths,
@@ -33,12 +34,17 @@ from agent_recall.ralph.hooks import (
 )
 from agent_recall.ralph.iteration_store import IterationOutcome, IterationReportStore
 from agent_recall.ralph.loop import RalphLoop, RalphStateManager, RalphStatus
+from agent_recall.ralph.notifications import (
+    build_notification_content,
+    dispatch_claude_notification,
+    dispatch_notification,
+)
 from agent_recall.ralph.prd_archive import PRDArchive
 from agent_recall.ralph.synthesis import ClimateSynthesizer, SynthesisConfig
 from agent_recall.storage import create_storage_backend
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
-from agent_recall.storage.models import LLMConfig
+from agent_recall.storage.models import LLMConfig, RalphNotificationEvent
 from agent_recall.storage.remote import resolve_shared_db_path
 from agent_recall.storage.sqlite import SQLiteStorage
 
@@ -174,6 +180,30 @@ def read_ralph_config(files: FileStorage) -> dict[str, Any]:
     config_dict = files.read_config()
     ralph_config = config_dict.get("ralph", {}) if isinstance(config_dict, dict) else {}
     return ralph_config if isinstance(ralph_config, dict) else {}
+
+
+def _read_notification_config(
+    ralph_config: dict[str, Any],
+) -> tuple[bool, list[RalphNotificationEvent]]:
+    notifications = ralph_config.get("notifications")
+    if not isinstance(notifications, dict):
+        return False, []
+    enabled = bool(notifications.get("enabled"))
+    events_raw = notifications.get("events")
+    if not isinstance(events_raw, list):
+        return enabled, []
+    parsed: list[RalphNotificationEvent] = []
+    for value in events_raw:
+        if isinstance(value, RalphNotificationEvent):
+            parsed.append(value)
+            continue
+        if not isinstance(value, str):
+            continue
+        try:
+            parsed.append(RalphNotificationEvent(value))
+        except ValueError:
+            continue
+    return enabled, parsed
 
 
 def build_agent_cmd_from_ralph_config(ralph_config: dict[str, Any]) -> str | None:
@@ -651,6 +681,7 @@ def ralph_run(
         ensure_initialized()
         files = get_files()
         ralph_cfg = read_ralph_config(files)
+        notify_enabled, notify_events = _read_notification_config(ralph_cfg)
         agent_dir = get_agent_dir()
         state_manager = RalphStateManager(agent_dir)
         if state_manager.load().status == RalphStatus.DISABLED:
@@ -699,10 +730,24 @@ def ralph_run(
                 else:
                     message = _truncate(hint, 80) if hint else "Validation failed"
                     console.print(f"[red]✗ {message}[/red]")
+                    if notify_enabled:
+                        dispatch_notification(
+                            RalphNotificationEvent.VALIDATION_FAILED,
+                            enabled=notify_enabled,
+                            enabled_events=notify_events,
+                            iteration=event.get("iteration"),
+                        )
             elif event_type == "iteration_complete":
                 outcome = str(event.get("outcome") or "")
                 duration = float(event.get("duration_seconds") or 0)
                 console.print(f"[dim]Iteration complete ({outcome}) in {duration:.2f}s[/dim]")
+                if notify_enabled:
+                    dispatch_notification(
+                        RalphNotificationEvent.ITERATION_COMPLETE,
+                        enabled=notify_enabled,
+                        enabled_events=notify_events,
+                        iteration=event.get("iteration"),
+                    )
 
         coding_cli_value = ralph_cfg.get("coding_cli")
         coding_cli = (
@@ -733,6 +778,12 @@ def ralph_run(
             f"Failed: [red]{summary.get('failed', 0)}[/red]",
         ]
         console.print(Panel.fit("\n".join(panel_lines), title="Ralph Run Summary"))
+        if notify_enabled:
+            dispatch_notification(
+                RalphNotificationEvent.LOOP_FINISHED,
+                enabled=notify_enabled,
+                enabled_events=notify_events,
+            )
         return
 
     compact_mode = compact_mode.strip().lower()
@@ -1100,14 +1151,17 @@ def ralph_hooks_install(
     hook_paths = get_hook_paths(AGENT_DIR)
     generate_pre_tool_script(guardrails_text, hook_paths.pre_tool_path)
     generate_post_tool_script(hook_paths.post_tool_path, hook_paths.events_path)
+    generate_notification_script(hook_paths.notification_path)
     pre_cmd = build_hook_command(hook_paths.pre_tool_path)
     post_cmd = build_hook_command(hook_paths.post_tool_path)
+    notification_cmd = build_hook_command(hook_paths.notification_path)
     settings_file = settings_path or get_claude_settings_path()
-    install_hooks(settings_file, pre_cmd, post_cmd)
+    install_hooks(settings_file, pre_cmd, post_cmd, notification_cmd)
     console.print(
         "[success]✓ Claude Code hooks installed[/success]\n"
         f"  PreToolUse: {hook_paths.pre_tool_path}\n"
         f"  PostToolUse: {hook_paths.post_tool_path}\n"
+        f"  Notification: {hook_paths.notification_path}\n"
         f"  Settings: {settings_file}"
     )
 
@@ -1307,3 +1361,48 @@ def ralph_synthesize_climate(
 
 def ralph_cli_get_llm():
     return _get_llm()
+
+
+@ralph_app.command("notify")
+def ralph_notify(
+    event: str = typer.Option(
+        "iteration_complete",
+        "--event",
+        "-e",
+        help=(
+            "Notification event: iteration_complete, validation_failed, "
+            "loop_finished, budget_exceeded"
+        ),
+    ),
+    title: str | None = typer.Option(
+        None,
+        "--title",
+        "-t",
+        help="Override notification title",
+    ),
+    message: str | None = typer.Option(
+        None,
+        "--message",
+        "-m",
+        help="Override notification message",
+    ),
+) -> None:
+    """Send a Ralph desktop notification (macOS/Linux)."""
+    _get_theme_manager()
+    try:
+        event_enum = RalphNotificationEvent(event)
+    except ValueError:
+        valid = ", ".join(e.value for e in RalphNotificationEvent)
+        console.print(f"[error]Unknown event '{event}'. Choose from: {valid}[/error]")
+        raise typer.Exit(1)
+
+    info = build_notification_content(event_enum)
+    final_title = title.strip() if isinstance(title, str) and title.strip() else info.title
+    final_message = (
+        message.strip() if isinstance(message, str) and message.strip() else info.message
+    )
+    success = dispatch_claude_notification({"title": final_title, "message": final_message})
+    if success:
+        console.print(f"[success]✓ Notification sent: {final_title}[/success]")
+        return
+    console.print("[warning]Notification unavailable on this platform.[/warning]")

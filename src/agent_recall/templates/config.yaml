@@ -54,6 +54,12 @@ ralph:
   sleep_seconds: 2
   compact_mode: always
   selected_prd_ids: null
+  notifications:
+    enabled: false
+    events:
+      - iteration_complete
+      - validation_failed
+      - loop_finished
   forecast:
     window: 5
     use_llm: false

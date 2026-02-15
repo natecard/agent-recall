@@ -4,12 +4,14 @@ import json
 from pathlib import Path
 
 from agent_recall.ralph.hooks import (
+    RALPH_NOTIFICATION_HOOK_NAME,
     RALPH_POST_HOOK_NAME,
     RALPH_PRE_HOOK_NAME,
     append_tool_event,
     build_guardrail_patterns,
     build_hook_command,
     build_tool_event,
+    generate_notification_script,
     generate_post_tool_script,
     generate_pre_tool_script,
     install_hooks,
@@ -56,6 +58,14 @@ def test_generate_post_tool_script_writes_events_path(tmp_path: Path) -> None:
     assert str(events) in output.read_text(encoding="utf-8")
 
 
+def test_generate_notification_script_writes_payload(tmp_path: Path) -> None:
+    output = tmp_path / "notify.py"
+    generate_notification_script(output)
+    assert output.exists()
+    contents = output.read_text(encoding="utf-8")
+    assert "Ralph notification" in contents
+
+
 def test_build_tool_event_summarizes_result() -> None:
     payload = {"tool": "test", "arguments": {"a": 1}, "result": "ok", "success": True}
     event = build_tool_event(payload)
@@ -77,27 +87,59 @@ def test_append_tool_event_writes_jsonl(tmp_path: Path) -> None:
 
 def test_install_and_uninstall_hooks(tmp_path: Path) -> None:
     settings_path = tmp_path / "settings.json"
-    install_hooks(settings_path, "python pre.py", "python post.py")
+    install_hooks(
+        settings_path,
+        "python pre.py",
+        "python post.py",
+        "python notify.py",
+    )
     payload = json.loads(settings_path.read_text(encoding="utf-8"))
     pre_hooks = payload["hooks"]["PreToolUse"]
     post_hooks = payload["hooks"]["PostToolUse"]
+    notification_hooks = payload["hooks"]["Notification"]
     assert any(entry.get("name") == RALPH_PRE_HOOK_NAME for entry in pre_hooks)
     assert any(entry.get("name") == RALPH_POST_HOOK_NAME for entry in post_hooks)
+    assert any(entry.get("name") == RALPH_NOTIFICATION_HOOK_NAME for entry in notification_hooks)
     removed = uninstall_hooks(settings_path)
     assert removed is True
     updated = json.loads(settings_path.read_text(encoding="utf-8"))
     pre_hooks = updated["hooks"]["PreToolUse"]
     post_hooks = updated["hooks"]["PostToolUse"]
+    notification_hooks = updated["hooks"].get("Notification", [])
     assert not any(entry.get("name") == RALPH_PRE_HOOK_NAME for entry in pre_hooks)
     assert not any(entry.get("name") == RALPH_POST_HOOK_NAME for entry in post_hooks)
+    assert not any(
+        entry.get("name") == RALPH_NOTIFICATION_HOOK_NAME for entry in notification_hooks
+    )
 
 
 def test_install_hooks_is_idempotent(tmp_path: Path) -> None:
     settings_path = tmp_path / "settings.json"
-    install_hooks(settings_path, "python pre.py", "python post.py")
-    install_hooks(settings_path, "python pre.py", "python post.py")
+    install_hooks(
+        settings_path,
+        "python pre.py",
+        "python post.py",
+        "python notify.py",
+    )
+    install_hooks(
+        settings_path,
+        "python pre.py",
+        "python post.py",
+        "python notify.py",
+    )
     payload = json.loads(settings_path.read_text(encoding="utf-8"))
     pre_hooks = payload["hooks"]["PreToolUse"]
     post_hooks = payload["hooks"]["PostToolUse"]
+    notification_hooks = payload["hooks"]["Notification"]
     assert len([entry for entry in pre_hooks if entry.get("name") == RALPH_PRE_HOOK_NAME]) == 1
     assert len([entry for entry in post_hooks if entry.get("name") == RALPH_POST_HOOK_NAME]) == 1
+    assert (
+        len(
+            [
+                entry
+                for entry in notification_hooks
+                if entry.get("name") == RALPH_NOTIFICATION_HOOK_NAME
+            ]
+        )
+        == 1
+    )

@@ -57,7 +57,7 @@
 		},
 		{
 			"id": "AR-703",
-			"priority": 3,
+			"priority": 2,
 			"title": "Embedded Terminal Panel",
 			"description": "Add a split-pane terminal emulator to the TUI using Textual's Terminal widget backed by pyte. The developer can run their coding CLI inside the TUI while seeing the dashboard, activity log, and iteration status alongside it. Ralph can read the PTY output for automatic ingestion.",
 			"user_story": "As a developer, I want to run Claude Code inside the Ralph TUI so that I can see my dashboard, guardrails, and forecast alongside the AI's work in a single terminal window.",
@@ -103,7 +103,7 @@
 		},
 		{
 			"id": "AR-705",
-			"priority": 4,
+			"priority": 5,
 			"title": "Token & Cost Tracking Dashboard",
 			"description": "Track token usage and estimated API costs for each Ralph iteration. Display cumulative and per-item costs in the TUI dashboard. Support budget limits that pause the Ralph loop when exceeded.",
 			"user_story": "As a developer, I want to know how much each PRD item costs in API tokens so that I can make informed decisions about when to let Ralph run autonomously vs. manually.",
@@ -126,7 +126,7 @@
 		},
 		{
 			"id": "AR-706",
-			"priority": 2,
+			"priority": 1,
 			"title": "Desktop Notifications",
 			"description": "Send OS-level notifications when key Ralph events occur: iteration complete, validation failure, loop finished, budget exceeded. Support macOS (osascript), Linux (notify-send), and Claude Code's Notification hook.",
 			"user_story": "As a developer running Ralph in the background, I want desktop notifications so that I know immediately when something needs my attention.",
@@ -144,11 +144,11 @@
 				"Tests cover notification dispatch with platform stubs"
 			],
 			"validation_commands": ["uv run pytest tests/ -k notif -x --tb=short"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "AR-707",
-			"priority": 5,
+			"priority": 6,
 			"title": "OpenCode Plugin Integration",
 			"description": "Implement Ralph as an OpenCode plugin that subscribes to session lifecycle events (session start, idle, tool use). This enables the same hook-based workflow that Claude Code provides, but for the OpenCode ecosystem.",
 			"user_story": "As a developer using OpenCode, I want Ralph to react to my coding sessions just like it does with Claude Code hooks.",
@@ -170,7 +170,7 @@
 		},
 		{
 			"id": "AR-708",
-			"priority": 6,
+			"priority": 3,
 			"title": "Iteration Timeline View",
 			"description": "Add a structured timeline panel to the TUI that visualizes iteration history with outcomes, durations, key decisions, and gotchas. Replace the plain-text progress.txt with an interactive, scrollable timeline.",
 			"user_story": "As a developer, I want a visual timeline of Ralph's iterations so that I can quickly spot patterns, identify blockers, and understand the trajectory of my project.",

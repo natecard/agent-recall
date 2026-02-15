@@ -362,6 +362,12 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("tui",),
         ),
         CommandContract(
+            command="ralph notify",
+            aliases=("ralph notifications",),
+            description="Send a Ralph notification on supported platforms",
+            surfaces=("cli",),
+        ),
+        CommandContract(
             command="refresh-context",
             aliases=(),
             description="Refresh context bundle outputs",
