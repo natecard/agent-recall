@@ -2621,6 +2621,24 @@ def _get_theme_defaults_for_tui() -> tuple[list[str], str]:
     return ThemeManager.get_available_themes(), current_theme
 
 
+def _read_tui_config(files: FileStorage) -> dict[str, Any]:
+    config_dict = files.read_config()
+    tui_config = config_dict.get("tui", {}) if isinstance(config_dict, dict) else {}
+    return tui_config if isinstance(tui_config, dict) else {}
+
+
+def _write_tui_config(files: FileStorage, updates: dict[str, object]) -> dict[str, object]:
+    config_dict = files.read_config()
+    if "tui" not in config_dict or not isinstance(config_dict.get("tui"), dict):
+        config_dict["tui"] = {}
+    tui_config = config_dict["tui"]
+    if isinstance(tui_config, dict):
+        tui_config.update(updates)
+    config_dict["tui"] = tui_config
+    files.write_config(config_dict)
+    return config_dict
+
+
 @app.command(hidden=True)
 def onboard(
     force: bool = typer.Option(
@@ -2653,6 +2671,11 @@ def tui(
         False,
         "--all-cursor-workspaces",
         help="Include Cursor sessions from all workspaces.",
+    ),
+    show_terminal: bool = typer.Option(
+        False,
+        "--show-terminal",
+        help="Show the embedded terminal panel when supported.",
     ),
     iterations: int | None = typer.Option(
         None,
@@ -2739,6 +2762,11 @@ def tui(
         raise typer.Exit(1) from None
 
     try:
+        tui_config = _read_tui_config(files)
+        if show_terminal:
+            _write_tui_config(files, {"terminal_panel_visible": True})
+            tui_config = _read_tui_config(files)
+
         app_instance = AgentRecallTextualApp(
             render_dashboard=_build_tui_dashboard,
             execute_command=lambda raw, width, height: _execute_tui_slash_command(
@@ -2783,6 +2811,8 @@ def tui(
             refresh_seconds=refresh_seconds,
             all_cursor_workspaces=all_cursor_workspaces,
             onboarding_required=onboarding_required,
+            terminal_panel_visible=bool(tui_config.get("terminal_panel_visible", False)),
+            terminal_supported=show_terminal,
         )
         app_instance.run()
     except KeyboardInterrupt:
@@ -2821,6 +2851,11 @@ def open_dashboard(
         max=0.1,
         help="Animation delay for splash screen.",
     ),
+    show_terminal: bool = typer.Option(
+        False,
+        "--show-terminal",
+        help="Show the embedded terminal panel when supported.",
+    ),
     force_onboarding: bool = typer.Option(
         False,
         "--force-onboarding",
@@ -2834,6 +2869,7 @@ def open_dashboard(
         iterations=iterations,
         no_splash=no_splash,
         splash_delay=splash_delay,
+        show_terminal=show_terminal,
         onboarding=True,
         force_onboarding=force_onboarding,
     )

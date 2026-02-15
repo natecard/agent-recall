@@ -46,6 +46,9 @@ storage:
 theme:
   name: dark+
 
+tui:
+  terminal_panel_visible: false
+
 ralph:
   enabled: false
   coding_cli: null

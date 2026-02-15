@@ -249,6 +249,12 @@ class ThemeConfig(BaseModel):
     name: str = "dark+"
 
 
+class TuiConfig(BaseModel):
+    """TUI preferences stored in .agent/config.yaml."""
+
+    terminal_panel_visible: bool = False
+
+
 class RalphNotificationEvent(StrEnum):
     """Events that can trigger Ralph notifications."""
 
@@ -386,5 +392,6 @@ class AgentRecallConfig(BaseModel):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     theme: ThemeConfig = Field(default_factory=ThemeConfig)
+    tui: TuiConfig = Field(default_factory=TuiConfig)
     ralph: RalphLoopConfig = Field(default_factory=RalphLoopConfig)
     adapters: AdapterConfig = Field(default_factory=AdapterConfig)

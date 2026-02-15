@@ -45,6 +45,11 @@ def test_palette_contains_ralph_run_action() -> None:
     assert "ralph-run" in action_ids
 
 
+def test_palette_contains_terminal_toggle() -> None:
+    action_ids = {action.action_id for action in get_palette_actions()}
+    assert "ralph-terminal" in action_ids
+
+
 def test_clean_optional_text_handles_none_variants() -> None:
     assert _clean_optional_text(None) == ""
     assert _clean_optional_text("None") == ""
@@ -96,18 +101,26 @@ def test_tui_ralph_run_streams_shell_loop_with_configured_agent_cmd(tmp_path, mo
     fake_script = tmp_path / "ralph-agent-recall-loop.sh"
     fake_script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
 
+    def theme_defaults() -> tuple[list[str], str]:
+        themes = ["dark+"]
+        return themes, "dark+"
+
+    def discover_models(*_args: object, **_kwargs: object) -> tuple[list[str], str | None]:
+        models = ["gpt-test"]
+        return models, None
+
     app = AgentRecallTextualApp(
         render_dashboard=lambda *_args, **_kwargs: "",
         execute_command=lambda *_args, **_kwargs: (False, []),
         list_sessions_for_picker=lambda *_args, **_kwargs: [],
         run_setup_payload=lambda *_args, **_kwargs: (False, []),
         run_model_config=lambda *_args, **_kwargs: [],
-        theme_defaults_provider=lambda: ({}, "dark+"),
+        theme_defaults_provider=theme_defaults,
         theme_runtime_provider=None,
         theme_resolve_provider=None,
         model_defaults_provider=lambda: {},
         setup_defaults_provider=lambda: {},
-        discover_models=lambda *_args, **_kwargs: [],
+        discover_models=discover_models,
         providers=[],
         list_prd_items_for_picker=None,
         cli_commands=[],

@@ -362,6 +362,12 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("tui",),
         ),
         CommandContract(
+            command="ralph terminal",
+            aliases=(),
+            description="Toggle the embedded terminal panel",
+            surfaces=("tui",),
+        ),
+        CommandContract(
             command="ralph notify",
             aliases=("ralph notifications",),
             description="Send a Ralph notification on supported platforms",

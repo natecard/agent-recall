@@ -435,6 +435,14 @@ def get_palette_actions() -> list[PaletteAction]:
             keywords="ralph notify notifications alert",
         ),
         PaletteAction(
+            "ralph-terminal",
+            "Toggle Terminal Panel",
+            "Show or hide the embedded terminal panel",
+            "Settings",
+            shortcut="ralph terminal",
+            keywords="ralph terminal panel toggle",
+        ),
+        PaletteAction(
             "quit",
             "Quit",
             "Exit the TUI",
@@ -1624,6 +1632,16 @@ class AgentRecallTextualApp(App[None]):
         overflow: auto;
         min-height: 0;
     }
+    #terminal_panel {
+        height: 1fr;
+        min-height: 6;
+        overflow: auto;
+        display: none;
+        border: round $accent;
+        background: $panel;
+        padding: 1 2;
+        margin-bottom: 1;
+    }
     #activity {
         height: 1fr;
         min-height: 4;
@@ -1756,6 +1774,7 @@ class AgentRecallTextualApp(App[None]):
         Binding("ctrl+c", "request_quit", "Quit", show=False, priority=True),
         Binding("escape", "close_inline_picker", "Close picker", show=False),
         Binding("ctrl+q", "request_quit", "Quit", priority=True),
+        Binding("ctrl+`", "toggle_terminal_panel", "Terminal", show=False),
     ]
 
     def __init__(
@@ -1783,6 +1802,8 @@ class AgentRecallTextualApp(App[None]):
         refresh_seconds: float = 2.0,
         all_cursor_workspaces: bool = False,
         onboarding_required: bool = False,
+        terminal_panel_visible: bool = False,
+        terminal_supported: bool = False,
     ):
         super().__init__()
         self._render_dashboard = render_dashboard
@@ -1808,6 +1829,8 @@ class AgentRecallTextualApp(App[None]):
         self.refresh_seconds = refresh_seconds
         self.all_cursor_workspaces = all_cursor_workspaces
         self.onboarding_required = onboarding_required
+        self.terminal_panel_visible = terminal_panel_visible
+        self.terminal_supported = terminal_supported
         self.status = "Ready. Press Ctrl+P for commands."
         self.activity: deque[str] = deque(maxlen=2000)
         self._theme_preview_active = False
@@ -1827,6 +1850,7 @@ class AgentRecallTextualApp(App[None]):
             with Vertical(id="app_shell"):
                 yield Static(id="dashboard")
                 with Vertical(id="activity"):
+                    yield Static(id="terminal_panel")
                     yield Static(id="activity_log")
                     yield OptionList(id="activity_result_list")
         yield Footer()
@@ -1840,6 +1864,7 @@ class AgentRecallTextualApp(App[None]):
         self._configure_refresh_timer(self.refresh_seconds)
         self._append_activity("TUI ready. Press Ctrl+P for commands.")
         self._refresh_dashboard_panel()
+        self._update_terminal_panel_visibility(initial=True)
         if self.onboarding_required:
             self.status = "Onboarding required"
             self._append_activity("Onboarding required. Opening setup wizard...")
@@ -1856,6 +1881,25 @@ class AgentRecallTextualApp(App[None]):
         self._append_activity("Stopping background operations...")
         self._teardown_runtime()
         self.exit()
+
+    def action_toggle_terminal_panel(self) -> None:
+        if not self.terminal_supported:
+            self._append_activity(
+                "Embedded terminal not available. Run 'agent-recall tui --show-terminal'."
+            )
+            return
+        self.terminal_panel_visible = not self.terminal_panel_visible
+        self._update_terminal_panel_visibility(initial=False)
+        try:
+            from agent_recall.cli.main import _write_tui_config
+            from agent_recall.storage.files import FileStorage
+
+            agent_dir = Path(".agent")
+            if agent_dir.exists():
+                files = FileStorage(agent_dir)
+                _write_tui_config(files, {"terminal_panel_visible": self.terminal_panel_visible})
+        except Exception:  # noqa: BLE001
+            pass
 
     def action_open_command_palette(self) -> None:
         self.push_screen(
@@ -2169,6 +2213,9 @@ class AgentRecallTextualApp(App[None]):
             return
         if action_id == "ralph-notifications":
             self.action_toggle_ralph_notifications()
+            return
+        if action_id == "ralph-terminal":
+            self.action_toggle_terminal_panel()
             return
         if action_id == "theme":
             self.action_open_theme_modal()
@@ -2497,6 +2544,11 @@ class AgentRecallTextualApp(App[None]):
             self._append_activity("Opened settings dialog.")
             return True
 
+        if action == "ralph" and second == "terminal":
+            self.action_toggle_terminal_panel()
+            self.status = "Terminal panel"
+            return True
+
         if action in {"view", "menu"}:
             valid = {"overview", "sources", "llm", "knowledge", "settings", "console", "all"}
             if len(parts) == 1:
@@ -2632,6 +2684,24 @@ class AgentRecallTextualApp(App[None]):
         self.status = "Settings updated"
         self._append_activity("Settings updated.")
         self._refresh_dashboard_panel()
+
+    def _update_terminal_panel_visibility(self, *, initial: bool) -> None:
+        terminal_panel = self.query_one("#terminal_panel", Static)
+        if self.terminal_supported and self.terminal_panel_visible:
+            terminal_panel.display = True
+            terminal_panel.update(
+                "Embedded terminal panel placeholder. "
+                "Run Claude Code/Codex/OpenCode in a separate terminal for now."
+            )
+            if not initial:
+                self.status = "Terminal panel visible"
+                self._append_activity("Terminal panel opened.")
+        else:
+            terminal_panel.display = False
+            terminal_panel.update("")
+            if not initial:
+                self.status = "Terminal panel hidden"
+                self._append_activity("Terminal panel hidden.")
 
     def _apply_session_run_modal_result(self, result: dict[str, Any] | None) -> None:
         if result is None:
