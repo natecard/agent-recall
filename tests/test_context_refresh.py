@@ -210,3 +210,30 @@ def test_context_refresh_hook_forward_token_budget(tmp_path: Path) -> None:
 
     call_kwargs = mock_write.call_args[1]
     assert call_kwargs["token_budget"] == 500
+
+
+def test_context_refresh_reads_latest_tier_file_state(tmp_path: Path) -> None:
+    """Refresh uses current tier file content; no stale cache."""
+    agent_dir = _make_agent_dir(tmp_path)
+    storage = SQLiteStorage(agent_dir / "state.db")
+    files = FileStorage(agent_dir)
+    guardrails_path = agent_dir / "GUARDRAILS.md"
+
+    with patch(
+        "agent_recall.ralph.context_refresh.write_adapter_payloads",
+        return_value={},
+    ) as mock_write:
+        hook = ContextRefreshHook(agent_dir, storage, files)
+
+        guardrails_path.write_text("# Guardrails\n\n- initial")
+        hook.refresh()
+        ctx1 = mock_write.call_args[1]["context"]
+
+        guardrails_path.write_text("# Guardrails\n\n- updated-after-compaction")
+        hook.refresh()
+        ctx2 = mock_write.call_args[1]["context"]
+
+    assert "initial" in ctx1
+    assert "updated-after-compaction" not in ctx1
+    assert "updated-after-compaction" in ctx2
+    assert "initial" not in ctx2

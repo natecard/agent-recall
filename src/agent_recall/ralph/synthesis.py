@@ -36,7 +36,7 @@ class ClimateSynthesizer:
         self,
         ralph_dir: Path,
         files: FileStorage,
-        llm: LLMProvider,
+        llm: LLMProvider | None,
         config: SynthesisConfig | None = None,
     ) -> None:
         self.ralph_dir = ralph_dir
@@ -79,6 +79,8 @@ class ClimateSynthesizer:
     async def synthesize_guardrails(self, candidates: list[str]) -> str:
         if not candidates:
             return "# Guardrails\n\n- No guardrails synthesized yet."
+        if self.llm is None:
+            raise RuntimeError("LLM provider is required for climate synthesis.")
         prompt = GUARDRAILS_SYNTHESIS_PROMPT.format(
             candidates="\n".join(f"- {item}" for item in candidates),
             max_entries=self.config.max_guardrails,
@@ -96,6 +98,8 @@ class ClimateSynthesizer:
     async def synthesize_style(self, candidates: list[str]) -> str:
         if not candidates:
             return "# Style Guide\n\n- No style patterns synthesized yet."
+        if self.llm is None:
+            raise RuntimeError("LLM provider is required for climate synthesis.")
         prompt = STYLE_SYNTHESIS_PROMPT.format(
             candidates="\n".join(f"- {item}" for item in candidates),
             max_entries=self.config.max_style,

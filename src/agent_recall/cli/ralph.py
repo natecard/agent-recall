@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import shlex
 import subprocess
 from functools import lru_cache
 from pathlib import Path
@@ -159,6 +160,37 @@ def read_ralph_config(files: FileStorage) -> dict[str, Any]:
     config_dict = files.read_config()
     ralph_config = config_dict.get("ralph", {}) if isinstance(config_dict, dict) else {}
     return ralph_config if isinstance(ralph_config, dict) else {}
+
+
+def build_agent_cmd_from_ralph_config(ralph_config: dict[str, Any]) -> str | None:
+    """Build shell-safe --agent-cmd from ralph coding_cli/cli_model settings."""
+    coding_cli_value = ralph_config.get("coding_cli")
+    coding_cli = (
+        str(coding_cli_value).strip()
+        if isinstance(coding_cli_value, str) and coding_cli_value.strip()
+        else ""
+    )
+    if not coding_cli:
+        return None
+    cli_info = CODING_CLIS.get(coding_cli)
+    if not cli_info:
+        return None
+
+    binary = str(cli_info.get("binary") or "").strip()
+    model_flag = str(cli_info.get("model_flag") or "").strip()
+    if not binary:
+        return None
+
+    parts = [binary, "--print"]
+    cli_model_value = ralph_config.get("cli_model")
+    cli_model = (
+        str(cli_model_value).strip()
+        if isinstance(cli_model_value, str) and cli_model_value.strip()
+        else ""
+    )
+    if cli_model and model_flag:
+        parts.extend([model_flag, cli_model])
+    return " ".join(shlex.quote(part) for part in parts)
 
 
 def write_ralph_config(files: FileStorage, updates: dict[str, object]) -> dict[str, object]:

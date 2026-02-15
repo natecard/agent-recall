@@ -543,3 +543,12 @@
 - Outcome: completed
 - Notes: Enabled LLM forecast trigger on consecutive failures with prompt construction, temperature/max token settings, and error fallback to heuristics; added tests for LLM triggering, fallback, and prompt content; added forecast/synthesis defaults to config template.
 - Next: Move to WM-005 (Climate Synthesizer) and ensure LLM-required synthesis path is wired and tested.
+
+## 2026-02-14T17:45:00Z Iteration 6
+- Item: WM-005 - Climate Synthesizer (Layer 3)
+- Mode: feature
+- Agent exit code: 0
+- Validation: pending
+- Outcome: progressed
+- Notes: Added synthesis tests (candidate extraction, dedupe ordering, synthesis defaults/state tracking) and enforced clear error when LLM is missing for non-empty synthesis.
+- Next: Run validation; if green, close WM-005.

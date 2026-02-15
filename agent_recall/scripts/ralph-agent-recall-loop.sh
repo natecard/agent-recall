@@ -903,13 +903,11 @@ setup_iteration() {
 
 finalize_iteration() {
   local iteration="$1"
-  local item_id="$2"
-  local item_title="$3"
-  local validation_exit="$4"
-  local validation_hint="$5"
+  local validation_exit="$2"
+  local validation_hint="$3"
 
   if ! command -v uv >/dev/null 2>&1; then
-    echo "Warning: uv not available; skipping finalize/report/forecast/refresh." >&2
+    echo "Warning: uv not available; skipping finalize/report/forecast." >&2
     return 0
   fi
 
@@ -928,6 +926,18 @@ finalize_iteration() {
       echo "Warning: rebuild-forecast failed; continuing." >&2
       true
     }
+}
+
+refresh_context_after_compaction() {
+  local iteration="$1"
+  local item_id="$2"
+  local item_title="$3"
+
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "Warning: uv not available; skipping refresh-context." >&2
+    return 0
+  fi
+
   uv run agent-recall ralph refresh-context --task "${item_title:-}" --item "${item_id:-}" --iteration "$iteration" \
     || {
       echo "Warning: refresh-context failed; continuing." >&2
@@ -1222,7 +1232,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   run_validation "$i" || true
   VALIDATION_HINT="$(extract_validation_hint "$i")"
 
-  finalize_iteration "$i" "$ITERATION_ITEM_ID" "$ITERATION_ITEM_TITLE" "$LAST_VALIDATE_EXIT" "$VALIDATION_HINT"
+  finalize_iteration "$i" "$LAST_VALIDATE_EXIT" "$VALIDATION_HINT"
 
   HAS_COMPLETE=0
   if [[ $AGENT_OUTPUT_MODE == "stream-json" ]]; then
@@ -1267,6 +1277,10 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     fi
   fi
   run_compaction "$i" "$SHOULD_COMPACT"
+  if [[ $SHOULD_COMPACT -eq 1 ]]; then
+    run_synthesize_climate "$i"
+  fi
+  refresh_context_after_compaction "$i" "$ITERATION_ITEM_ID" "$ITERATION_ITEM_TITLE"
 
   if [[ $ABORT_SEEN -eq 1 ]]; then
     echo "Abort marker seen. Exiting with failure."

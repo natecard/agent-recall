@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import shlex
+import subprocess
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable
@@ -2147,12 +2148,13 @@ class AgentRecallTextualApp(App[None]):
         self._append_activity("Starting Ralph loop...")
 
         def _ralph_run_worker() -> dict[str, Any]:
-            import asyncio
-
-            from agent_recall.cli.ralph import read_ralph_config
-            from agent_recall.ralph.loop import RalphLoop
+            from agent_recall.cli.ralph import (
+                build_agent_cmd_from_ralph_config,
+                get_default_prd_path,
+                get_default_script_path,
+                read_ralph_config,
+            )
             from agent_recall.storage.files import FileStorage
-            from agent_recall.storage.sqlite import SQLiteStorage
 
             agent_dir = Path(".agent")
             if not agent_dir.exists():
@@ -2171,90 +2173,81 @@ class AgentRecallTextualApp(App[None]):
                 )
                 return {"total_iterations": 0, "passed": 0, "failed": 0}
 
-            coding_cli_value = ralph_cfg.get("coding_cli")
-            coding_cli: str | None = (
-                str(coding_cli_value)
-                if isinstance(coding_cli_value, str) and coding_cli_value
-                else None
-            )
+            agent_cmd = build_agent_cmd_from_ralph_config(ralph_cfg)
+            if not agent_cmd:
+                self.call_from_thread(
+                    self._append_activity,
+                    "Ralph coding CLI is not configured. Set it in Ralph Configuration first.",
+                )
+                return {"total_iterations": 0, "passed": 0, "failed": 0}
 
-            cli_model_value = ralph_cfg.get("cli_model")
-            cli_model: str | None = (
-                str(cli_model_value)
-                if isinstance(cli_model_value, str) and cli_model_value
-                else None
-            )
+            script_path = get_default_script_path()
+            if not script_path.exists():
+                self.call_from_thread(
+                    self._append_activity, f"Ralph loop script not found: {script_path}"
+                )
+                return {"total_iterations": 0, "passed": 0, "failed": 0}
 
             max_iter_value = ralph_cfg.get("max_iterations")
-            max_iterations: int | None = (
-                int(max_iter_value) if isinstance(max_iter_value, int | float) else None
+            max_iterations = int(max_iter_value) if isinstance(max_iter_value, int | float) else 10
+            sleep_value = ralph_cfg.get("sleep_seconds")
+            sleep_seconds = int(sleep_value) if isinstance(sleep_value, int | float) else 2
+            compact_value = ralph_cfg.get("compact_mode")
+            compact_mode = (
+                str(compact_value).strip().lower()
+                if isinstance(compact_value, str) and str(compact_value).strip()
+                else "always"
             )
+            if compact_mode not in {"always", "on-failure", "off"}:
+                compact_mode = "always"
 
+            prd_path = get_default_prd_path()
             selected_value = ralph_cfg.get("selected_prd_ids")
             selected_ids: list[str] | None = None
             if isinstance(selected_value, list) and selected_value:
                 selected_ids = [str(x) for x in selected_value if x]
 
-            def progress_callback(event: dict[str, Any]) -> None:
-                event_type = str(event.get("event") or "")
-                if event_type == "output_line":
-                    line = str(event.get("line") or "")
-                    if line:
-                        self.call_from_thread(self._append_activity, line)
-                elif event_type == "iteration_started":
-                    iteration = event.get("iteration")
-                    item_id = event.get("item_id")
-                    self.call_from_thread(
-                        self._append_activity, f"▶ Iteration {iteration}: {item_id} started"
-                    )
-                    self.call_from_thread(setattr, self, "status", "Ralph loop running")
-                elif event_type == "agent_complete":
-                    exit_code = int(event.get("exit_code") or 0)
-                    if exit_code == 0:
-                        self.call_from_thread(self._append_activity, "✓ Agent complete")
-                    else:
-                        self.call_from_thread(
-                            self._append_activity, f"✗ Agent failed (exit {exit_code})"
-                        )
-                elif event_type == "validation_complete":
-                    success = bool(event.get("success"))
-                    hint = str(event.get("hint") or "")
-                    if success:
-                        self.call_from_thread(self._append_activity, "✓ Validation passed")
-                    else:
-                        message = hint[:80] if hint else "Validation failed"
-                        self.call_from_thread(self._append_activity, f"✗ {message}")
-                elif event_type == "iteration_complete":
-                    outcome = str(event.get("outcome") or "")
-                    duration = float(event.get("duration_seconds") or 0)
-                    self.call_from_thread(
-                        self._append_activity,
-                        f"Iteration complete ({outcome}) in {duration:.1f}s",
-                    )
-
             self.call_from_thread(setattr, self, "status", "Ralph loop running")
+            self.call_from_thread(self._append_activity, f"Agent command: {agent_cmd}")
+
+            cmd = [
+                str(script_path),
+                "--agent-cmd",
+                agent_cmd,
+                "--max-iterations",
+                str(max_iterations),
+                "--compact-mode",
+                compact_mode,
+                "--sleep-seconds",
+                str(sleep_seconds),
+            ]
+            if prd_path.exists():
+                cmd.extend(["--prd-file", str(prd_path)])
+            if selected_ids:
+                selected_arg = ",".join(selected_ids)
+                if selected_arg:
+                    cmd.extend(["--prd-ids", selected_arg])
 
             try:
-                storage = SQLiteStorage(agent_dir / "state.db")
-                loop_files = FileStorage(agent_dir)
-                loop = RalphLoop(agent_dir, storage, loop_files)
-                summary = asyncio.run(
-                    loop.run_loop(
-                        max_iterations=max_iterations,
-                        selected_prd_ids=selected_ids,
-                        progress_callback=progress_callback,
-                        coding_cli=coding_cli,
-                        cli_model=cli_model,
-                    )
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=Path.cwd(),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
                 )
-            except FileNotFoundError as exc:
-                self.call_from_thread(self._append_activity, f"Ralph loop error: {exc}")
-                return {"total_iterations": 0, "passed": 0, "failed": 0}
-            except Exception as exc:  # noqa: BLE001
+                assert process.stdout is not None  # noqa: S101
+                for line in iter(process.stdout.readline, ""):
+                    stripped = line.rstrip("\n")
+                    if stripped:
+                        self.call_from_thread(self._append_activity, stripped)
+                process.wait()
+                exit_code = int(process.returncode or 0)
+            except OSError as exc:
                 self.call_from_thread(self._append_activity, f"Ralph loop failed: {exc}")
                 return {"total_iterations": 0, "passed": 0, "failed": 0}
-
-            return summary
+            return {"total_iterations": 0, "passed": 0, "failed": 0, "exit_code": exit_code}
 
         worker = self.run_worker(
             _ralph_run_worker,
@@ -2672,6 +2665,17 @@ class AgentRecallTextualApp(App[None]):
 
         if context == "ralph_run":
             rd = dict(result) if isinstance(result, dict) else {}
+            if "exit_code" in rd:
+                exit_code = int(rd.get("exit_code") or 0)
+                if exit_code == 0:
+                    self._append_activity("Ralph loop completed successfully.")
+                elif exit_code == 2:
+                    self._append_activity("Ralph loop reached max iterations.")
+                else:
+                    self._append_activity(f"Ralph loop failed (exit {exit_code}).")
+                self.status = "Ralph loop complete" if exit_code == 0 else "Ralph loop failed"
+                self._refresh_dashboard_panel()
+                return
             total = int(rd.get("total_iterations", 0))
             passed = int(rd.get("passed", 0))
             failed = int(rd.get("failed", 0))

@@ -313,3 +313,6 @@
 
 ## 2026-02-14T16:25:00Z Iteration 5 (WM-004)
 - Use small stub LLM providers in tests to assert prompts and generation options deterministically.
+
+## 2026-02-14T17:45:00Z Iteration 6 (WM-005)
+- Validate synthesis paths with stub LLMs and assert generation options (temperature/max_tokens) in tests.

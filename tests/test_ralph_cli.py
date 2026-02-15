@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 import agent_recall.cli.main as cli_main
+from agent_recall.cli.ralph import build_agent_cmd_from_ralph_config
 
 runner = CliRunner()
 
@@ -81,6 +82,16 @@ def test_cli_ralph_set_agent_rejects_invalid() -> None:
         result = runner.invoke(cli_main.app, ["ralph", "set-agent", "--cli", "invalid-tool"])
         assert result.exit_code == 1
         assert "Invalid coding CLI" in result.output
+
+
+def test_build_agent_cmd_from_ralph_config_with_model() -> None:
+    cmd = build_agent_cmd_from_ralph_config({"coding_cli": "codex", "cli_model": "gpt-5.3-codex"})
+    assert cmd == "codex --print --model gpt-5.3-codex"
+
+
+def test_build_agent_cmd_from_ralph_config_missing_cli_returns_none() -> None:
+    cmd = build_agent_cmd_from_ralph_config({"cli_model": "gpt-5.3-codex"})
+    assert cmd is None
 
 
 def test_ralph_run_loop_emits_output_line_when_no_cli() -> None:

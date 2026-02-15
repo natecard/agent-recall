@@ -233,3 +233,30 @@ def test_ralph_loop_runtime_validation_signal_enriches_memory_files(tmp_path: Pa
     assert "Runtime logs: agent_recall/ralph/.runtime/agent-1.log" in guardrails
     assert "first actionable validation line: E AssertionError: expected 2 == 3" in style
     assert "E AssertionError: expected 2 == 3" in recent
+
+
+def test_ralph_loop_compaction_and_synthesis_before_refresh_context(tmp_path: Path) -> None:
+    """Compaction and synthesis run before refresh-context
+    so next-iteration prompt uses optimized memory."""
+    _write_default_repo_layout(tmp_path)
+    compact_marker = "- [COMPACT-MARKER] compaction-ran-before-refresh"
+    compact_cmd = f"echo '{compact_marker}' >> .agent/RECENT.md"
+
+    result = _run_loop(
+        tmp_path,
+        "--max-iterations",
+        "2",
+        "--compact-mode",
+        "always",
+        "--compact-cmd",
+        compact_cmd,
+    )
+
+    assert result.returncode == 2
+    prompt_path = tmp_path / "agent_recall" / "ralph" / ".runtime" / "prompt-2.md"
+    assert prompt_path.exists(), "Second iteration prompt should exist"
+    prompt_2 = prompt_path.read_text()
+    assert compact_marker in prompt_2, (
+        "Iteration 2 prompt must include compacted content; "
+        "compaction runs before refresh-context so next iteration sees optimized memory"
+    )
