@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -93,21 +94,40 @@ def test_ralph_extract_iteration_updates_current_report() -> None:
         payload = json.loads(current_path.read_text())
         payload["validation_exit_code"] = 1
         current_path.write_text(json.dumps(payload, indent=2))
-        extract = runner.invoke(
-            cli_main.app,
-            [
-                "ralph",
-                "extract-iteration",
-                "--iteration",
-                "1",
-                "--runtime-dir",
-                str(runtime_dir),
-            ],
-        )
+        with patch("agent_recall.ralph.extraction.subprocess.run") as mocked_run:
+
+            def _fake_run(*_args: object, **_kwargs: object):
+                class Result:
+                    returncode = 0
+
+                    def __init__(self, stdout: str):
+                        self.stdout = stdout
+
+                command = _args[0] if _args else []
+                if isinstance(command, list) and len(command) >= 2 and command[1] == "diff":
+                    if "--name-only" in command:
+                        return Result("changed.txt\n")
+                    return Result("diff --git a/foo b/foo\n+add\n")
+                return Result("")
+
+            mocked_run.side_effect = _fake_run
+            extract = runner.invoke(
+                cli_main.app,
+                [
+                    "ralph",
+                    "extract-iteration",
+                    "--iteration",
+                    "1",
+                    "--runtime-dir",
+                    str(runtime_dir),
+                ],
+            )
         assert extract.exit_code == 0
         current_path = Path(".agent") / "ralph" / "iterations" / "current.json"
         payload = json.loads(current_path.read_text())
         assert payload["validation_hint"] == "E   AssertionError: boom"
+        diff_path = Path(".agent") / "ralph" / "iterations" / "001.diff"
+        assert diff_path.exists()
 
 
 def test_ralph_rebuild_forecast_overwrites_recent() -> None:

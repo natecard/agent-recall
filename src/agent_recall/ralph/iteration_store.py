@@ -150,11 +150,7 @@ class IterationReportStore:
             return []
         if not self.iterations_dir.exists():
             return []
-        archived = [
-            path
-            for path in self.iterations_dir.glob("*.json")
-            if path.name != self.current_path.name
-        ]
+        archived = self._iter_archive_paths()
         archived.sort(key=lambda path: path.name, reverse=True)
         reports: list[IterationReport] = []
         for path in archived:
@@ -169,11 +165,7 @@ class IterationReportStore:
     def load_all(self) -> list[IterationReport]:
         if not self.iterations_dir.exists():
             return []
-        archived = [
-            path
-            for path in self.iterations_dir.glob("*.json")
-            if path.name != self.current_path.name
-        ]
+        archived = self._iter_archive_paths()
         archived.sort(key=lambda path: path.name)
         reports: list[IterationReport] = []
         for path in archived:
@@ -187,6 +179,29 @@ class IterationReportStore:
         self.iterations_dir.mkdir(parents=True, exist_ok=True)
         archive_path = self.iterations_dir / f"{report.iteration:03d}.json"
         archive_path.write_text(json.dumps(report.to_dict(), indent=2), encoding="utf-8")
+
+    def save_current_diff(self, report: IterationReport, diff_text: str) -> None:
+        if not diff_text:
+            return
+        self.iterations_dir.mkdir(parents=True, exist_ok=True)
+        path = self.iterations_dir / f"{report.iteration:03d}.diff"
+        path.write_text(diff_text, encoding="utf-8")
+
+    def load_diff_for_iteration(self, iteration: int) -> str | None:
+        path = self.iterations_dir / f"{iteration:03d}.diff"
+        if not path.exists():
+            return None
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+
+    def _iter_archive_paths(self) -> list[Path]:
+        return [
+            path
+            for path in self.iterations_dir.glob("*.json")
+            if path.name != self.current_path.name
+        ]
 
     def _compute_duration_seconds(self, report: IterationReport, completed_at: datetime) -> float:
         started_at = report.started_at

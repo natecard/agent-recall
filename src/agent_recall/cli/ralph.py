@@ -21,7 +21,7 @@ from agent_recall.core.onboarding import inject_stored_api_keys
 from agent_recall.llm import create_llm_provider, ensure_provider_dependency
 from agent_recall.llm.base import LLMProvider
 from agent_recall.ralph.context_refresh import ContextRefreshHook
-from agent_recall.ralph.extraction import extract_from_artifacts, extract_outcome
+from agent_recall.ralph.extraction import extract_from_artifacts, extract_git_diff, extract_outcome
 from agent_recall.ralph.forecast import ForecastConfig, ForecastGenerator
 from agent_recall.ralph.hooks import (
     build_hook_command,
@@ -1219,8 +1219,32 @@ def ralph_extract_iteration(
     files_changed = artifacts.get("files_changed")
     if isinstance(files_changed, list):
         report.files_changed = [str(item) for item in files_changed if item]
+    git_diff = extract_git_diff(Path.cwd())
+    store.save_current_diff(report, git_diff)
     store.save_current(report)
     console.print("[success]✓ Updated current report with extracted artifacts[/success]")
+
+
+@ralph_app.command("view-diff")
+def ralph_view_diff(
+    iteration: int | None = typer.Option(None, "--iteration", "-n"),
+) -> None:
+    """View the latest Ralph iteration diff."""
+    _get_theme_manager()
+    _ensure_agent_dir_exists()
+    store = IterationReportStore(AGENT_DIR / "ralph")
+    target_iteration: int | None = iteration
+    if target_iteration is None:
+        reports = store.load_recent(count=1)
+        if not reports:
+            console.print("[warning]No archived iteration reports found.[/warning]")
+            return
+        target_iteration = reports[0].iteration
+    diff_text = store.load_diff_for_iteration(target_iteration)
+    if not diff_text:
+        console.print(f"[warning]No diff stored for iteration {target_iteration:03d}.[/warning]")
+        return
+    console.print(Panel(diff_text, title=f"Iteration {target_iteration:03d} Diff", box=box.SQUARE))
 
 
 @ralph_app.command("rebuild-forecast")

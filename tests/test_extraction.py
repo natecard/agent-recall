@@ -7,6 +7,7 @@ from agent_recall.ralph.extraction import (
     extract_failure_reason,
     extract_files_changed,
     extract_from_artifacts,
+    extract_git_diff,
     extract_outcome,
     extract_validation_hint,
 )
@@ -71,6 +72,21 @@ def test_extract_files_changed_returns_repo_paths(tmp_path: Path) -> None:
         assert extract_files_changed(repo) == ["changed.txt", "file.txt"]
 
 
+def test_extract_git_diff_returns_diff_text(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def _fake_run(*_args: object, **_kwargs: object):
+        class Result:
+            returncode = 0
+            stdout = "diff --git a/foo b/foo\n+add\n"
+
+        return Result()
+
+    with patch("agent_recall.ralph.extraction.subprocess.run", _fake_run):
+        assert extract_git_diff(repo) == "diff --git a/foo b/foo\n+add\n"
+
+
 def test_extract_validation_hint_skips_separators_and_blanks() -> None:
     output = ["", "-----", "====", " first actionable ", "later"]
     assert extract_validation_hint(output) == "first actionable"
@@ -84,9 +100,17 @@ def test_extract_from_artifacts_builds_deterministic_dict(tmp_path: Path) -> Non
     def _fake_run(*_args: object, **_kwargs: object):
         class Result:
             returncode = 0
-            stdout = "changed.txt\n"
 
-        return Result()
+            def __init__(self, stdout: str):
+                self.stdout = stdout
+
+        command = _args[0] if _args else []
+        if isinstance(command, list):
+            if len(command) >= 2 and command[1] == "diff" and "--name-only" in command:
+                return Result("changed.txt\n")
+            if len(command) >= 2 and command[1] == "diff":
+                return Result("diff --git a/foo b/foo\n+add\n")
+        return Result("")
 
     with patch("agent_recall.ralph.extraction.subprocess.run", _fake_run):
         result = extract_from_artifacts(1, output, 0, 5.0, 60.0, repo)
@@ -96,4 +120,5 @@ def test_extract_from_artifacts_builds_deterministic_dict(tmp_path: Path) -> Non
         "failure_reason": "ERROR: boom",
         "validation_hint": "ERROR: boom",
         "files_changed": ["changed.txt"],
+        "git_diff": "diff --git a/foo b/foo\n+add\n",
     }

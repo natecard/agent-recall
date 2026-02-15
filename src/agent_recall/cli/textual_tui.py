@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from rich.panel import Panel
+from rich.syntax import Syntax
 from rich.theme import Theme
 from textual import events
 from textual.app import App, ComposeResult
@@ -392,6 +393,14 @@ def get_palette_actions() -> list[PaletteAction]:
             keywords="ralph watch claude logs live",
         ),
         PaletteAction(
+            "ralph-view-diff",
+            "View Last Diff",
+            "Review the most recent Ralph iteration diff",
+            "Settings",
+            shortcut="ralph view-diff",
+            keywords="ralph diff viewer iteration changes",
+        ),
+        PaletteAction(
             "quit",
             "Quit",
             "Exit the TUI",
@@ -538,6 +547,30 @@ class CommandPaletteModal(ModalScreen[str | None]):
             if not option.disabled:
                 option_list.highlighted = index
                 break
+
+
+class DiffViewerModal(ModalScreen[None]):
+    BINDINGS = [Binding("escape", "dismiss(None)", "Close")]
+
+    def __init__(self, *, diff_text: str, title: str):
+        super().__init__()
+        self.diff_text = diff_text
+        self.title = title
+
+    def compose(self) -> ComposeResult:
+        with Container(id="modal_overlay"):
+            with Vertical(id="modal_card"):
+                yield Static(self.title or "Diff Viewer", classes="modal_title")
+                yield Static(
+                    "Use PgUp/PgDn or arrows to scroll. Esc closes.",
+                    classes="modal_subtitle",
+                )
+                yield Static(id="diff_content")
+
+    def on_mount(self) -> None:
+        diff_widget = self.query_one("#diff_content", Static)
+        syntax = Syntax(self.diff_text, "diff", word_wrap=False)
+        diff_widget.update(syntax)
 
 
 class SetupModal(ModalScreen[dict[str, Any] | None]):
@@ -1597,6 +1630,14 @@ class AgentRecallTextualApp(App[None]):
         border: round $accent;
         overflow: auto;
     }
+    #diff_content {
+        height: 1fr;
+        overflow: auto;
+        background: $panel;
+        border: round $accent;
+        padding: 1 2;
+        margin-top: 1;
+    }
     #palette_header {
         layout: horizontal;
         width: 100%;
@@ -2089,6 +2130,9 @@ class AgentRecallTextualApp(App[None]):
         if action_id == "ralph-run":
             self.action_run_ralph_loop()
             return
+        if action_id == "ralph-view-diff":
+            self.action_open_diff_viewer()
+            return
         if action_id == "theme":
             self.action_open_theme_modal()
             return
@@ -2150,6 +2194,34 @@ class AgentRecallTextualApp(App[None]):
             exit_on_error=False,
         )
         self._worker_context[id(worker)] = "prd_picker"
+
+    def action_open_diff_viewer(self) -> None:
+        self.status = "Loading diff"
+        self._append_activity("Loading latest iteration diff...")
+
+        def _load_diff() -> tuple[str | None, int | None]:
+            try:
+                from agent_recall.ralph.iteration_store import IterationReportStore
+
+                agent_dir = Path(".agent")
+                store = IterationReportStore(agent_dir / "ralph")
+                reports = store.load_recent(count=1)
+                if not reports:
+                    return None, None
+                report = reports[0]
+                diff_text = store.load_diff_for_iteration(report.iteration)
+                return diff_text, report.iteration
+            except Exception:
+                return None, None
+
+        worker = self.run_worker(
+            _load_diff,
+            thread=True,
+            group="tui-ops",
+            exclusive=True,
+            exit_on_error=False,
+        )
+        self._worker_context[id(worker)] = "diff_viewer"
 
     def action_open_ralph_config_modal(self) -> None:
         """Open the Ralph configuration modal."""
@@ -2392,6 +2464,11 @@ class AgentRecallTextualApp(App[None]):
         if action == "ralph" and second == "select":
             self.action_open_prd_select_modal()
             self.status = "Select PRD items"
+            return True
+
+        if action == "ralph" and second == "view-diff":
+            self.action_open_diff_viewer()
+            self.status = "View iteration diff"
             return True
 
         if action == "ralph" and second == "config":
@@ -2645,6 +2722,26 @@ class AgentRecallTextualApp(App[None]):
             self.push_screen(
                 PRDSelectModal(items, selected_ids, max_iterations),
                 self._apply_prd_select_modal_result,
+            )
+            self._refresh_dashboard_panel()
+            return
+
+        if context == "diff_viewer":
+            diff_text: str | None = None
+            iteration = None
+            if isinstance(result, tuple) and len(result) == 2:
+                diff_text = result[0] if isinstance(result[0], str) else None
+                iteration = result[1] if isinstance(result[1], int) else None
+            if not diff_text:
+                self.status = "No diff available"
+                self._append_activity("No iteration diff found to display.")
+                self._refresh_dashboard_panel()
+                return
+            title = "Iteration Diff" if iteration is None else f"Iteration {iteration:03d} Diff"
+            self.status = "Viewing diff"
+            self._append_activity("Opened iteration diff viewer.")
+            self.push_screen(
+                DiffViewerModal(diff_text=diff_text, title=title),
             )
             self._refresh_dashboard_panel()
             return

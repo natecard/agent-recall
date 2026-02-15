@@ -49,6 +49,22 @@ def extract_files_changed(repo_dir: Path) -> list[str]:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+def extract_git_diff(repo_dir: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "diff"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout
+
+
 def extract_validation_hint(validation_output: list[str]) -> str | None:
     for line in validation_output:
         stripped = line.strip()
@@ -73,6 +89,7 @@ def extract_from_artifacts(
         "failure_reason": extract_failure_reason(validation_output),
         "validation_hint": extract_validation_hint(validation_output),
         "files_changed": extract_files_changed(repo_dir),
+        "git_diff": extract_git_diff(repo_dir),
     }
 
 

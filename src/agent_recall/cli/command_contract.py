@@ -338,6 +338,12 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("cli",),
         ),
         CommandContract(
+            command="ralph view-diff",
+            aliases=(),
+            description="View the latest Ralph iteration diff",
+            surfaces=("cli", "tui"),
+        ),
+        CommandContract(
             command="ralph rebuild-forecast",
             aliases=(),
             description="Rebuild RECENT.md forecast from iteration reports",

@@ -87,6 +87,17 @@ def test_iteration_report_store_load_current_corrupt_returns_none(tmp_path: Path
     assert store.load_current() is None
 
 
+def test_iteration_report_store_diff_round_trip(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "agent_recall" / "ralph"
+    store = IterationReportStore(ralph_dir)
+    report = store.create_for_iteration(2, "WM-002", "Iteration Record Store")
+    diff_text = "diff --git a/foo b/foo\n+add\n"
+    store.save_current_diff(report, diff_text)
+    store.finalize_current(0, "")
+    archived_diff = store.load_diff_for_iteration(2)
+    assert archived_diff == diff_text
+
+
 def test_iteration_report_store_load_recent_orders_newest_first(tmp_path: Path) -> None:
     ralph_dir = tmp_path / "agent_recall" / "ralph"
     store = IterationReportStore(ralph_dir)
