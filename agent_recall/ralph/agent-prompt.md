@@ -13,7 +13,7 @@ The loop injects current PRD data, recent progress, memory files, recent Ralph c
 - Task description: `{description}`
 - Validation command: `{validation_command}`
 
-Tier files are read-only context. Do not write to them.
+Tier files are read-only context. Do not write to them. The system updates them from iteration reports.
 
 ## Task Selection
 
@@ -85,5 +85,7 @@ Commit message requirements:
 If no further PRD work remains and validation is green, output the exact completion marker from loop context.
 
 If blocked and unable to proceed safely, output the exact abort marker from loop context.
+
+If a tool (for example, TodoWrite) is unavailable in your environment, skip it and proceed without it.
 
 ONLY WORK ON A SINGLE TASK.

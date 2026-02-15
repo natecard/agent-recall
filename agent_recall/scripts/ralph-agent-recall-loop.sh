@@ -454,24 +454,6 @@ remaining_count() {
   jq -r '.items | map(select(.passes != true)) | length' "$PRD_FILE"
 }
 
-derive_changed_item_json() {
-  local before_file="$1"
-  local after_file="$2"
-  jq -cn --slurpfile before "$before_file" --slurpfile after "$after_file" '
-    def index_by_id(items):
-      reduce items[] as $it ({}; .[$it.id] = $it);
-
-    (($before[0].items) // []) as $before_items
-    | (($after[0].items) // []) as $after_items
-    | (index_by_id($before_items)) as $before_map
-    | [
-        $after_items[]
-        | select(((($before_map[.id] // null) | tojson) != (.|tojson)))
-      ]
-    | .[0] // empty
-  '
-}
-
 recent_commits() {
   local commits
   commits="$(git log --grep="$RECENT_COMMIT_GREP" -n "$RECENT_COMMIT_COUNT" --format='%H%n%ad%n%B---' --date=short 2>/dev/null || true)"
@@ -614,189 +596,6 @@ log_has_exact_marker_line() {
   grep -Fxq "$marker" "$log_file"
 }
 
-append_guardrail_note() {
-  local iteration="$1"
-  local item_id="$2"
-  local item_title="$3"
-  local reason="$4"
-  local validation_hint="$5"
-  local timestamp
-  timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
-  local failure_hint=""
-  if [[ -n $LAST_VALIDATE_OUTPUT ]]; then
-    failure_hint="$(printf '%s\n' "$LAST_VALIDATE_OUTPUT" | sed -n '1,3p' | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')"
-  fi
-
-  {
-    echo ""
-    echo "## ${timestamp} Iteration ${iteration} (${item_id})"
-    echo "- Scope item: ${item_title}"
-    if [[ $reason == "validation_failed" ]]; then
-      echo "- Do not move to a new PRD item while validation is red."
-      if [[ -n $failure_hint ]]; then
-        echo "- Failure clue: ${failure_hint}"
-      fi
-    elif [[ $reason == "agent_timeout" ]]; then
-      echo "- Agent exceeded iteration timeout; reduce scope and keep commits smaller."
-    elif [[ $reason == "abort" ]]; then
-      echo "- Abort means scope exceeded safety; reduce change size next iteration."
-    else
-      echo "- Keep changes isolated and verifiable before commit."
-    fi
-    if [[ -n $validation_hint ]]; then
-      echo "- Runtime validation signal: $(normalize_runtime_line "$validation_hint")"
-    fi
-    echo "- Runtime logs: $(agent_log_path "$iteration"), $(validation_log_path "$iteration")"
-  } >>"$GUARDRAILS_FILE"
-}
-
-append_hard_failure_guardrail() {
-  local iteration="$1"
-  local next_item_json="$2"
-  local validation_hint="$3"
-  local timestamp
-  timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
-  local item_id
-  local item_title
-  item_id="$(printf '%s\n' "$next_item_json" | jq -r '.id // "unknown"')"
-  item_title="$(printf '%s\n' "$next_item_json" | jq -r '.title // .description // "untitled"')"
-
-  local top_errors
-  top_errors="$(extract_actionable_validation_lines "$iteration" 6)"
-  if [[ -z $top_errors ]]; then
-    top_errors="$(printf '%s\n' "$LAST_VALIDATE_OUTPUT" | sed '/^[[:space:]]*$/d' | sed -n '1,6p')"
-  fi
-
-  {
-    echo ""
-    echo "## ${timestamp} HARD FAILURE Iteration ${iteration} (${item_id})"
-    echo "- Item: ${item_title}"
-    if [[ -n $VALIDATE_CMD ]]; then
-      echo "- Validation command: ${VALIDATE_CMD}"
-    fi
-    if [[ -n $top_errors ]]; then
-      echo "- Top validation errors:"
-      while IFS= read -r line; do
-        echo "  - ${line}"
-      done <<<"$top_errors"
-    else
-      echo "- Validation failed without captured output."
-    fi
-    if [[ -n $validation_hint ]]; then
-      echo "- Primary actionable signal: $(normalize_runtime_line "$validation_hint")"
-    fi
-    echo "- Runtime logs: $(agent_log_path "$iteration"), $(validation_log_path "$iteration")"
-  } >>"$GUARDRAILS_FILE"
-}
-
-append_style_note() {
-  local iteration="$1"
-  local item_id="$2"
-  local validation_hint="$3"
-  local timestamp
-  timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
-  {
-    echo ""
-    echo "## ${timestamp} Iteration ${iteration} (${item_id})"
-    echo "- Prefer one logical change per commit."
-    if [[ -n $VALIDATE_CMD ]]; then
-      echo "- Keep validation command green before committing: ${VALIDATE_CMD}"
-    else
-      echo "- Run local checks before commit when available."
-    fi
-    if [[ -n $validation_hint ]]; then
-      echo "- Start debugging from the first actionable validation line: $(normalize_runtime_line "$validation_hint")"
-    else
-      echo "- Keep runtime validate logs concise so the first actionable line is obvious."
-    fi
-    echo "- Runtime logs: $(agent_log_path "$iteration"), $(validation_log_path "$iteration")"
-  } >>"$STYLE_FILE"
-}
-
-append_recent_note() {
-  local iteration="$1"
-  local item_id="$2"
-  local item_title="$3"
-  local work_mode="$4"
-  local agent_exit="$5"
-  local validate_exit="$6"
-  local reason="$7"
-  local validation_hint="$8"
-  local timestamp
-  timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
-  local validate_status="passed"
-  if [[ $validate_exit -ne 0 ]]; then
-    validate_status="failed"
-  fi
-
-  {
-    echo ""
-    echo "## ${timestamp} Iteration ${iteration}"
-    echo "- Item: ${item_id} - ${item_title}"
-    echo "- Mode: ${work_mode}"
-    echo "- Agent exit code: ${agent_exit}"
-    echo "- Validation: ${validate_status}"
-    echo "- Outcome: ${reason}"
-    if [[ -n $validation_hint ]]; then
-      echo "- Validation signal: $(normalize_runtime_line "$validation_hint")"
-    fi
-    echo "- Runtime logs: $(agent_log_path "$iteration"), $(validation_log_path "$iteration")"
-  } >>"$RECENT_FILE"
-}
-
-enforce_memory_updates() {
-  local iteration="$1"
-  local next_item_json="$2"
-  local work_mode="$3"
-  local agent_exit="$4"
-  local agent_timed_out="$5"
-  local abort_seen="$6"
-  local pre_guard_hash="$7"
-  local pre_style_hash="$8"
-  local pre_recent_hash="$9"
-  local validation_hint="${10}"
-
-  local item_id
-  local item_title
-  item_id="$(printf '%s\n' "$next_item_json" | jq -r '.id // "unknown"')"
-  item_title="$(printf '%s\n' "$next_item_json" | jq -r '.title // .description // "untitled"')"
-
-  local reason="progressed"
-  if [[ $agent_timed_out -eq 1 ]]; then
-    reason="agent_timeout"
-  elif [[ $abort_seen -eq 1 ]]; then
-    reason="abort"
-  elif [[ $LAST_VALIDATE_EXIT -ne 0 ]]; then
-    reason="validation_failed"
-  elif [[ $work_mode == "stabilize" ]]; then
-    reason="stabilized_validation"
-  fi
-
-  local post_guard_hash
-  local post_style_hash
-  local post_recent_hash
-
-  post_guard_hash="$(file_hash "$GUARDRAILS_FILE")"
-  post_style_hash="$(file_hash "$STYLE_FILE")"
-  post_recent_hash="$(file_hash "$RECENT_FILE")"
-
-  if [[ $post_guard_hash == "$pre_guard_hash" ]]; then
-    append_guardrail_note "$iteration" "$item_id" "$item_title" "$reason" "$validation_hint"
-  fi
-
-  if [[ $post_style_hash == "$pre_style_hash" ]]; then
-    append_style_note "$iteration" "$item_id" "$validation_hint"
-  fi
-
-  if [[ $post_recent_hash == "$pre_recent_hash" ]]; then
-    append_recent_note "$iteration" "$item_id" "$item_title" "$work_mode" "$agent_exit" "$LAST_VALIDATE_EXIT" "$reason" "$validation_hint"
-  fi
-}
-
 run_notify() {
   local status="$1"
   local iteration="$2"
@@ -899,6 +698,24 @@ setup_iteration() {
       echo "Warning: create-report failed; continuing." >&2
       true
     }
+}
+
+render_prompt_template() {
+  local template_path="$1"
+  local report_path="$2"
+  local item_id="$3"
+  local item_title="$4"
+  local description="$5"
+  local validation_command="$6"
+
+  local template_content
+  template_content="$(<"$template_path")"
+  template_content="${template_content//\{current_report_path\}/$report_path}"
+  template_content="${template_content//\{item_id\}/$item_id}"
+  template_content="${template_content//\{item_title\}/$item_title}"
+  template_content="${template_content//\{description\}/$description}"
+  template_content="${template_content//\{validation_command\}/$validation_command}"
+  printf '%s\n' "$template_content"
 }
 
 finalize_iteration() {
@@ -1034,11 +851,6 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     NEXT_ITEM='{"id":"AGENT-SELECTED","priority":null,"title":"Agent-selected highest-priority item for this iteration","passes":false}'
   fi
 
-  PRE_PRD_SNAPSHOT="$RUNTIME_DIR/prd-pre-${i}.json"
-  cp "$PRD_FILE" "$PRE_PRD_SNAPSHOT"
-  PRE_GUARD_HASH="$(file_hash "$GUARDRAILS_FILE")"
-  PRE_STYLE_HASH="$(file_hash "$STYLE_FILE")"
-  PRE_RECENT_HASH="$(file_hash "$RECENT_FILE")"
   ITERATION_ITEM_ID=""
   ITERATION_ITEM_TITLE=""
   if [[ $WORK_MODE == "feature" ]]; then
@@ -1061,7 +873,15 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   : >"$RESULT_LOG"
 
   {
-    cat "$PROMPT_TEMPLATE"
+    CURRENT_REPORT_PATH=".agent/ralph/iterations/current.json"
+    TEMPLATE_ITEM_ID="$(printf '%s\n' "$NEXT_ITEM" | jq -r '.id // "AGENT-SELECTED"')"
+    TEMPLATE_ITEM_TITLE="$(printf '%s\n' "$NEXT_ITEM" | jq -r '.title // .description // "Agent-selected highest-priority item for this iteration"')"
+    TEMPLATE_DESCRIPTION="$(printf '%s\n' "$NEXT_ITEM" | jq -r '.description // .user_story // "Select one unpassed PRD item and complete the smallest viable slice."')"
+    TEMPLATE_VALIDATION_COMMAND="$VALIDATE_CMD"
+    if [[ -z $TEMPLATE_VALIDATION_COMMAND ]]; then
+      TEMPLATE_VALIDATION_COMMAND="(none provided; loop runs post-iteration validation if configured)"
+    fi
+    render_prompt_template "$PROMPT_TEMPLATE" "$CURRENT_REPORT_PATH" "$TEMPLATE_ITEM_ID" "$TEMPLATE_ITEM_TITLE" "$TEMPLATE_DESCRIPTION" "$TEMPLATE_VALIDATION_COMMAND"
     echo ""
     echo "## Ralph Loop Context"
     echo "- Iteration: $i of $MAX_ITERATIONS"
@@ -1155,6 +975,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
 
     echo ""
     echo "## Agent Recall Directives"
+    echo "The directives in this section override any conflicting instructions above."
     if [[ $WORK_MODE == "feature" ]]; then
       echo "1. Select what you deem the highest-priority unpassed PRD item."
       echo "2. Assign or adjust priority values across unpassed items to reflect your ordering."
@@ -1164,12 +985,9 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
       echo "2. Keep changes scoped; do not start a second feature."
       echo "3. Keep priority assignments coherent for any remaining PRD items."
     fi
-    echo "4. Append a timestamped entry to $PROGRESS_FILE (append-only)."
+    echo "4. Do not request missing placeholders; use the provided report path: $CURRENT_REPORT_PATH."
     echo "5. Update $PRD_FILE for completed work only."
-    echo "6. Update ALL memory files this iteration:"
-    echo "   - $GUARDRAILS_FILE"
-    echo "   - $STYLE_FILE"
-    echo "   - $RECENT_FILE"
+    echo "6. Treat tier files as read-only; do NOT edit $GUARDRAILS_FILE, $STYLE_FILE, or $RECENT_FILE (system updates them from iteration reports)."
     if [[ -n $VALIDATE_CMD ]]; then
       echo "7. Run validation and ensure it passes before committing."
     else
@@ -1249,25 +1067,6 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     fi
   fi
 
-  MEMORY_ITEM="$NEXT_ITEM"
-  if [[ $WORK_MODE == "feature" ]]; then
-    CHANGED_ITEM="$(derive_changed_item_json "$PRE_PRD_SNAPSHOT" "$PRD_FILE" || true)"
-    if [[ -n $CHANGED_ITEM ]]; then
-      MEMORY_ITEM="$CHANGED_ITEM"
-    else
-      FALLBACK_ITEM="$(next_item_json)"
-      if [[ -n $FALLBACK_ITEM ]]; then
-        MEMORY_ITEM="$FALLBACK_ITEM"
-      fi
-    fi
-  fi
-
-  if [[ $LAST_VALIDATE_EXIT -ne 0 ]]; then
-    append_hard_failure_guardrail "$i" "$MEMORY_ITEM" "$VALIDATION_HINT"
-  fi
-
-  enforce_memory_updates "$i" "$MEMORY_ITEM" "$WORK_MODE" "$AGENT_EXIT" "$AGENT_TIMED_OUT" "$ABORT_SEEN" "$PRE_GUARD_HASH" "$PRE_STYLE_HASH" "$PRE_RECENT_HASH" "$VALIDATION_HINT"
-
   SHOULD_COMPACT=0
   if [[ $COMPACT_MODE == "always" ]]; then
     SHOULD_COMPACT=1
@@ -1314,5 +1113,6 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
 done
 
 echo "Reached max iterations without meeting stop condition." >&2
+run_synthesize_climate "$MAX_ITERATIONS"
 run_notify "max-iterations" "$MAX_ITERATIONS"
 exit 2

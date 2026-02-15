@@ -319,3 +319,9 @@
 
 ## 2026-02-14T17:45:00Z Iteration 6 (WM-005)
 - Validate synthesis paths with stub LLMs and assert generation options (temperature/max_tokens) in tests.
+
+## 2026-02-15T20:29:53Z Iteration 1 (AR-702)
+- Prefer one logical change per commit.
+- Run local checks before commit when available.
+- Start debugging from the first actionable validation line: testpaths: tests
+- Runtime logs: agent_recall/ralph/.runtime/agent-1.log, agent_recall/ralph/.runtime/validate-1.log
