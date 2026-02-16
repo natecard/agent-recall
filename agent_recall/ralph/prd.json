@@ -122,7 +122,7 @@
 				"Tests cover cost calculation, budget enforcement, and report generation"
 			],
 			"validation_commands": ["uv run pytest tests/ -k cost -x --tb=short"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "AR-706",
@@ -148,7 +148,7 @@
 		},
 		{
 			"id": "AR-707",
-			"priority": 2,
+			"priority": 1,
 			"title": "OpenCode Plugin Integration",
 			"description": "Implement Ralph as an OpenCode plugin that subscribes to session lifecycle events (session start, idle, tool use). This enables the same hook-based workflow that Claude Code provides, but for the OpenCode ecosystem.",
 			"user_story": "As a developer using OpenCode, I want Ralph to react to my coding sessions just like it does with Claude Code hooks.",

@@ -21,6 +21,11 @@ from agent_recall.core.onboarding import inject_stored_api_keys
 from agent_recall.llm import create_llm_provider, ensure_provider_dependency
 from agent_recall.llm.base import LLMProvider
 from agent_recall.ralph.context_refresh import ContextRefreshHook
+from agent_recall.ralph.costs import (
+    budget_exceeded,
+    format_usd,
+    summarize_costs,
+)
 from agent_recall.ralph.extraction import (
     extract_from_artifacts,
     extract_git_diff,
@@ -355,6 +360,13 @@ def render_ralph_status(_config_dict: dict[str, object]) -> list[str]:
         else "always"
     )
 
+    cost_budget_value = ralph_config.get("cost_budget_usd")
+    cost_budget = (
+        float(cost_budget_value)
+        if isinstance(cost_budget_value, int | float) and cost_budget_value >= 0
+        else None
+    )
+
     state = "enabled" if enabled else "disabled"
     recent_file = AGENT_DIR / "RECENT.md"
     last_run_timestamp: str | None = None
@@ -381,6 +393,17 @@ def render_ralph_status(_config_dict: dict[str, object]) -> list[str]:
         ", ".join(selected_prd_ids) if selected_prd_ids else "all (model decides)"
     )
 
+    store = IterationReportStore(AGENT_DIR / "ralph")
+    cost_summary = summarize_costs(store.load_all())
+    cost_total_text = format_usd(cost_summary.total_cost_usd)
+    if cost_budget is None:
+        cost_budget_text = "-"
+    else:
+        cost_budget_text = format_usd(cost_budget)
+    budget_alert = (
+        "" if not budget_exceeded(cost_summary.total_cost_usd, cost_budget) else " (exceeded)"
+    )
+
     coding_cli_value = ralph_config.get("coding_cli")
     coding_cli = (
         str(coding_cli_value)
@@ -400,6 +423,8 @@ def render_ralph_status(_config_dict: dict[str, object]) -> list[str]:
         f"  Max iterations: {max_iterations}",
         f"  Sleep seconds:  {sleep_seconds}",
         f"  Compact mode:   {compact_mode}",
+        f"  Cost total:     {cost_total_text}",
+        f"  Cost budget:    {cost_budget_text}{budget_alert}",
         f"  Selected PRDs:  {selected_prd_display}",
         f"  Last run:       {last_run_timestamp or 'none'}",
         f"  Last outcome:   {last_outcome or 'none'}",
@@ -636,6 +661,77 @@ def ralph_disable() -> None:
     console.print(f"[warning]Ralph disabled (total iterations: {state.total_iterations})[/warning]")
     lines = render_ralph_status(config_dict)
     console.print(Panel.fit("\n".join(lines), title="Ralph Loop Updated"))
+
+
+@ralph_app.command("cost-report")
+def ralph_cost_report(
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output cost summary as JSON",
+    ),
+) -> None:
+    """Show token and cost summary for Ralph iterations."""
+    _get_theme_manager()
+    _ensure_agent_dir_exists()
+    ralph_config = read_ralph_config(FileStorage(AGENT_DIR))
+    cost_budget_value = ralph_config.get("cost_budget_usd")
+    cost_budget = (
+        float(cost_budget_value)
+        if isinstance(cost_budget_value, int | float) and cost_budget_value >= 0
+        else None
+    )
+    store = IterationReportStore(AGENT_DIR / "ralph")
+    summary = summarize_costs(store.load_all())
+
+    table = Table(title="Ralph Cost Report", box=box.SIMPLE, expand=True)
+    table.add_column("Item", style="table_header", no_wrap=True)
+    table.add_column("Tokens", justify="right")
+    table.add_column("Cost (USD)", justify="right")
+
+    if json_output:
+        payload = {
+            "total_tokens": summary.total_tokens,
+            "total_cost_usd": summary.total_cost_usd,
+            "cost_budget_usd": cost_budget,
+            "exceeded": budget_exceeded(summary.total_cost_usd, cost_budget),
+            "items": [
+                {
+                    "item_id": item.item_id,
+                    "item_title": item.item_title,
+                    "prompt_tokens": item.prompt_tokens,
+                    "completion_tokens": item.completion_tokens,
+                    "total_tokens": item.total_tokens,
+                    "cost_usd": item.cost_usd,
+                }
+                for item in summary.items
+            ],
+        }
+        console.print(json.dumps(payload, indent=2))
+        return
+
+    if not summary.items:
+        console.print("[dim]No token usage recorded yet.[/dim]")
+    else:
+        for item in summary.items:
+            label = item.item_id
+            if item.item_title:
+                label = f"{item.item_id} · {item.item_title}"
+            table.add_row(label, str(item.total_tokens), format_usd(item.cost_usd))
+        console.print(table)
+
+    budget_text = "-" if cost_budget is None else format_usd(cost_budget)
+    total_text = format_usd(summary.total_cost_usd)
+    budget_note = "" if not budget_exceeded(summary.total_cost_usd, cost_budget) else " (exceeded)"
+    console.print(
+        "\n".join(
+            [
+                f"Total tokens: {summary.total_tokens}",
+                f"Total cost: {total_text}",
+                f"Budget: {budget_text}{budget_note}",
+            ]
+        )
+    )
 
 
 @ralph_app.command("run")
@@ -1099,6 +1195,34 @@ def ralph_set_agent(
     config_dict = write_ralph_config(files, updates)
     lines = render_ralph_status(config_dict)
     console.print(Panel.fit("\n".join(lines), title="Ralph Agent Updated"))
+
+
+@ralph_app.command("set-budget")
+def ralph_set_budget(
+    cost_budget_usd: float | None = typer.Option(
+        None,
+        "--cost-usd",
+        help="USD budget to pause Ralph loop when exceeded",
+    ),
+) -> None:
+    """Set the Ralph loop cost budget."""
+    _get_theme_manager()
+    ensure_initialized()
+    files = get_files()
+
+    updates: dict[str, object] = {}
+    if cost_budget_usd is not None:
+        if cost_budget_usd < 0:
+            console.print("[error]Cost budget must be >= 0.[/error]")
+            raise typer.Exit(1)
+        updates["cost_budget_usd"] = cost_budget_usd
+    else:
+        updates["cost_budget_usd"] = None
+
+    config_dict = write_ralph_config(files, updates)
+    console.print("[success]✓ Updated Ralph cost budget[/success]")
+    lines = render_ralph_status(config_dict)
+    console.print(Panel.fit("\n".join(lines), title="Ralph Loop Updated"))
 
 
 @ralph_app.command("watch")

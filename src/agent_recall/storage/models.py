@@ -272,6 +272,11 @@ class RalphLoopConfig(BaseModel):
     max_iterations: int = Field(default=10, ge=1)
     sleep_seconds: int = Field(default=2, ge=0)
     compact_mode: Literal["always", "on-failure", "off"] = "always"
+    cost_budget_usd: float | None = Field(
+        default=None,
+        ge=0,
+        description="Optional USD budget for Ralph loop costs",
+    )
     selected_prd_ids: list[str] | None = Field(
         default=None,
         description="Optional. PRD item IDs to include; None means all items (model decides)",

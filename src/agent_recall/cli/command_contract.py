@@ -375,6 +375,18 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("cli",),
         ),
         CommandContract(
+            command="ralph cost-report",
+            aliases=(),
+            description="Show Ralph token and cost summary",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="ralph set-budget",
+            aliases=(),
+            description="Set Ralph loop cost budget",
+            surfaces=("cli",),
+        ),
+        CommandContract(
             command="refresh-context",
             aliases=(),
             description="Refresh context bundle outputs",

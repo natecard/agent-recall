@@ -88,6 +88,7 @@ from agent_recall.llm import (
     get_available_providers,
     validate_provider_config,
 )
+from agent_recall.ralph.costs import format_usd, summarize_costs
 from agent_recall.ralph.iteration_store import IterationOutcome, IterationReportStore
 from agent_recall.storage import create_storage_backend
 from agent_recall.storage.base import Storage
@@ -2172,10 +2173,12 @@ def _build_tui_dashboard(
     repo_name = repo_root.name
     configured_agents = ", ".join(selected_sources) if selected_sources else "all"
 
+    report_store = IterationReportStore(AGENT_DIR / "ralph")
     timeline_lines = _render_iteration_timeline(
-        IterationReportStore(AGENT_DIR / "ralph"),
+        report_store,
         max_entries=8 if view == "all" else 12,
     )
+    cost_summary = summarize_costs(report_store.load_all())
 
     # Keep long source lists readable in half-width panels (all view).
     if view == "all":
@@ -2279,6 +2282,8 @@ def _build_tui_dashboard(
     knowledge_summary.add_row("GUARDRAILS", f"{len(guardrails):,} chars")
     knowledge_summary.add_row("STYLE", f"{len(style):,} chars")
     knowledge_summary.add_row("RECENT", f"{len(recent):,} chars")
+    knowledge_summary.add_row("Tokens", f"{cost_summary.total_tokens:,}")
+    knowledge_summary.add_row("Cost", format_usd(cost_summary.total_cost_usd))
 
     llm_base_url_display = llm_config.base_url or "default"
     llm_summary = Table(

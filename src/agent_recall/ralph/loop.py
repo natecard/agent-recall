@@ -11,6 +11,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from agent_recall.ralph.costs import budget_exceeded, summarize_costs
+from agent_recall.ralph.iteration_store import IterationReportStore
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage
 from agent_recall.storage.models import RalphNotificationEvent
@@ -142,6 +144,25 @@ class RalphLoop:
             {
                 "event": "notification",
                 "notification_event": event.value,
+                "iteration": iteration,
+            },
+        )
+
+    def _emit_cost_budget_exceeded(
+        self,
+        progress_callback: Callable[[dict[str, Any]], None] | None,
+        *,
+        total_cost: float,
+        budget: float,
+        iteration: int | None = None,
+    ) -> None:
+        self._emit_progress(
+            progress_callback,
+            {
+                "event": "budget_exceeded",
+                "budget_type": "cost_usd",
+                "total_cost_usd": total_cost,
+                "budget_usd": budget,
                 "iteration": iteration,
             },
         )
@@ -298,6 +319,17 @@ class RalphLoop:
         state_payload = self._read_state_payload()
         total_iterations = int(state_payload.get("total_iterations") or state.total_iterations)
 
+        config_dict = self.files.read_config()
+        ralph_cfg = config_dict.get("ralph") if isinstance(config_dict, dict) else None
+        if not isinstance(ralph_cfg, dict):
+            ralph_cfg = {}
+        cost_budget_value = ralph_cfg.get("cost_budget_usd")
+        cost_budget = (
+            float(cost_budget_value)
+            if isinstance(cost_budget_value, int | float) and cost_budget_value >= 0
+            else None
+        )
+
         passed = 0
         failed = 0
         processed_ids: set[str] = set()
@@ -390,6 +422,24 @@ class RalphLoop:
                 RalphNotificationEvent.ITERATION_COMPLETE,
                 iteration=index,
             )
+
+            if cost_budget is not None:
+                cost_summary = summarize_costs(
+                    IterationReportStore(self.agent_dir / "ralph").load_all()
+                )
+                if budget_exceeded(cost_summary.total_cost_usd, cost_budget):
+                    self._emit_cost_budget_exceeded(
+                        progress_callback,
+                        total_cost=cost_summary.total_cost_usd,
+                        budget=cost_budget,
+                        iteration=index,
+                    )
+                    self._emit_notification(
+                        progress_callback,
+                        RalphNotificationEvent.BUDGET_EXCEEDED,
+                        iteration=index,
+                    )
+                    break
 
         total_iterations += len(candidates)
         now = datetime.now(UTC).isoformat()

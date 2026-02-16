@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import yaml
 from typer.testing import CliRunner
 
 import agent_recall.cli.main as cli_main
 from agent_recall.cli.ralph import build_agent_cmd_from_ralph_config
+from agent_recall.ralph.costs import summarize_costs
 from agent_recall.ralph.notifications import build_notification_content
 from agent_recall.storage.models import RalphNotificationEvent
 
@@ -102,6 +104,75 @@ def test_build_notification_content_iteration_complete() -> None:
         iteration=2,
     )
     assert "Iteration 2" in info.message
+
+
+def test_cost_report_aggregates_iteration_tokens() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        agent_dir = Path(".agent")
+        ralph_dir = agent_dir / "ralph"
+        ralph_dir.mkdir(parents=True, exist_ok=True)
+        report_path = ralph_dir / "iterations" / "001.json"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(
+            json.dumps(
+                {
+                    "iteration": 1,
+                    "item_id": "AR-705",
+                    "item_title": "Token & Cost Tracking Dashboard",
+                    "token_usage": {"prompt_tokens": 1000, "completion_tokens": 500},
+                    "token_model": "gpt-4o",
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        store = cli_main.IterationReportStore(agent_dir / "ralph")
+        summary = summarize_costs(store.load_all())
+        assert summary.total_tokens == 1500
+
+
+def test_ralph_cost_report_json_output() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        agent_dir = Path(".agent")
+        ralph_dir = agent_dir / "ralph" / "iterations"
+        ralph_dir.mkdir(parents=True, exist_ok=True)
+        (ralph_dir / "001.json").write_text(
+            json.dumps(
+                {
+                    "iteration": 1,
+                    "item_id": "AR-705",
+                    "item_title": "Token & Cost Tracking Dashboard",
+                    "token_usage": {"prompt_tokens": 10, "completion_tokens": 5},
+                    "token_model": "gpt-4o",
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        result = runner.invoke(cli_main.app, ["ralph", "cost-report", "--json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["total_tokens"] == 15
+
+
+def test_ralph_set_budget_updates_config() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["ralph", "set-budget", "--cost-usd", "12.5"])
+        assert result.exit_code == 0
+        config_path = Path(".agent") / "config.yaml"
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        assert config["ralph"]["cost_budget_usd"] == 12.5
+
+
+def test_ralph_set_budget_rejects_negative() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["ralph", "set-budget", "--cost-usd", "-1"])
+        assert result.exit_code == 1
+        assert "Cost budget must be" in result.output
 
 
 def test_ralph_run_loop_emits_output_line_when_no_cli() -> None:

@@ -57,6 +57,7 @@ ralph:
   max_iterations: 10
   sleep_seconds: 2
   compact_mode: always
+  cost_budget_usd:
   selected_prd_ids: null
   notifications:
     enabled: false
