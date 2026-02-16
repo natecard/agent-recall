@@ -4,6 +4,7 @@ llm:
 
 compaction:
   max_recent_tokens: 1500
+  max_tier_tokens: 10000
   max_sessions_before_compact: 5
   promote_pattern_after_occurrences: 3
   index_decision_entries: true

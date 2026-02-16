@@ -103,7 +103,7 @@
 		},
 		{
 			"id": "AR-705",
-			"priority": 3,
+			"priority": 2,
 			"title": "Token & Cost Tracking Dashboard",
 			"description": "Track token usage and estimated API costs for each Ralph iteration. Display cumulative and per-item costs in the TUI dashboard. Support budget limits that pause the Ralph loop when exceeded.",
 			"user_story": "As a developer, I want to know how much each PRD item costs in API tokens so that I can make informed decisions about when to let Ralph run autonomously vs. manually.",
@@ -148,7 +148,7 @@
 		},
 		{
 			"id": "AR-707",
-			"priority": 4,
+			"priority": 3,
 			"title": "OpenCode Plugin Integration",
 			"description": "Implement Ralph as an OpenCode plugin that subscribes to session lifecycle events (session start, idle, tool use). This enables the same hook-based workflow that Claude Code provides, but for the OpenCode ecosystem.",
 			"user_story": "As a developer using OpenCode, I want Ralph to react to my coding sessions just like it does with Claude Code hooks.",
@@ -238,7 +238,7 @@
 		},
 		{
 			"id": "AR-803",
-			"priority": 2,
+			"priority": 1,
 			"title": "Token-based compaction trigger",
 			"description": "Add configurable token threshold (default ~10000 tokens) for GUARDRAILS, STYLE, and RECENT. When any tier file exceeds the threshold, trigger compaction (distill/summarize) to reduce size while preserving the most important entries. Add config key e.g. compaction.max_tier_tokens with default 10000. Before or after tier writes, check estimated token count; if exceeded, run tier compaction or LLM summarization to bring size back under threshold.",
 			"user_story": "As a developer with long-running Ralph sessions, I want tier files to compact automatically when they grow too large (~10k tokens) so that context stays manageable for the agent without losing critical learnings.",
@@ -257,7 +257,7 @@
 				"Tests cover threshold check and compaction trigger logic"
 			],
 			"validation_commands": ["uv run pytest tests/ -k 'tier and (compact or token)' -x --tb=short", "uv run ruff check .", "uv run ty check"],
-			"passes": false
+			"passes": true
 		}
 	]
 }

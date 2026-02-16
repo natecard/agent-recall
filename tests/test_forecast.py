@@ -174,6 +174,30 @@ def test_write_forecast_overwrites_recent(tmp_path: Path) -> None:
     assert "## Trajectory" in files.read_tier(KnowledgeTier.RECENT)
 
 
+def test_write_forecast_triggers_tier_compaction(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "ralph"
+    store = IterationReportStore(ralph_dir)
+    report = IterationReport(
+        iteration=1,
+        item_id="WM-003",
+        item_title="Forecast",
+        started_at=datetime(2026, 2, 14, 12, 0, 0, tzinfo=UTC),
+        outcome=IterationOutcome.COMPLETED,
+        validation_hint="ok",
+    )
+    _write_report(store, report)
+    files = FileStorage(tmp_path)
+    files.write_config({"compaction": {"max_tier_tokens": 1}})
+    generator = ForecastGenerator(ralph_dir, files)
+
+    content = generator.write_forecast()
+
+    recent = files.read_tier(KnowledgeTier.RECENT)
+    assert recent == content
+    assert recent.startswith("# Recent")
+    assert "Current Situation" not in recent
+
+
 def test_generate_uses_llm_on_consecutive_failures(tmp_path: Path) -> None:
     ralph_dir = tmp_path / "ralph"
     store = IterationReportStore(ralph_dir)

@@ -440,3 +440,30 @@ def test_synthesize_falls_back_without_llm_provider(tmp_path: Path) -> None:
     style = files.read_tier(KnowledgeTier.STYLE)
     assert "Guardrail should still be written when LLM is unavailable." in guardrails
     assert "Style should still be written when LLM is unavailable." in style
+
+
+def test_synthesize_triggers_tier_compaction(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "ralph"
+    store = IterationReportStore(ralph_dir)
+    _write_report(
+        store,
+        IterationReport(
+            iteration=1,
+            item_id="AR-803",
+            item_title="Compaction trigger",
+            started_at=datetime(2026, 2, 15, 12, 45, 0, tzinfo=UTC),
+            gotcha_discovered="Keep compaction cheap but deterministic.",
+            pattern_that_worked="Use a helper for shared thresholds.",
+        ),
+    )
+    files = FileStorage(tmp_path)
+    files.write_config({"compaction": {"max_tier_tokens": 1}})
+    llm = StubLLM()
+    synth = ClimateSynthesizer(ralph_dir, files, llm=llm)
+
+    asyncio.run(synth.synthesize())
+
+    guardrails = files.read_tier(KnowledgeTier.GUARDRAILS)
+    style = files.read_tier(KnowledgeTier.STYLE)
+    assert guardrails.startswith("# Guardrails")
+    assert style.startswith("# Style")

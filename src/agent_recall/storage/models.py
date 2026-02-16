@@ -163,6 +163,7 @@ class CompactionConfig(BaseModel):
     """Compaction trigger thresholds."""
 
     max_recent_tokens: int = 1500
+    max_tier_tokens: int = 10000
     max_sessions_before_compact: int = 5
     promote_pattern_after_occurrences: int = 3
     index_decision_entries: bool = True

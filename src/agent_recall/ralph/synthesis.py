@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_recall.core.tier_compaction import compact_if_over_tokens
 from agent_recall.core.tier_format import (
     EntryFormat,
     ParsedEntry,
@@ -12,6 +13,7 @@ from agent_recall.core.tier_format import (
     parse_bullet_entry,
     parse_tier_content,
 )
+from agent_recall.core.tier_writer import TIER_HEADERS
 from agent_recall.llm import LLMProvider, Message
 from agent_recall.ralph.iteration_store import IterationReport, IterationReportStore
 from agent_recall.storage.files import FileStorage, KnowledgeTier
@@ -315,6 +317,28 @@ class ClimateSynthesizer:
         style_content = await self.synthesize_style(style_candidates)
         self.files.write_tier(KnowledgeTier.GUARDRAILS, guardrails_content)
         self.files.write_tier(KnowledgeTier.STYLE, style_content)
+        if compact_if_over_tokens(
+            files=self.files,
+            tier=KnowledgeTier.GUARDRAILS,
+            content=guardrails_content,
+        ):
+            updated = self.files.read_tier(KnowledgeTier.GUARDRAILS)
+            if updated.strip():
+                guardrails_content = updated
+            else:
+                guardrails_content = TIER_HEADERS[KnowledgeTier.GUARDRAILS]
+                self.files.write_tier(KnowledgeTier.GUARDRAILS, guardrails_content)
+        if compact_if_over_tokens(
+            files=self.files,
+            tier=KnowledgeTier.STYLE,
+            content=style_content,
+        ):
+            updated = self.files.read_tier(KnowledgeTier.STYLE)
+            if updated.strip():
+                style_content = updated
+            else:
+                style_content = TIER_HEADERS[KnowledgeTier.STYLE]
+                self.files.write_tier(KnowledgeTier.STYLE, style_content)
         self._write_state(len(reports))
         return {
             "guardrails": len(guardrail_candidates),

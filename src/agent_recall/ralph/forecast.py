@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from agent_recall.core.tier_compaction import compact_if_over_tokens
+from agent_recall.core.tier_writer import TIER_HEADERS
 from agent_recall.llm import Message
 from agent_recall.llm.base import LLMProvider
 from agent_recall.ralph.iteration_store import (
@@ -115,6 +117,18 @@ class ForecastGenerator:
     def write_forecast(self, llm: LLMProvider | None = None) -> str:
         content = self.generate(llm=llm)
         self.files.write_tier(KnowledgeTier.RECENT, content)
+        compacted = compact_if_over_tokens(
+            files=self.files,
+            tier=KnowledgeTier.RECENT,
+            content=content,
+        )
+        if compacted:
+            updated = self.files.read_tier(KnowledgeTier.RECENT)
+            if updated.strip():
+                content = updated
+            else:
+                content = TIER_HEADERS[KnowledgeTier.RECENT]
+                self.files.write_tier(KnowledgeTier.RECENT, content)
         return content
 
     async def _generate_with_llm(self, reports: list[IterationReport], llm: LLMProvider) -> str:

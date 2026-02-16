@@ -112,10 +112,14 @@ class TierCompactionHook:
         results: list[TierCompactionResult] = []
 
         for tier in [KnowledgeTier.GUARDRAILS, KnowledgeTier.STYLE, KnowledgeTier.RECENT]:
-            result = self._compact_tier(tier)
+            result = self.compact_tier(tier)
             results.append(result)
 
         return TierCompactionSummary(results=results, auto_run=self.config.auto_run)
+
+    def compact_tier(self, tier: KnowledgeTier) -> TierCompactionResult:
+        """Compact a single tier file and return result."""
+        return self._compact_tier(tier)
 
     def _compact_tier(self, tier: KnowledgeTier) -> TierCompactionResult:
         """Compact a single tier file."""
@@ -342,3 +346,46 @@ def format_compaction_summary(summary: TierCompactionSummary) -> str:
         lines.append(f"Total entries summarized: {summary.total_entries_summarized}")
 
     return "\n".join(lines)
+
+
+def estimate_token_count(content: str) -> int:
+    """Estimate token count from text length (chars/4 heuristic)."""
+    if not content:
+        return 0
+    return (len(content) + 3) // 4
+
+
+def should_compact_for_tokens(content: str, max_tokens: int) -> bool:
+    """Return True if content exceeds token threshold."""
+    if max_tokens <= 0:
+        return False
+    return estimate_token_count(content) > max_tokens
+
+
+def _resolve_max_tier_tokens(config: dict[str, Any]) -> int:
+    compaction_cfg = config.get("compaction", {}) if isinstance(config, dict) else {}
+    if not isinstance(compaction_cfg, dict):
+        compaction_cfg = {}
+    raw_value = compaction_cfg.get("max_tier_tokens", 10000)
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError):
+        parsed = 10000
+    return max(parsed, 0)
+
+
+def compact_if_over_tokens(
+    *,
+    files: FileStorage,
+    tier: KnowledgeTier,
+    content: str,
+    max_tokens: int | None = None,
+) -> bool:
+    """Run tier compaction if content exceeds token threshold."""
+    config = files.read_config()
+    effective_max = max_tokens if max_tokens is not None else _resolve_max_tier_tokens(config)
+    if not should_compact_for_tokens(content, effective_max):
+        return False
+    hook = TierCompactionHook(files, TierCompactionConfig.from_config(config))
+    hook.compact_tier(tier)
+    return True
