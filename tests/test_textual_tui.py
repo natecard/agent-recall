@@ -50,6 +50,11 @@ def test_palette_contains_terminal_toggle() -> None:
     assert "ralph-terminal" in action_ids
 
 
+def test_palette_contains_timeline_view() -> None:
+    action_ids = {action.action_id for action in get_palette_actions()}
+    assert "view:timeline" in action_ids
+
+
 def test_clean_optional_text_handles_none_variants() -> None:
     assert _clean_optional_text(None) == ""
     assert _clean_optional_text("None") == ""

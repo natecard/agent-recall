@@ -170,7 +170,7 @@
 		},
 		{
 			"id": "AR-708",
-			"priority": 2,
+			"priority": 1,
 			"title": "Iteration Timeline View",
 			"description": "Add a structured timeline panel to the TUI that visualizes iteration history with outcomes, durations, key decisions, and gotchas. Replace the plain-text progress.txt with an interactive, scrollable timeline.",
 			"user_story": "As a developer, I want a visual timeline of Ralph's iterations so that I can quickly spot patterns, identify blockers, and understand the trajectory of my project.",
@@ -188,7 +188,7 @@
 				"Tests cover timeline rendering and navigation"
 			],
 			"validation_commands": ["uv run pytest tests/ -k timeline -x --tb=short"],
-			"passes": false
+			"passes": true
 		},
 		{
 			"id": "AR-801",

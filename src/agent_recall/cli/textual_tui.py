@@ -356,6 +356,13 @@ def get_palette_actions() -> list[PaletteAction]:
             keywords="view settings",
         ),
         PaletteAction(
+            "view:timeline",
+            "Timeline View",
+            "Iteration outcomes and summaries",
+            "Views",
+            keywords="view timeline iterations",
+        ),
+        PaletteAction(
             "view:console",
             "Console View",
             "Recent command output and activity history",
@@ -1060,7 +1067,16 @@ class SettingsModal(ModalScreen[dict[str, Any] | None]):
         self.all_cursor_workspaces = all_cursor_workspaces
 
     def compose(self) -> ComposeResult:
-        views = ["overview", "sources", "llm", "knowledge", "settings", "console", "all"]
+        views = [
+            "overview",
+            "sources",
+            "llm",
+            "knowledge",
+            "settings",
+            "timeline",
+            "console",
+            "all",
+        ]
         default_view = self.current_view if self.current_view in views else "overview"
         with Container(id="modal_overlay"):
             with Vertical(id="modal_card"):
@@ -2550,7 +2566,16 @@ class AgentRecallTextualApp(App[None]):
             return True
 
         if action in {"view", "menu"}:
-            valid = {"overview", "sources", "llm", "knowledge", "settings", "console", "all"}
+            valid = {
+                "overview",
+                "sources",
+                "llm",
+                "knowledge",
+                "settings",
+                "timeline",
+                "console",
+                "all",
+            }
             if len(parts) == 1:
                 self._append_activity(
                     f"Current view: {self.current_view}. Available: {', '.join(sorted(valid))}"

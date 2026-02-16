@@ -88,6 +88,7 @@ from agent_recall.llm import (
     get_available_providers,
     validate_provider_config,
 )
+from agent_recall.ralph.iteration_store import IterationOutcome, IterationReportStore
 from agent_recall.storage import create_storage_backend
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
@@ -484,7 +485,8 @@ def _tui_help_lines() -> list[str]:
             continue
         lines.append(f"[dim]/{contract.command}[/dim] - {contract.description}")
     lines.append(
-        "[dim]/view overview|sources|llm|knowledge|settings|console|all[/dim] - switch TUI view"
+        "[dim]/view overview|sources|llm|knowledge|settings|timeline|console|all[/dim]"
+        " - switch TUI view"
     )
     lines.append("[dim]/run[/dim] - Alias for /sync (includes synthesis by default)")
     lines.append("[dim]/settings[/dim] - Open settings view")
@@ -2094,6 +2096,51 @@ def _fetch_latest_version() -> str | None:
         return None
 
 
+def _format_duration(duration_seconds: float | None) -> str:
+    if duration_seconds is None:
+        return "-"
+    if duration_seconds < 60:
+        return f"{duration_seconds:.0f}s"
+    minutes = duration_seconds / 60
+    if minutes < 60:
+        return f"{minutes:.1f}m"
+    hours = minutes / 60
+    return f"{hours:.1f}h"
+
+
+def _truncate(text: str, max_len: int) -> str:
+    if max_len <= 0:
+        return ""
+    if len(text) <= max_len:
+        return text
+    if max_len <= 3:
+        return text[:max_len]
+    return f"{text[: max_len - 3]}..."
+
+
+def _render_iteration_timeline(store: IterationReportStore, *, max_entries: int) -> list[str]:
+    if max_entries <= 0:
+        return ["[dim]No entries to display.[/dim]"]
+    reports = store.load_recent(count=max_entries)
+    if not reports:
+        return ["[dim]No iteration history yet.[/dim]"]
+
+    lines: list[str] = []
+    for report in reports:
+        outcome = report.outcome
+        symbol = "✓" if outcome == IterationOutcome.COMPLETED else "✗"
+        outcome_text = outcome.value if outcome is not None else "UNKNOWN"
+        duration = _format_duration(report.duration_seconds)
+        summary = report.summary or report.failure_reason or report.validation_hint or ""
+        summary = _truncate(summary, 64)
+        item_label = report.item_id or "unknown"
+        headline = f"{report.iteration:03d} {symbol} {item_label} ({duration}) {outcome_text}"
+        lines.append(headline)
+        if summary:
+            lines.append(f"  {summary}")
+    return lines
+
+
 def _build_tui_dashboard(
     all_cursor_workspaces: bool = False,
     include_banner_header: bool = True,
@@ -2124,6 +2171,11 @@ def _build_tui_dashboard(
     repo_root = _resolve_repo_root_for_display()
     repo_name = repo_root.name
     configured_agents = ", ".join(selected_sources) if selected_sources else "all"
+
+    timeline_lines = _render_iteration_timeline(
+        IterationReportStore(AGENT_DIR / "ralph"),
+        max_entries=8 if view == "all" else 12,
+    )
 
     # Keep long source lists readable in half-width panels (all view).
     if view == "all":
@@ -2306,6 +2358,11 @@ def _build_tui_dashboard(
         border_style="accent",
     )
     settings_panel = Panel(settings_table, title="Settings", border_style="accent")
+    timeline_panel = Panel(
+        "\n".join(timeline_lines),
+        title="Iteration Timeline",
+        border_style="accent",
+    )
 
     def _two_panel_row(left: Panel, right: Panel) -> Table:
         row = Table.grid(expand=True, padding=(0, 2))
@@ -2316,6 +2373,8 @@ def _build_tui_dashboard(
 
     if view == "knowledge":
         panels.append(knowledge_panel)
+    elif view == "timeline":
+        panels.append(timeline_panel)
     elif view == "llm":
         panels.append(llm_panel)
     elif view == "sources":
@@ -2329,6 +2388,7 @@ def _build_tui_dashboard(
             [
                 _two_panel_row(knowledge_panel, llm_panel),
                 _two_panel_row(sources_panel, settings_panel),
+                timeline_panel,
             ]
         )
     else:
