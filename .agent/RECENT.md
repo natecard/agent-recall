@@ -1,16 +1,17 @@
 # Current Situation
-Generated at 2026-02-15T21:24:18.760584+00:00
+Generated at 2026-02-15T21:37:25.258185+00:00
 
 ## Trajectory
 - 001 ✓ testpaths: tests
 - 002 ✓ testpaths: tests
 - 003 ✓ testpaths: tests
+- 004 ✓ testpaths: tests
 
 ## Current Status
 Latest outcome: COMPLETED
 
 ## Watch For
-testpaths: tests
+Textual 7.5.0 in this repo does not include a Terminal widget, so the tracer slice uses a placeholder panel with opt-in toggles.
 
 ## Emerging Pattern
-Emit notification events from the loop and route platform dispatch through shared helpers for CLI/TUI and hook usage.
+Persisted TUI preferences through config helpers and reused existing palette/slash command patterns for the new toggle.

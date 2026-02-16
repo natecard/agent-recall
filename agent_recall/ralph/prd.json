@@ -189,6 +189,75 @@
 			],
 			"validation_commands": ["uv run pytest tests/ -k timeline -x --tb=short"],
 			"passes": false
+		},
+		{
+			"id": "AR-801",
+			"priority": 1,
+			"title": "Accumulative tier updates for GUARDRAILS and STYLE",
+			"description": "Change Ralph synthesize-climate to merge new entries into existing GUARDRAILS.md and STYLE.md instead of overwriting. ClimateSynthesizer currently generates content from iteration reports only and replaces the entire tier file. It should read current tier content, extract new candidates from reports, use LLM to synthesize only the new items (excluding duplicates), and merge/append them to existing content using parse_tier_content/merge_tier_content.",
+			"user_story": "As a developer running the Ralph loop, I want GUARDRAILS and STYLE to accumulate learnings over time so that each iteration adds to the knowledge base rather than replacing it.",
+			"steps": [
+				"Update ClimateSynthesizer.synthesize_guardrails to read current GUARDRAILS via files.read_tier",
+				"Update synthesize_guardrails prompt to include current content and instruct LLM to return only NEW items not already present",
+				"Merge synthesized bullets with existing using tier_format.parse_tier_content and merge_tier_content",
+				"Update ClimateSynthesizer.synthesize_style with same read-merge-write flow",
+				"Ensure deduplication against existing entries before adding",
+				"Add tests for merge behavior and idempotent re-synthesis"
+			],
+			"acceptance_criteria": [
+				"synthesize-climate reads existing GUARDRAILS.md and STYLE.md before generating",
+				"New entries are appended/merged; existing entries are preserved",
+				"Re-running synthesize-climate with no new iteration reports does not change tier content",
+				"Round-trip through parse_tier_content and merge_tier_content preserves structure",
+				"Tests cover merge, dedup, and no-op when no new candidates"
+			],
+			"validation_commands": ["uv run pytest tests/ -k synthesis -x --tb=short", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-802",
+			"priority": 1,
+			"title": "Accumulative tier updates for RECENT",
+			"description": "Change Ralph rebuild-forecast to merge new forecast content into existing RECENT.md instead of overwriting. ForecastGenerator.write_forecast currently replaces the entire file. It should append new iteration summaries to existing RECENT content (or merge forecast sections) so that history accumulates. When RECENT format includes both session summaries and forecast sections, preserve both and append new forecast output.",
+			"user_story": "As a developer running the Ralph loop, I want RECENT.md to accumulate session summaries and forecast updates over time rather than being replaced each iteration.",
+			"steps": [
+				"Update ForecastGenerator.write_forecast to read current RECENT content",
+				"Define merge strategy: append new forecast block or merge into existing sections",
+				"Implement merge that preserves existing content and appends new forecast",
+				"Handle empty RECENT (first run) by writing initial content",
+				"Add tests for merge behavior"
+			],
+			"acceptance_criteria": [
+				"rebuild-forecast reads existing RECENT.md before writing",
+				"New forecast content is merged/appended; existing content is preserved",
+				"First run with no RECENT creates initial content",
+				"Tests cover merge and first-run behavior"
+			],
+			"validation_commands": ["uv run pytest tests/ -k forecast -x --tb=short", "uv run ruff check .", "uv run ty check"],
+			"passes": true
+		},
+		{
+			"id": "AR-803",
+			"priority": 2,
+			"title": "Token-based compaction trigger",
+			"description": "Add configurable token threshold (default ~10000 tokens) for GUARDRAILS, STYLE, and RECENT. When any tier file exceeds the threshold, trigger compaction (distill/summarize) to reduce size while preserving the most important entries. Add config key e.g. compaction.max_tier_tokens with default 10000. Before or after tier writes, check estimated token count; if exceeded, run tier compaction or LLM summarization to bring size back under threshold.",
+			"user_story": "As a developer with long-running Ralph sessions, I want tier files to compact automatically when they grow too large (~10k tokens) so that context stays manageable for the agent without losing critical learnings.",
+			"steps": [
+				"Add max_tier_tokens config (default 10000) to compaction or ralph config",
+				"Implement token estimation (chars/4 or tiktoken if available) for tier content",
+				"Add pre-write or post-write check: if tier would exceed threshold, run compaction first",
+				"Wire compaction trigger into synthesize-climate and rebuild-forecast flows",
+				"Add optional compact-before-write mode to avoid unbounded growth",
+				"Add tests for threshold detection and compaction trigger"
+			],
+			"acceptance_criteria": [
+				"Config max_tier_tokens (default 10000) controls when compaction runs",
+				"When tier content exceeds threshold, compaction/summarization runs before or after write",
+				"Compaction preserves highest-signal entries; reduces total token count",
+				"Tests cover threshold check and compaction trigger logic"
+			],
+			"validation_commands": ["uv run pytest tests/ -k 'tier and (compact or token)' -x --tb=short", "uv run ruff check .", "uv run ty check"],
+			"passes": false
 		}
 	]
 }

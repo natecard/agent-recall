@@ -5,21 +5,32 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_recall.core.tier_format import (
+    EntryFormat,
+    ParsedEntry,
+    merge_tier_content,
+    parse_bullet_entry,
+    parse_tier_content,
+)
 from agent_recall.llm import LLMProvider, Message
 from agent_recall.ralph.iteration_store import IterationReport, IterationReportStore
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 
 GUARDRAILS_SYNTHESIS_PROMPT = (
     "You are distilling Ralph iteration learnings into guardrails. "
-    "Given the candidate notes below, output concise bullet rules (1 line each), "
-    "max {max_entries} bullets. Avoid duplication and keep them actionable.\n\n"
+    "Given CURRENT guardrails and candidate notes, output only NEW concise bullet rules "
+    "(1 line each), max {max_entries} bullets. Do not repeat or paraphrase existing "
+    "rules. Keep them actionable.\n\n"
+    "Current guardrails:\n{current_content}\n\n"
     "Candidates:\n{candidates}"
 )
 
 STYLE_SYNTHESIS_PROMPT = (
     "You are distilling Ralph iteration learnings into a coding style guide. "
-    "Given the candidate notes below, output concise bullet patterns (1 line each), "
-    "max {max_entries} bullets. Avoid duplication and keep them actionable.\n\n"
+    "Given CURRENT style guide and candidate notes, output only NEW concise bullet "
+    "patterns (1 line each), max {max_entries} bullets. Do not repeat or paraphrase "
+    "existing patterns. Keep them actionable.\n\n"
+    "Current style guide:\n{current_content}\n\n"
     "Candidates:\n{candidates}"
 )
 
@@ -76,43 +87,199 @@ class ClimateSynthesizer:
         ranked = sorted(normalized.values(), key=lambda pair: (-pair[1], pair[0]))
         return ranked
 
+    def _normalize_entry(self, text: str) -> str:
+        return " ".join(text.split()).strip().lower()
+
+    def _extract_existing_bullet_texts(self, content: str) -> set[str]:
+        parsed = parse_tier_content(content)
+        existing: set[str] = set()
+        for entry in parsed.bullet_entries:
+            if entry.text:
+                existing.add(self._normalize_entry(entry.text))
+        # Back-compat for legacy plain markdown bullets (e.g. "- item"),
+        # but only from non-Ralph sections to avoid false dedup against
+        # iteration details inside Ralph blocks.
+        for line in [*parsed.preamble, *parsed.unknown_lines]:
+            stripped = line.strip()
+            if not stripped.startswith("- "):
+                continue
+            bullet = parse_bullet_entry(stripped)
+            if bullet is not None:
+                _kind, text = bullet
+                existing.add(self._normalize_entry(text))
+                continue
+            plain_text = stripped[2:].strip()
+            if plain_text:
+                existing.add(self._normalize_entry(plain_text))
+        return existing
+
+    def _extract_synthesized_lines(
+        self,
+        content: str,
+        *,
+        kind: str,
+        existing: set[str],
+    ) -> list[str]:
+        extracted: list[str] = []
+        seen = set(existing)
+        for raw_line in content.splitlines():
+            line = raw_line.strip()
+            if not line.startswith("- "):
+                continue
+            bullet = parse_bullet_entry(line)
+            if bullet is not None:
+                _existing_kind, text = bullet
+            else:
+                text = line[2:].strip()
+            normalized = self._normalize_entry(text)
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            extracted.append(f"- [{kind}] {text}")
+        return extracted
+
+    def _merge_bullets(self, current_content: str, new_bullets: list[str]) -> str:
+        if not new_bullets:
+            return current_content
+        parsed = parse_tier_content(current_content)
+        for line in new_bullets:
+            bullet = parse_bullet_entry(line)
+            if bullet is None:
+                continue
+            kind, text = bullet
+            parsed.bullet_entries.append(
+                ParsedEntry(
+                    format=EntryFormat.BULLET,
+                    raw_content=line,
+                    kind=kind,
+                    text=text,
+                )
+            )
+        return merge_tier_content(parsed)
+
+    def _fallback_bullets_from_candidates(
+        self,
+        candidates: list[str],
+        *,
+        kind: str,
+        existing: set[str],
+        max_entries: int,
+    ) -> list[str]:
+        fallback: list[str] = []
+        seen = set(existing)
+        for candidate in candidates:
+            normalized = self._normalize_entry(candidate)
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            fallback.append(f"- [{kind}] {candidate.strip()}")
+            if len(fallback) >= max_entries:
+                break
+        return fallback
+
     async def synthesize_guardrails(self, candidates: list[str]) -> str:
+        current_content = self.files.read_tier(KnowledgeTier.GUARDRAILS)
+        had_existing_content = bool(current_content.strip())
+        if not had_existing_content:
+            current_content = "# Guardrails\n"
         if not candidates:
+            if had_existing_content:
+                return current_content
             return "# Guardrails\n\n- No guardrails synthesized yet."
-        if self.llm is None:
-            raise RuntimeError("LLM provider is required for climate synthesis.")
-        prompt = GUARDRAILS_SYNTHESIS_PROMPT.format(
-            candidates="\n".join(f"- {item}" for item in candidates),
+        existing = self._extract_existing_bullet_texts(current_content)
+        novel_candidates = [
+            item for item in candidates if self._normalize_entry(item) not in existing
+        ]
+        if not novel_candidates:
+            if had_existing_content:
+                return current_content
+            return "# Guardrails\n\n- No guardrails synthesized yet."
+        fallback = self._fallback_bullets_from_candidates(
+            novel_candidates,
+            kind="GOTCHA",
+            existing=existing,
             max_entries=self.config.max_guardrails,
         )
-        response = await self.llm.generate(
-            [Message(role="user", content=prompt)],
-            temperature=0.2,
-            max_tokens=800,
-        )
-        content = response.content.strip()
-        if content.startswith("#"):
-            return content
-        return "# Guardrails\n\n" + content
+        synthesized: list[str] = []
+        if self.llm is not None:
+            prompt = GUARDRAILS_SYNTHESIS_PROMPT.format(
+                current_content=current_content.strip() or "(empty)",
+                candidates="\n".join(f"- {item}" for item in novel_candidates),
+                max_entries=self.config.max_guardrails,
+            )
+            try:
+                response = await self.llm.generate(
+                    [Message(role="user", content=prompt)],
+                    temperature=0.2,
+                    max_tokens=800,
+                )
+                synthesized = self._extract_synthesized_lines(
+                    response.content,
+                    kind="GOTCHA",
+                    existing=existing,
+                )
+            except Exception:  # noqa: BLE001
+                synthesized = []
+        if not synthesized:
+            synthesized = fallback
+        merged = self._merge_bullets(current_content, synthesized)
+        if merged.strip():
+            return merged
+        if synthesized:
+            return "# Guardrails\n\n" + "\n".join(synthesized) + "\n"
+        return "# Guardrails\n\n- No guardrails synthesized yet."
 
     async def synthesize_style(self, candidates: list[str]) -> str:
+        current_content = self.files.read_tier(KnowledgeTier.STYLE)
+        had_existing_content = bool(current_content.strip())
+        if not had_existing_content:
+            current_content = "# Style Guide\n"
         if not candidates:
+            if had_existing_content:
+                return current_content
             return "# Style Guide\n\n- No style patterns synthesized yet."
-        if self.llm is None:
-            raise RuntimeError("LLM provider is required for climate synthesis.")
-        prompt = STYLE_SYNTHESIS_PROMPT.format(
-            candidates="\n".join(f"- {item}" for item in candidates),
+        existing = self._extract_existing_bullet_texts(current_content)
+        novel_candidates = [
+            item for item in candidates if self._normalize_entry(item) not in existing
+        ]
+        if not novel_candidates:
+            if had_existing_content:
+                return current_content
+            return "# Style Guide\n\n- No style patterns synthesized yet."
+        fallback = self._fallback_bullets_from_candidates(
+            novel_candidates,
+            kind="PATTERN",
+            existing=existing,
             max_entries=self.config.max_style,
         )
-        response = await self.llm.generate(
-            [Message(role="user", content=prompt)],
-            temperature=0.2,
-            max_tokens=800,
-        )
-        content = response.content.strip()
-        if content.startswith("#"):
-            return content
-        return "# Style Guide\n\n" + content
+        synthesized: list[str] = []
+        if self.llm is not None:
+            prompt = STYLE_SYNTHESIS_PROMPT.format(
+                current_content=current_content.strip() or "(empty)",
+                candidates="\n".join(f"- {item}" for item in novel_candidates),
+                max_entries=self.config.max_style,
+            )
+            try:
+                response = await self.llm.generate(
+                    [Message(role="user", content=prompt)],
+                    temperature=0.2,
+                    max_tokens=800,
+                )
+                synthesized = self._extract_synthesized_lines(
+                    response.content,
+                    kind="PATTERN",
+                    existing=existing,
+                )
+            except Exception:  # noqa: BLE001
+                synthesized = []
+        if not synthesized:
+            synthesized = fallback
+        merged = self._merge_bullets(current_content, synthesized)
+        if merged.strip():
+            return merged
+        if synthesized:
+            return "# Style Guide\n\n" + "\n".join(synthesized) + "\n"
+        return "# Style Guide\n\n- No style patterns synthesized yet."
 
     def should_synthesize(self) -> bool:
         if not self.state_path.exists():
