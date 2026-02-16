@@ -31,6 +31,8 @@ class IterationReport:
     gotcha_discovered: str | None = None
     pattern_that_worked: str | None = None
     scope_change: str | None = None
+    token_usage: dict[str, int] | None = None
+    token_model: str | None = None
 
     # Harness-set after agent
     validation_exit_code: int | None = None
@@ -52,6 +54,8 @@ class IterationReport:
             "gotcha_discovered": self.gotcha_discovered,
             "pattern_that_worked": self.pattern_that_worked,
             "scope_change": self.scope_change,
+            "token_usage": dict(self.token_usage) if self.token_usage else None,
+            "token_model": self.token_model,
             "validation_exit_code": self.validation_exit_code,
             "validation_hint": self.validation_hint,
             "files_changed": list(self.files_changed),
@@ -87,6 +91,8 @@ class IterationReport:
             gotcha_discovered=_optional_str(data.get("gotcha_discovered")),
             pattern_that_worked=_optional_str(data.get("pattern_that_worked")),
             scope_change=_optional_str(data.get("scope_change")),
+            token_usage=_optional_usage(data.get("token_usage")),
+            token_model=_optional_str(data.get("token_model")),
             validation_exit_code=_optional_int(data.get("validation_exit_code")),
             validation_hint=_optional_str(data.get("validation_hint")),
             files_changed=files_changed,
@@ -261,6 +267,20 @@ def _optional_str(value: Any) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _optional_usage(value: Any) -> dict[str, int] | None:
+    if not isinstance(value, dict):
+        return None
+    parsed: dict[str, int] = {}
+    for key, raw in value.items():
+        if not isinstance(key, str):
+            continue
+        parsed_value = _optional_int(raw)
+        if parsed_value is None:
+            continue
+        parsed[key] = parsed_value
+    return parsed or None
 
 
 def _optional_int(value: Any) -> int | None:

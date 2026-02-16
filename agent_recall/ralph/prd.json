@@ -103,7 +103,7 @@
 		},
 		{
 			"id": "AR-705",
-			"priority": 2,
+			"priority": 1,
 			"title": "Token & Cost Tracking Dashboard",
 			"description": "Track token usage and estimated API costs for each Ralph iteration. Display cumulative and per-item costs in the TUI dashboard. Support budget limits that pause the Ralph loop when exceeded.",
 			"user_story": "As a developer, I want to know how much each PRD item costs in API tokens so that I can make informed decisions about when to let Ralph run autonomously vs. manually.",
@@ -148,7 +148,7 @@
 		},
 		{
 			"id": "AR-707",
-			"priority": 3,
+			"priority": 2,
 			"title": "OpenCode Plugin Integration",
 			"description": "Implement Ralph as an OpenCode plugin that subscribes to session lifecycle events (session start, idle, tool use). This enables the same hook-based workflow that Claude Code provides, but for the OpenCode ecosystem.",
 			"user_story": "As a developer using OpenCode, I want Ralph to react to my coding sessions just like it does with Claude Code hooks.",

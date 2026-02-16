@@ -21,7 +21,12 @@ from agent_recall.core.onboarding import inject_stored_api_keys
 from agent_recall.llm import create_llm_provider, ensure_provider_dependency
 from agent_recall.llm.base import LLMProvider
 from agent_recall.ralph.context_refresh import ContextRefreshHook
-from agent_recall.ralph.extraction import extract_from_artifacts, extract_git_diff, extract_outcome
+from agent_recall.ralph.extraction import (
+    extract_from_artifacts,
+    extract_git_diff,
+    extract_outcome,
+    extract_token_usage,
+)
 from agent_recall.ralph.forecast import ForecastConfig, ForecastGenerator
 from agent_recall.ralph.hooks import (
     build_hook_command,
@@ -317,6 +322,16 @@ def _read_agent_exit_code(runtime_dir: Path, iteration: int) -> int:
                 except ValueError:
                     return 0
     return 0
+
+
+def _read_agent_output(runtime_dir: Path, iteration: int) -> list[str]:
+    log_path = runtime_dir / f"agent-{iteration}.log"
+    if not log_path.exists():
+        return []
+    try:
+        return log_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
 
 
 def render_ralph_status(_config_dict: dict[str, object]) -> list[str]:
@@ -1248,6 +1263,7 @@ def ralph_extract_iteration(
     validation_exit = report.validation_exit_code or 0
     if report.validation_hint is None:
         report.validation_hint = "\n".join(validation_output) if validation_output else None
+    agent_output = _read_agent_output(runtime_dir, iteration)
     agent_exit = _read_agent_exit_code(runtime_dir, iteration)
     artifacts = extract_from_artifacts(
         validation_exit=validation_exit,
@@ -1257,6 +1273,9 @@ def ralph_extract_iteration(
         timeout=0.0,
         repo_dir=Path.cwd(),
     )
+    token_usage, token_model = extract_token_usage(agent_output)
+    report.token_usage = token_usage
+    report.token_model = token_model
     outcome = artifacts.get("outcome")
     if isinstance(outcome, IterationOutcome):
         report.outcome = outcome

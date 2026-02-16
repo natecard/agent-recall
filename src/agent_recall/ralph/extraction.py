@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import re
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 
 from agent_recall.ralph.iteration_store import IterationOutcome
@@ -31,6 +34,28 @@ def extract_failure_reason(validation_output: list[str]) -> str | None:
         if any(marker in lowered for marker in _ERROR_MARKERS):
             return stripped[:200]
     return None
+
+
+def extract_token_usage(output_lines: Iterable[str]) -> tuple[dict[str, int] | None, str | None]:
+    usage: dict[str, int] = {}
+    model: str | None = None
+
+    for line in output_lines:
+        if not line:
+            continue
+        payload = _parse_token_json_line(line)
+        if payload:
+            parsed_usage, parsed_model = payload
+            usage.update(parsed_usage)
+            if parsed_model:
+                model = parsed_model
+            continue
+        parsed_usage, parsed_model = _parse_token_line(line)
+        usage.update(parsed_usage)
+        if parsed_model:
+            model = parsed_model
+
+    return (usage or None, model)
 
 
 def extract_files_changed(repo_dir: Path) -> list[str]:
@@ -97,3 +122,68 @@ def _is_separator_line(value: str) -> bool:
     if len(value) < 3:
         return False
     return all(char in _SEPARATOR_CHARS for char in value)
+
+
+def _parse_token_json_line(line: str) -> tuple[dict[str, int], str | None] | None:
+    stripped = line.strip()
+    if not stripped.startswith("{"):
+        return None
+    try:
+        payload = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    usage_raw = payload.get("usage")
+    if not isinstance(usage_raw, dict):
+        return None
+    usage = _normalize_usage_dict(usage_raw)
+    model = _parse_model_value(payload.get("model"))
+    return (usage, model)
+
+
+def _parse_token_line(line: str) -> tuple[dict[str, int], str | None]:
+    usage: dict[str, int] = {}
+    model: str | None = None
+    lowered = line.lower()
+    if "token" not in lowered:
+        return usage, model
+
+    match = re.search(r"model\s*[:=]\s*([\w.:-]+)", line, re.IGNORECASE)
+    if match:
+        model = match.group(1)
+
+    total_match = re.search(r"total\s*tokens?\s*[:=]\s*(\d+)", line, re.IGNORECASE)
+    if total_match:
+        usage["total_tokens"] = int(total_match.group(1))
+
+    prompt_match = re.search(r"prompt\s*tokens?\s*[:=]\s*(\d+)", line, re.IGNORECASE)
+    if prompt_match:
+        usage["prompt_tokens"] = int(prompt_match.group(1))
+
+    completion_match = re.search(r"completion\s*tokens?\s*[:=]\s*(\d+)", line, re.IGNORECASE)
+    if completion_match:
+        usage["completion_tokens"] = int(completion_match.group(1))
+
+    return usage, model
+
+
+def _normalize_usage_dict(usage: dict[str, object]) -> dict[str, int]:
+    parsed: dict[str, int] = {}
+    for key, value in usage.items():
+        if not isinstance(key, str):
+            continue
+        if not isinstance(value, int | float | str):
+            continue
+        try:
+            parsed[key] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return parsed
+
+
+def _parse_model_value(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned if cleaned else None

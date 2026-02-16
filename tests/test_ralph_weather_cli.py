@@ -90,6 +90,12 @@ def test_ralph_extract_iteration_updates_current_report() -> None:
         assert create.exit_code == 0
         runtime_dir = Path(".agent") / "ralph" / ".runtime"
         _write_validate_log(runtime_dir / "validate-1.log", ["E   AssertionError: boom"])
+        _write_validate_log(
+            runtime_dir / "agent-1.log",
+            [
+                '{"usage": {"prompt_tokens": 3, "completion_tokens": 2}, "model": "gpt-test"}',
+            ],
+        )
         current_path = Path(".agent") / "ralph" / "iterations" / "current.json"
         payload = json.loads(current_path.read_text())
         payload["validation_exit_code"] = 1
@@ -126,6 +132,8 @@ def test_ralph_extract_iteration_updates_current_report() -> None:
         current_path = Path(".agent") / "ralph" / "iterations" / "current.json"
         payload = json.loads(current_path.read_text())
         assert payload["validation_hint"] == "E   AssertionError: boom"
+        assert payload["token_usage"] == {"prompt_tokens": 3, "completion_tokens": 2}
+        assert payload["token_model"] == "gpt-test"
         diff_path = Path(".agent") / "ralph" / "iterations" / "001.diff"
         assert diff_path.exists()
 

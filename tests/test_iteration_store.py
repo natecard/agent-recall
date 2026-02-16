@@ -25,6 +25,8 @@ def test_iteration_report_round_trip() -> None:
         gotcha_discovered="none",
         pattern_that_worked="keep it simple",
         scope_change=None,
+        token_usage={"prompt_tokens": 10, "completion_tokens": 5},
+        token_model="claude-sonnet-4-20250514",
         validation_exit_code=0,
         validation_hint="",
         files_changed=["src/foo.py", "tests/test_foo.py"],
@@ -46,6 +48,8 @@ def test_iteration_report_round_trip() -> None:
     assert restored.gotcha_discovered == report.gotcha_discovered
     assert restored.pattern_that_worked == report.pattern_that_worked
     assert restored.scope_change == report.scope_change
+    assert restored.token_usage == report.token_usage
+    assert restored.token_model == report.token_model
     assert restored.validation_exit_code == report.validation_exit_code
     assert restored.validation_hint == report.validation_hint
     assert restored.files_changed == report.files_changed

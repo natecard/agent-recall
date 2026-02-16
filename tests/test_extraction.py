@@ -9,6 +9,7 @@ from agent_recall.ralph.extraction import (
     extract_from_artifacts,
     extract_git_diff,
     extract_outcome,
+    extract_token_usage,
     extract_validation_hint,
 )
 from agent_recall.ralph.iteration_store import IterationOutcome
@@ -90,6 +91,27 @@ def test_extract_git_diff_returns_diff_text(tmp_path: Path) -> None:
 def test_extract_validation_hint_skips_separators_and_blanks() -> None:
     output = ["", "-----", "====", " first actionable ", "later"]
     assert extract_validation_hint(output) == "first actionable"
+
+
+def test_extract_token_usage_parses_json_lines() -> None:
+    output = [
+        '{"usage": {"prompt_tokens": 12, "completion_tokens": 4}, "model": "gpt-test"}',
+        "ignored",
+    ]
+    usage, model = extract_token_usage(output)
+    assert usage == {"prompt_tokens": 12, "completion_tokens": 4}
+    assert model == "gpt-test"
+
+
+def test_extract_token_usage_parses_plain_lines() -> None:
+    output = ["Total tokens: 17", "Prompt tokens: 11", "Completion tokens: 6"]
+    usage, model = extract_token_usage(output)
+    assert usage == {
+        "total_tokens": 17,
+        "prompt_tokens": 11,
+        "completion_tokens": 6,
+    }
+    assert model is None
 
 
 def test_extract_from_artifacts_builds_deterministic_dict(tmp_path: Path) -> None:
