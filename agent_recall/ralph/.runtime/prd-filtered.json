@@ -1,0 +1,60 @@
+{
+  "project": "Agent Recall Super Ralph",
+  "version": 2,
+  "selection_policy": {
+    "agent_decides_priority": true,
+    "priority_scale": "1 = highest priority",
+    "order_of_operations": [
+      "critical bugfixes",
+      "tracer-bullet feature slices",
+      "polish and quick wins",
+      "refactors"
+    ]
+  },
+  "items": [
+    {
+      "id": "AR-901",
+      "priority": 1,
+      "title": "Fix TUI Command Palette Arrow Navigation",
+      "description": "The TUI Command Palette currently traps focus in the input field, preventing Up/Down arrow keys from navigating the list of commands. This item involves intercepting key events in the `CommandPaletteModal` to manually control the `OptionList` highlight when arrows are pressed, even while the input has focus.",
+      "user_story": "As a user of the TUI Command Palette, I want to use the Up and Down arrow keys to navigate the list of suggestions while typing, so that I can quickly select a command without having to press Tab or click.",
+      "steps": [
+        "Modify `CommandPaletteModal` to intercept `Key` events",
+        "On 'down' key: Increment `OptionList` highlighted index, skipping disabled items",
+        "On 'up' key: Decrement `OptionList` highlighted index, skipping disabled items",
+        "Ensure Input widget retains focus throughout navigation"
+      ],
+      "acceptance_criteria": [
+        "Pressing Down arrow while input is focused moves selection to next actionable item",
+        "Pressing Up arrow while input is focused moves selection to previous actionable item",
+        "Focus remains in the Input widget",
+        "Navigation skips over group headings and disabled options"
+      ],
+      "validation_commands": [
+        "uv run pytest tests/test_textual_tui.py -k palette"
+      ],
+      "passes": true
+    },
+    {
+      "id": "AR-902",
+      "priority": 1,
+      "title": "Remove TAB Requirement for Palette Navigation",
+      "description": "Improve the Command Palette UX by removing the need to press TAB to switch focus between the input and the list. This relies on the implementation of AR-901 to allow direct navigation from the input field, and ensures the Enter key triggers the highlighted option correctly.",
+      "user_story": "As a user, I want to navigate the command palette immediately after typing without an intermediate key press (like TAB), so that my workflow remains fluid.",
+      "steps": [
+        "Update `palette_hint` text to remove any instructions about TAB (if present)",
+        "Ensure `Enter` key executes the currently highlighted option from the list if one is active",
+        "Verify 'Type-and-Arrow' flow works without any focus switching"
+      ],
+      "acceptance_criteria": [
+        "User can type, arrow down to an item, and press Enter to execute it",
+        "No TAB press is required to navigate the list",
+        "Hint text clearly indicates direct navigation available"
+      ],
+      "validation_commands": [
+        "uv run pytest tests/test_textual_tui.py -k palette"
+      ],
+      "passes": false
+    }
+  ]
+}
