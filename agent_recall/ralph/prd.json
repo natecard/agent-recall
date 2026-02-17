@@ -1,151 +1,17 @@
 {
-	"project": "Agent Recall Super Ralph",
-	"version": 2,
-	"selection_policy": {
-		"agent_decides_priority": true,
-		"priority_scale": "1 = highest priority",
-		"order_of_operations": ["critical bugfixes", "tracer-bullet feature slices", "polish and quick wins", "refactors"]
-	},
-	"items": [
-    {
-      "id": "AR-701",
-      "priority": 1,
-      "title": "Claude Code Hook Integration",
-      "description": "Inject PreToolUse and PostToolUse hooks into .claude/settings.json that call back to Ralph. PreToolUse hook blocks dangerous operations (rm -rf, DROP TABLE, etc) via a guardrails script generated from GUARDRAILS.md. PostToolUse hook logs tool-call events to Ralph's iteration store for Weather Model consumption.",
-      "user_story": "As a developer using Ralph with Claude Code, I want Ralph to enforce my guardrails in real-time so that the AI agent cannot accidentally delete critical files or run destructive commands.",
-      "steps": [
-        "Create hook script generator that reads GUARDRAILS.md and produces a PreToolUse validation script",
-        "Create PostToolUse logging script that appends structured events to .agent/ralph/tool_events.jsonl",
-        "Add `ralph hooks install` CLI command to write hook configs into .claude/settings.json",
-        "Add `ralph hooks uninstall` command to clean up",
-        "Wire hook installation into Ralph loop startup",
-        "Add TUI palette action for hook management"
-      ],
-      "acceptance_criteria": [
-        "Running `ralph hooks install` adds PreToolUse and PostToolUse entries to .claude/settings.json",
-        "PreToolUse hook exits non-zero for operations matching guardrail patterns, blocking the tool call",
-        "PostToolUse hook writes a JSONL event with tool name, arguments, and result summary",
-        "Hook scripts are idempotent and safe to re-install",
-        "Tests cover hook config generation, guardrail pattern matching, and event logging"
-      ],
-      "validation_commands": ["uv run pytest tests/ -k hook -x --tb=short"],
-      "passes": true
-    },
-    {
-      "id": "AR-702",
-      "priority": 1,
-      "title": "Live Session Log Watcher",
-      "description": "Add a file watcher (using watchdog or polling) that monitors Claude Code's JSONL session logs in real-time. When the developer runs Claude Code independently, Ralph can ingest tool calls, decisions, and output as they happen — feeding the Weather Model and updating the TUI activity console live.",
-      "user_story": "As a developer running Claude Code in my normal terminal, I want Ralph to automatically observe what the AI is doing so that my GUARDRAILS and RECENT files stay fresh without me needing to manually sync.",
-      "steps": [
-        "Implement LogWatcher class that tails JSONL files for new events",
-        "Support Claude Code's project log directory structure (~/.claude/projects/<hash>/)",
-        "Parse incremental events and emit progress callbacks",
-        "Add `ralph watch` CLI command to start the watcher",
-        "Add TUI action to toggle the watcher",
-        "Feed watched events into the existing iteration store"
-      ],
-      "acceptance_criteria": [
-        "LogWatcher detects new JSONL lines within 2 seconds of being written",
-        "Events are parsed using the existing ClaudeCodeIngester patterns",
-        "Watched events appear in the TUI activity console in real-time",
-        "Watcher gracefully handles log rotation and file deletion",
-        "Tests cover file watching, parsing, and edge cases"
-      ],
-      "validation_commands": ["uv run pytest tests/ -k watch -x --tb=short"],
-      "passes": true
-    },
-    {
-      "id": "AR-703",
-      "priority": 1,
-      "title": "Embedded Terminal Panel",
-      "description": "Add a split-pane terminal emulator to the TUI using Textual's Terminal widget backed by pyte. The developer can run their coding CLI inside the TUI while seeing the dashboard, activity log, and iteration status alongside it. Ralph can read the PTY output for automatic ingestion.",
-      "user_story": "As a developer, I want to run Claude Code inside the Ralph TUI so that I can see my dashboard, guardrails, and forecast alongside the AI's work in a single terminal window.",
-      "steps": [
-        "Add textual-terminal dependency and Terminal widget",
-        "Create split-pane layout: terminal left/bottom, dashboard right/top",
-        "Wire PTY output to Ralph's ingest pipeline for passive learning",
-        "Add palette action to toggle terminal panel",
-        "Add keybinding to switch focus between terminal and dashboard",
-        "Persist terminal panel visibility preference in config"
-      ],
-      "acceptance_criteria": [
-        "Terminal panel renders a full interactive shell inside the TUI",
-        "Developer can launch Claude Code / Codex / OpenCode inside the panel",
-        "Dashboard panels continue refreshing while terminal is active",
-        "Terminal output is optionally forwarded to Ralph's event pipeline",
-        "Tests cover panel toggle, focus switching, and layout persistence"
-      ],
-      "validation_commands": ["uv run pytest tests/ -k terminal -x --tb=short"],
-      "passes": true
-    },
-    {
-      "id": "AR-704",
-      "priority": 1,
-      "title": "Iteration Diff Viewer",
-      "description": "After each Ralph iteration, capture the git diff and display it in the TUI as a scrollable, syntax-highlighted panel. Developers can review what changed without leaving the TUI.",
-      "user_story": "As a developer, I want to see exactly what Ralph's AI agent changed after each iteration so that I can quickly review and approve the changes.",
-      "steps": [
-        "Capture `git diff` output after each iteration in the Ralph loop",
-        "Store diffs alongside iteration reports",
-        "Add a DiffViewerModal to the TUI with syntax highlighting via Rich",
-        "Add palette action 'View Last Diff'",
-        "Support navigation through multiple iteration diffs"
-      ],
-      "acceptance_criteria": [
-        "After each iteration, the git diff is automatically captured and stored",
-        "DiffViewerModal shows syntax-highlighted diff with file headers",
-        "User can scroll through large diffs and navigate between files",
-        "Tests cover diff capture, storage, and modal rendering"
-      ],
-      "validation_commands": ["uv run pytest tests/ -k diff -x --tb=short"],
-      "passes": true
-    },
-    {
-      "id": "AR-705",
-      "priority": 1,
-      "title": "Token & Cost Tracking Dashboard",
-      "description": "Track token usage and estimated API costs for each Ralph iteration. Display cumulative and per-item costs in the TUI dashboard. Support budget limits that pause the Ralph loop when exceeded.",
-      "user_story": "As a developer, I want to know how much each PRD item costs in API tokens so that I can make informed decisions about when to let Ralph run autonomously vs. manually.",
-      "steps": [
-        "Parse token usage from Claude Code / Codex output or API response headers",
-        "Add cost model with per-provider pricing tables",
-        "Store per-iteration token counts in iteration reports",
-        "Add cost summary panel to TUI dashboard",
-        "Add budget limit config with auto-pause on exceeded",
-        "Add `ralph cost-report` CLI command"
-      ],
-      "acceptance_criteria": [
-        "Token counts are captured from CLI output for each iteration",
-        "Dashboard displays cumulative cost by PRD item",
-        "Budget limit pauses the Ralph loop with a clear message",
-        "Tests cover cost calculation, budget enforcement, and report generation"
-      ],
-      "validation_commands": ["uv run pytest tests/ -k cost -x --tb=short"],
-      "passes": true
-    },
-    {
-      "id": "AR-706",
-      "priority": 1,
-      "title": "Desktop Notifications",
-      "description": "Send OS-level notifications when key Ralph events occur: iteration complete, validation failure, loop finished, budget exceeded. Support macOS (osascript), Linux (notify-send), and Claude Code's Notification hook.",
-      "user_story": "As a developer running Ralph in the background, I want desktop notifications so that I know immediately when something needs my attention.",
-      "steps": [
-        "Create platform-aware notification dispatcher",
-        "Hook into Ralph loop progress callbacks for key events",
-        "Add notification preferences to config (which events to notify)",
-        "Wire Claude Code's Notification hook to Ralph notifications",
-        "Add TUI toggle for notification preferences"
-      ],
-      "acceptance_criteria": [
-        "macOS notification fires on iteration complete/failure",
-        "Notification preferences are persisted in config",
-        "Claude Code Notification hook triggers Ralph notification pathway",
-        "Tests cover notification dispatch with platform stubs"
-      ],
-      "validation_commands": ["uv run pytest tests/ -k notif -x --tb=short"],
-      "passes": true
-    },
+  "project": "Agent Recall Super Ralph",
+  "version": 2,
+  "selection_policy": {
+    "agent_decides_priority": true,
+    "priority_scale": "1 = highest priority",
+    "order_of_operations": [
+      "critical bugfixes",
+      "tracer-bullet feature slices",
+      "polish and quick wins",
+      "refactors"
+    ]
+  },
+  "items": [
     {
       "id": "AR-707",
       "priority": 3,
@@ -171,174 +37,100 @@
       "passes": false
     },
     {
-      "id": "AR-708",
+      "id": "AR-1001",
       "priority": 1,
-      "title": "Iteration Timeline View",
-      "description": "Add a structured timeline panel to the TUI that visualizes iteration history with outcomes, durations, key decisions, and gotchas. Replace the plain-text progress.txt with an interactive, scrollable timeline.",
-      "user_story": "As a developer, I want a visual timeline of Ralph's iterations so that I can quickly spot patterns, identify blockers, and understand the trajectory of my project.",
+      "title": "Refactor Dashboard to Component Architecture",
+      "description": "Refactor the monolithic `build_tui_dashboard` function into separate, reusable Textual `Widget` classes for each logical section (Knowledge, LLM, Sources, Settings, Timeline). This moves away from the current method of rendering static Rich groups on every tick to a component-based model where widgets manage their own state and updates. This is a prerequisite for adding interactivity and fixing the 'All' view.",
+      "user_story": "As a developer extending the TUI, I want clear separation of concerns in the dashboard code so that I can add features to the Timeline or Settings views without navigating a single 300-line function.",
       "steps": [
-        "Create TimelinePanel Textual widget rendering iteration reports",
-        "Show outcome badges (✓/✗), duration, item ID, and summary",
-        "Support drill-down into iteration details",
-        "Add palette action to toggle timeline view",
-        "Implement keyboard navigation through timeline entries"
+        "Create `src/agent_recall/cli/tui/widgets/` package",
+        "Implement `KnowledgeWidget`, `LLMConfigWidget`, `SourcesWidget`, `SettingsWidget`, `TimelineWidget` inheriting from `Static` or `Widget`",
+        "Move rendering logic from `dashboard.py` into `render()` or `compose()` methods of these widgets",
+        "Update `AgentRecallTextualApp` to compose these widgets instead of calling `build_tui_dashboard`",
+        "Implement a `DashboardController` or update `app.py` to coordinate data refreshes to these widgets"
       ],
       "acceptance_criteria": [
-        "Timeline renders all iteration reports with visual indicators",
-        "Drill-down shows full iteration report including diff",
-        "Timeline auto-scrolls to latest entry",
-        "Tests cover timeline rendering and navigation"
-      ],
-      "validation_commands": ["uv run pytest tests/ -k timeline -x --tb=short"],
-      "passes": true
-    },
-    {
-      "id": "AR-801",
-      "priority": 1,
-      "title": "Accumulative tier updates for GUARDRAILS and STYLE",
-      "description": "Change Ralph synthesize-climate to merge new entries into existing GUARDRAILS.md and STYLE.md instead of overwriting. ClimateSynthesizer currently generates content from iteration reports only and replaces the entire tier file. It should read current tier content, extract new candidates from reports, use LLM to synthesize only the new items (excluding duplicates), and merge/append them to existing content using parse_tier_content/merge_tier_content.",
-      "user_story": "As a developer running the Ralph loop, I want GUARDRAILS and STYLE to accumulate learnings over time so that each iteration adds to the knowledge base rather than replacing it.",
-      "steps": [
-        "Update ClimateSynthesizer.synthesize_guardrails to read current GUARDRAILS via files.read_tier",
-        "Update synthesize_guardrails prompt to include current content and instruct LLM to return only NEW items not already present",
-        "Merge synthesized bullets with existing using tier_format.parse_tier_content and merge_tier_content",
-        "Update ClimateSynthesizer.synthesize_style with same read-merge-write flow",
-        "Ensure deduplication against existing entries before adding",
-        "Add tests for merge behavior and idempotent re-synthesis"
-      ],
-      "acceptance_criteria": [
-        "synthesize-climate reads existing GUARDRAILS.md and STYLE.md before generating",
-        "New entries are appended/merged; existing entries are preserved",
-        "Re-running synthesize-climate with no new iteration reports does not change tier content",
-        "Round-trip through parse_tier_content and merge_tier_content preserves structure",
-        "Tests cover merge, dedup, and no-op when no new candidates"
+        "Dashboard views render identically to the current implementation but use Widget classes",
+        "`build_tui_dashboard` function is deprecated or removed",
+        "Code is split into multiple files in `widgets/`",
+        "Individual widgets can be refreshed independently",
+        "Tests pass with new component structure"
       ],
       "validation_commands": [
-        "uv run pytest tests/ -k synthesis -x --tb=short",
-        "uv run ruff check .",
-        "uv run ty check"
+        "uv run pytest tests/test_textual_tui.py"
       ],
-      "passes": true
+      "passes": false
     },
     {
-      "id": "AR-802",
+      "id": "AR-1002",
       "priority": 1,
-      "title": "Accumulative tier updates for RECENT",
-      "description": "Change Ralph rebuild-forecast to merge new forecast content into existing RECENT.md instead of overwriting. ForecastGenerator.write_forecast currently replaces the entire file. It should append new iteration summaries to existing RECENT content (or merge forecast sections) so that history accumulates. When RECENT format includes both session summaries and forecast sections, preserve both and append new forecast output.",
-      "user_story": "As a developer running the Ralph loop, I want RECENT.md to accumulate session summaries and forecast updates over time rather than being replaced each iteration.",
+      "title": "Refactor 'All View' to Responsive Grid Layout",
+      "description": "Replace the static vertical stacking in the 'All' view with a proper CSS Grid layout. The current implementation forces a rigid 2-column row structure. A grid layout should adapt to the terminal window size, allowing for a more information-dense and readable dashboard. The 'All' view should effectively become a high-level cockpit.",
+      "user_story": "As a user with a large terminal window, I want the 'All' view to utilize the available space efficiently, showing me the timeline, status, and config side-by-side rather than in a long scrolling list.",
       "steps": [
-        "Update ForecastGenerator.write_forecast to read current RECENT content",
-        "Define merge strategy: append new forecast block or merge into existing sections",
-        "Implement merge that preserves existing content and appends new forecast",
-        "Handle empty RECENT (first run) by writing initial content",
-        "Add tests for merge behavior"
+        "Define a CSS Grid layout in `APP_CSS` for the 'All' view",
+        "Update `AgentRecallTextualApp` to switch classes/layouts when 'All' view is active",
+        "Place `TimelineWidget` in a primary column (e.g., center or right) taking up vertically available space",
+        "Place `Status`, `Sources`, and `Config` widgets in a sidebar or secondary column",
+        "Ensure layout degrades gracefully on smaller screens"
       ],
       "acceptance_criteria": [
-        "rebuild-forecast reads existing RECENT.md before writing",
-        "New forecast content is merged/appended; existing content is preserved",
-        "First run with no RECENT creates initial content",
-        "Tests cover merge and first-run behavior"
+        "All View uses CSS Grid instead of `_two_panel_row` helper",
+        "Layout adapts to terminal width (e.g., switches to storage stack on narrow screens)",
+        "Timeline is visible without scrolling the entire dashboard",
+        "All key information is visible at a glance on standard 1080p terminal sizes"
       ],
       "validation_commands": [
-        "uv run pytest tests/ -k forecast -x --tb=short",
-        "uv run ruff check .",
-        "uv run ty check"
+        "uv run pytest tests/test_textual_tui.py"
       ],
-      "passes": true
+      "passes": false
     },
     {
-      "id": "AR-803",
-      "priority": 1,
-      "title": "Token-based compaction trigger",
-      "description": "Add configurable token threshold (default ~10000 tokens) for GUARDRAILS, STYLE, and RECENT. When any tier file exceeds the threshold, trigger compaction (distill/summarize) to reduce size while preserving the most important entries. Add config key e.g. compaction.max_tier_tokens with default 10000. Before or after tier writes, check estimated token count; if exceeded, run tier compaction or LLM summarization to bring size back under threshold.",
-      "user_story": "As a developer with long-running Ralph sessions, I want tier files to compact automatically when they grow too large (~10k tokens) so that context stays manageable for the agent without losing critical learnings.",
-      "steps": [
-        "Add max_tier_tokens config (default 10000) to compaction or ralph config",
-        "Implement token estimation (chars/4 or tiktoken if available) for tier content",
-        "Add pre-write or post-write check: if tier would exceed threshold, run compaction first",
-        "Wire compaction trigger into synthesize-climate and rebuild-forecast flows",
-        "Add optional compact-before-write mode to avoid unbounded growth",
-        "Add tests for threshold detection and compaction trigger"
-      ],
-      "acceptance_criteria": [
-        "Config max_tier_tokens (default 10000) controls when compaction runs",
-        "When tier content exceeds threshold, compaction/summarization runs before or after write",
-        "Compaction preserves highest-signal entries; reduces total token count",
-        "Tests cover threshold check and compaction trigger logic"
-      ],
-      "validation_commands": [
-        "uv run pytest tests/ -k 'tier and (compact or token)' -x --tb=short",
-        "uv run ruff check .",
-        "uv run ty check"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-901",
-      "priority": 1,
-      "title": "Fix TUI Command Palette Arrow Navigation",
-      "description": "The TUI Command Palette currently traps focus in the input field, preventing Up/Down arrow keys from navigating the list of commands. This item involves intercepting key events in the `CommandPaletteModal` to manually control the `OptionList` highlight when arrows are pressed, even while the input has focus.",
-      "user_story": "As a user of the TUI Command Palette, I want to use the Up and Down arrow keys to navigate the list of suggestions while typing, so that I can quickly select a command without having to press Tab or click.",
-      "steps": [
-        "Modify `CommandPaletteModal` to intercept `Key` events",
-        "On 'down' key: Increment `OptionList` highlighted index, skipping disabled items",
-        "On 'up' key: Decrement `OptionList` highlighted index, skipping disabled items",
-        "Ensure Input widget retains focus throughout navigation"
-      ],
-      "acceptance_criteria": [
-        "Pressing Down arrow while input is focused moves selection to next actionable item",
-        "Pressing Up arrow while input is focused moves selection to previous actionable item",
-        "Focus remains in the Input widget",
-        "Navigation skips over group headings and disabled options"
-      ],
-      "validation_commands": [
-        "uv run pytest tests/test_textual_tui.py -k palette"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-902",
+      "id": "AR-1003",
       "priority": 2,
-      "title": "Remove TAB Requirement for Palette Navigation",
-      "description": "Improve the Command Palette UX by removing the need to press TAB to switch focus between the input and the list. This relies on the implementation of AR-901 to allow direct navigation from the input field, and ensures the Enter key triggers the highlighted option correctly.",
-      "user_story": "As a user, I want to navigate the command palette immediately after typing without an intermediate key press (like TAB), so that my workflow remains fluid.",
+      "title": "Interactive Configuration & Sources Views",
+      "description": "Upgrade the read-only Settings, LLM, and Sources views to be interactive. Users should be able to toggle settings, change models, and trigger source syncs directly from the UI without editing text files or restarting. This addresses the need for simple accessibility to common tasks.",
+      "user_story": "As a user, I want to quickly switch LLM models or trigger a manual sync of a source within the TUI so that I can experiment with different configurations rapidly.",
       "steps": [
-        "Update `palette_hint` text to remove any instructions about TAB (if present)",
-        "Ensure `Enter` key executes the currently highlighted option from the list if one is active",
-        "Verify 'Type-and-Arrow' flow works without any focus switching"
+        "Convert `LLMConfigWidget` to use `Input` and `Select` widgets for provider/model/temperature",
+        "Convert `SourcesWidget` to use `DataTable` or `ListView` with 'Sync' buttons",
+        "Implement message passing or callbacks to update the underlying configuration/trigger syncs",
+        "Add visual feedback (spinners/notifications) for sync actions"
       ],
       "acceptance_criteria": [
-        "User can type, arrow down to an item, and press Enter to execute it",
-        "No TAB press is required to navigate the list",
-        "Hint text clearly indicates direct navigation available"
+        "Users can edit LLM configuration in the UI and changes are persisted",
+        "Users can click a button to sync a specific source",
+        "Sources view shows real-time status of sync operations",
+        "Settings view allows toggling boolean flags (e.g., refresh rate, theme)"
       ],
       "validation_commands": [
-        "uv run pytest tests/test_textual_tui.py -k palette"
+        "uv run pytest tests/test_textual_tui.py"
       ],
-      "passes": true
+      "passes": false
     },
     {
-      "id": "AR-903",
-      "priority": 1,
-      "title": "Deduplicate TUI Command Palette & CLI Actions",
-      "description": "The TUI Command Palette currently only shows predefined PaletteActions. It should also include available CLI command suggestions (from `_build_command_suggestions`), but must deduplicate them to avoid showing redundant entries for commands that already have a dedicated PaletteAction. This involves wiring up the unused `_is_palette_cli_command_redundant` logic.",
-      "user_story": "As a user, I want to find both high-level actions and raw CLI commands in the palette without seeing duplicate entries for the same operation.",
+      "id": "AR-1004",
+      "priority": 2,
+      "title": "Enhanced Knowledge & Timeline Browsers",
+      "description": "Transform the static Knowledge and Timeline summaries into fully browsable interfaces. The Knowledge view should allow reading the actual Guardrails/Style/Recent content with syntax highlighting. The Timeline should allow clicking an entry to view the full iteration report and diff.",
+      "user_story": "As a user, I want to read my Guardrails or review a past iteration's diff within the TUI so that I don't have to switch to an external editor.",
       "steps": [
-        "Pass `_command_suggestions` to `CommandPaletteModal` constructor",
-        "Update `CommandPaletteModal._rebuild_options` to include filtered CLI commands",
-        "Use `_is_palette_cli_command_redundant` to filter CLI commands that overlap with `PaletteAction`s",
-        "Append non-redundant CLI commands to the palette options, potentially in a new 'CLI' or 'Other' group"
+        "Implement `KnowledgeBrowser` widget with tabs for Guardrails/Style/Recent",
+        "Use `RichLog` or `Syntax` widget to display file content with scrolling",
+        "Make `TimelineWidget` items clickable (using `DataTable` or custom buttons)",
+        "Implement a `DetailModal` or side-sheet to show the full content of a selected timeline item (report + diff)",
+        "Add search/filter input for the Timeline"
       ],
       "acceptance_criteria": [
-        "Command Palette displays both PaletteActions and unique CLI commands",
-        "Commands like `ralph enable` do not appear as raw CLI text because they are covered by 'Start Ralph Loop' action",
-        "Raw CLI commands that have no corresponding action (e.g. obscure subcommands) are visible and runnable",
-        "Filtering logic in `_is_palette_cli_command_redundant` is correctly applied"
+        "Knowledge view displays full content of tier files",
+        "Timeline items are interactive; clicking opens details",
+        "Detail view shows iteration summary, result, and git diff",
+        "Users can escape back to the main view easily"
       ],
       "validation_commands": [
-        "uv run pytest tests/test_textual_tui.py -k palette"
+        "uv run pytest tests/test_textual_tui.py"
       ],
-      "passes": true
+      "passes": false
     }
   ]
 }

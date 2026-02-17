@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 _LOADING_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
-_DEBUG_LOG_PATH = Path("/Users/natecard/OnHere/Repos/self-docs/.cursor/debug.log")
+_DEBUG_LOG_PATH = Path("/Users/natecard/OnHere/Repos/self-docs/.agent/debug.log")
 _RALPH_STREAM_FLUSH_SECONDS = 0.08
 _RALPH_STREAM_FLUSH_MAX_CHARS = 8192
 

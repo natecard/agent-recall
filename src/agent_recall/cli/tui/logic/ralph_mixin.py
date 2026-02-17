@@ -180,3 +180,27 @@ class RalphMixin:
             exit_on_error=False,
         )
         self._worker_context[id(worker)] = "ralph_run"
+
+    def _clear_selected_prd_ids_after_successful_run(self: Any) -> None:
+        try:
+            from agent_recall.cli.ralph import read_ralph_config, write_ralph_config
+            from agent_recall.storage.files import FileStorage
+
+            agent_dir = Path(".agent")
+            if not agent_dir.exists():
+                return
+
+            files = FileStorage(agent_dir)
+            ralph_cfg = read_ralph_config(files)
+            selected_value = ralph_cfg.get("selected_prd_ids")
+            if not isinstance(selected_value, list):
+                return
+
+            selected_ids = [str(item).strip() for item in selected_value if str(item).strip()]
+            if not selected_ids:
+                return
+
+            write_ralph_config(files, {"selected_prd_ids": None})
+            self._append_activity("Cleared PRD selection after successful Ralph run.")
+        except Exception as exc:  # noqa: BLE001
+            self._append_activity(f"Failed to clear PRD selection: {exc}")

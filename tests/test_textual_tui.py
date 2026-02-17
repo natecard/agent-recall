@@ -196,6 +196,56 @@ def test_tui_ralph_run_streams_shell_loop_with_configured_agent_cmd(tmp_path, mo
     assert worker_result["exit_code"] == 0
 
 
+def test_tui_successful_ralph_run_clears_selected_prd_ids(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    agent_dir = tmp_path / ".agent"
+    agent_dir.mkdir(parents=True)
+    config_path = agent_dir / "config.yaml"
+    config_path.write_text(
+        yaml.safe_dump({"ralph": {"selected_prd_ids": ["AR-1", "AR-2"]}}),
+        encoding="utf-8",
+    )
+
+    app = _build_test_app()
+    captured_activity: list[str] = []
+    monkeypatch.setattr(app, "_append_activity", lambda line: captured_activity.append(line))
+    monkeypatch.setattr(app, "_refresh_dashboard_panel", lambda: None)
+
+    app._handle_worker_success("ralph_run", {"exit_code": 0})
+
+    payload = cast(dict[str, Any], yaml.safe_load(config_path.read_text(encoding="utf-8")) or {})
+    ralph_cfg = cast(dict[str, Any], payload.get("ralph") or {})
+    assert ralph_cfg.get("selected_prd_ids") is None
+    assert any(
+        "Cleared PRD selection after successful Ralph run." in line for line in captured_activity
+    )
+
+
+def test_tui_unsuccessful_ralph_run_keeps_selected_prd_ids(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    agent_dir = tmp_path / ".agent"
+    agent_dir.mkdir(parents=True)
+    config_path = agent_dir / "config.yaml"
+    config_path.write_text(
+        yaml.safe_dump({"ralph": {"selected_prd_ids": ["AR-1", "AR-2"]}}),
+        encoding="utf-8",
+    )
+
+    app = _build_test_app()
+    captured_activity: list[str] = []
+    monkeypatch.setattr(app, "_append_activity", lambda line: captured_activity.append(line))
+    monkeypatch.setattr(app, "_refresh_dashboard_panel", lambda: None)
+
+    app._handle_worker_success("ralph_run", {"exit_code": 2})
+
+    payload = cast(dict[str, Any], yaml.safe_load(config_path.read_text(encoding="utf-8")) or {})
+    ralph_cfg = cast(dict[str, Any], payload.get("ralph") or {})
+    assert ralph_cfg.get("selected_prd_ids") == ["AR-1", "AR-2"]
+    assert not any(
+        "Cleared PRD selection after successful Ralph run." in line for line in captured_activity
+    )
+
+
 def test_activity_scroll_keys_work_without_active_worker(monkeypatch) -> None:
     app = _build_test_app()
 

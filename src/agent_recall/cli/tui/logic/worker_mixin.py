@@ -193,6 +193,7 @@ class WorkerMixin:
                 exit_code = int(rd.get("exit_code") or 0)
                 if exit_code == 0:
                     self._append_activity("Ralph loop completed successfully.")
+                    self._clear_selected_prd_ids_after_successful_run()
                 elif exit_code == 2:
                     self._append_activity("Ralph loop reached max iterations.")
                 else:
