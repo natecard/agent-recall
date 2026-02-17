@@ -6,7 +6,11 @@ from pathlib import Path
 
 from rich.console import Console, Group
 
-from agent_recall.cli.tui.views import DashboardRenderContext, build_tui_dashboard
+from agent_recall.cli.tui.views import (
+    DashboardRenderContext,
+    build_dashboard_panels,
+    build_tui_dashboard,
+)
 
 
 class _ThemeManagerStub:
@@ -102,6 +106,23 @@ def test_build_dashboard_view_panel_counts() -> None:
         )
         assert isinstance(group, Group)
         assert len(group.renderables) == expected
+
+
+def test_build_dashboard_panels_for_all_view() -> None:
+    panels = build_dashboard_panels(
+        _context(),
+        all_cursor_workspaces=False,
+        include_banner_header=True,
+        view="all",
+        refresh_seconds=2.0,
+        show_slash_console=False,
+    )
+    assert panels.header is not None
+    assert panels.knowledge.title == "Knowledge Base"
+    assert panels.sources.title == "Session Sources"
+    assert panels.settings.title == "Settings"
+    assert panels.timeline.title == "Iteration Timeline"
+    assert panels.llm.title == "LLM Configuration"
 
 
 def test_build_dashboard_without_slash_console() -> None:

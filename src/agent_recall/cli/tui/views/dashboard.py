@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import textwrap
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from rich import box
@@ -25,7 +26,19 @@ from agent_recall.storage.files import KnowledgeTier
 from agent_recall.storage.models import LLMConfig
 
 
-def build_tui_dashboard(
+@dataclass(frozen=True)
+class DashboardPanels:
+    header: Panel | None
+    knowledge: Panel
+    llm: Panel
+    sources: Panel
+    sources_compact: Panel
+    settings: Panel
+    timeline: Panel
+    slash_console: Panel | None
+
+
+def build_dashboard_panels(
     context: DashboardRenderContext,
     all_cursor_workspaces: bool = False,
     include_banner_header: bool = True,
@@ -34,7 +47,7 @@ def build_tui_dashboard(
     view: str = "overview",
     refresh_seconds: float = 2.0,
     show_slash_console: bool = True,
-) -> Group:
+) -> DashboardPanels:
     storage = context.get_storage()
     files = context.get_files()
 
@@ -186,16 +199,13 @@ def build_tui_dashboard(
 
     now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    panels = []
-
+    header_panel = None
     if include_banner_header:
-        panels.append(
-            Panel(
-                header_text,
-                title=f"[dim]Updated {now_text}[/dim]",
-                subtitle="[dim]Press Ctrl+Q to exit[/dim]",
-                border_style="banner.border",
-            )
+        header_panel = Panel(
+            header_text,
+            title=f"[dim]Updated {now_text}[/dim]",
+            subtitle="[dim]Press Ctrl+Q to exit[/dim]",
+            border_style="banner.border",
         )
 
     knowledge_panel = knowledge_widget.render()
@@ -205,6 +215,53 @@ def build_tui_dashboard(
     settings_panel = settings_widget.render()
     timeline_panel = timeline_widget.render()
 
+    slash_panel = None
+    if show_slash_console:
+        slash_lines = slash_output or context.help_lines_provider()
+        if slash_status:
+            slash_lines = [f"[accent]{escape(slash_status)}[/accent]", *slash_lines]
+        line_budget = 14 if view in {"console", "all", "settings"} else 6
+        slash_lines = slash_lines[-line_budget:]
+        slash_panel = Panel(
+            "\n".join(slash_lines),
+            title="Slash Console",
+            subtitle="[dim]Type /help and press Enter. Use /quit to exit.[/dim]",
+            border_style="accent",
+        )
+
+    return DashboardPanels(
+        header=header_panel,
+        knowledge=knowledge_panel,
+        llm=llm_panel,
+        sources=sources_panel,
+        sources_compact=sources_compact_panel,
+        settings=settings_panel,
+        timeline=timeline_panel,
+        slash_console=slash_panel,
+    )
+
+
+def build_tui_dashboard(
+    context: DashboardRenderContext,
+    all_cursor_workspaces: bool = False,
+    include_banner_header: bool = True,
+    slash_status: str | None = None,
+    slash_output: list[str] | None = None,
+    view: str = "overview",
+    refresh_seconds: float = 2.0,
+    show_slash_console: bool = True,
+) -> Group:
+    panels = build_dashboard_panels(
+        context,
+        all_cursor_workspaces=all_cursor_workspaces,
+        include_banner_header=include_banner_header,
+        slash_status=slash_status,
+        slash_output=slash_output,
+        view=view,
+        refresh_seconds=refresh_seconds,
+        show_slash_console=show_slash_console,
+    )
+
     def _two_panel_row(left: Panel, right: Panel) -> Table:
         row = Table.grid(expand=True, padding=(0, 2))
         row.add_column(ratio=1)
@@ -212,43 +269,34 @@ def build_tui_dashboard(
         row.add_row(left, right)
         return row
 
+    renderables = []
+    if panels.header is not None:
+        renderables.append(panels.header)
+
     if view == "knowledge":
-        panels.append(knowledge_panel)
+        renderables.append(panels.knowledge)
     elif view == "timeline":
-        panels.append(timeline_panel)
+        renderables.append(panels.timeline)
     elif view == "llm":
-        panels.append(llm_panel)
+        renderables.append(panels.llm)
     elif view == "sources":
-        panels.append(sources_panel)
+        renderables.append(panels.sources)
     elif view == "settings":
-        panels.append(settings_panel)
+        renderables.append(panels.settings)
     elif view == "console":
         pass
     elif view == "all":
-        panels.extend(
+        renderables.extend(
             [
-                _two_panel_row(knowledge_panel, llm_panel),
-                _two_panel_row(sources_panel, settings_panel),
-                timeline_panel,
+                _two_panel_row(panels.knowledge, panels.llm),
+                _two_panel_row(panels.sources, panels.settings),
+                panels.timeline,
             ]
         )
     else:
-        panels.append(_two_panel_row(knowledge_panel, sources_compact_panel))
+        renderables.append(_two_panel_row(panels.knowledge, panels.sources_compact))
 
-    if show_slash_console:
-        slash_lines = slash_output or context.help_lines_provider()
-        if slash_status:
-            slash_lines = [f"[accent]{escape(slash_status)}[/accent]", *slash_lines]
-        line_budget = 14 if view in {"console", "all", "settings"} else 6
-        slash_lines = slash_lines[-line_budget:]
+    if panels.slash_console is not None:
+        renderables.append(panels.slash_console)
 
-        panels.append(
-            Panel(
-                "\n".join(slash_lines),
-                title="Slash Console",
-                subtitle="[dim]Type /help and press Enter. Use /quit to exit.[/dim]",
-                border_style="accent",
-            )
-        )
-
-    return Group(*panels)
+    return Group(*renderables)

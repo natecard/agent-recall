@@ -2595,6 +2595,7 @@ def tui(
 
         app_instance = AgentRecallTextualApp(
             render_dashboard=_build_tui_dashboard,
+            dashboard_context=_dashboard_render_context(),
             execute_command=lambda raw, width, height: _execute_tui_slash_command(
                 _normalize_tui_command(raw),
                 terminal_width=width,

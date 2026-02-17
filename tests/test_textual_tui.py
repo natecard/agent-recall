@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, cast
 
 import yaml
+from rich.console import Console
 
 from agent_recall.cli.tui import (
     AgentRecallTextualApp,
@@ -13,6 +15,7 @@ from agent_recall.cli.tui import (
     _sanitize_activity_fragment,
     get_palette_actions,
 )
+from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
 
 
 def _build_test_app() -> AgentRecallTextualApp:
@@ -24,8 +27,62 @@ def _build_test_app() -> AgentRecallTextualApp:
         models = ["gpt-test"]
         return models, None
 
+    class _ThemeManager:
+        def get_theme_name(self) -> str:
+            return "dark+"
+
+    class _Storage:
+        def get_stats(self) -> dict[str, int]:
+            return {}
+
+        def get_last_processed_at(self) -> None:
+            return None
+
+    class _Files:
+        def read_tier(self, _tier: object) -> str:
+            return ""
+
+        def read_config(self) -> dict[str, object]:
+            return {
+                "llm": {
+                    "provider": "openai",
+                    "model": "gpt-test",
+                    "temperature": 0.2,
+                    "max_tokens": 1024,
+                    "base_url": None,
+                }
+            }
+
+    class _Ingester:
+        source_name = "cursor"
+
+        def discover_sessions(self) -> list[object]:
+            return []
+
+    class _CostSummary:
+        total_tokens: int = 0
+        total_cost_usd: float = 0.0
+
+    dashboard_context = DashboardRenderContext(
+        console=Console(width=120, record=True),
+        theme_manager=_ThemeManager(),
+        agent_dir=Path("/tmp"),
+        get_storage=lambda: _Storage(),
+        get_files=lambda: _Files(),
+        get_repo_selected_sources=lambda _files: None,
+        resolve_repo_root_for_display=lambda: Path("/tmp"),
+        filter_ingesters_by_sources=lambda ingesters, _selected: ingesters,
+        get_default_ingesters=lambda **_kwargs: [_Ingester()],
+        render_iteration_timeline=lambda _store, max_entries: ["line"] * max_entries,
+        summarize_costs=lambda _reports: _CostSummary(),
+        format_usd=lambda amount: f"${amount:.2f}",
+        is_interactive_terminal=lambda: False,
+        help_lines_provider=lambda: ["/help"],
+    )
+
     return AgentRecallTextualApp(
         render_dashboard=lambda *_args, **_kwargs: "",
+        dashboard_context=dashboard_context,
         execute_command=lambda *_args, **_kwargs: (False, []),
         list_sessions_for_picker=lambda *_args, **_kwargs: [],
         run_setup_payload=lambda *_args, **_kwargs: (False, []),

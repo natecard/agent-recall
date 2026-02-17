@@ -7,7 +7,7 @@ from typing import Any
 from rich.theme import Theme
 from textual import events
 from textual.app import App, ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Log, OptionList, Static
 
 from agent_recall.cli.tui.commands.palette_actions import _build_command_suggestions
@@ -27,6 +27,8 @@ from agent_recall.cli.tui.types import (
 )
 from agent_recall.cli.tui.ui.bindings import TUI_BINDINGS
 from agent_recall.cli.tui.ui.styles import APP_CSS
+from agent_recall.cli.tui.views import DashboardPanels, build_dashboard_panels
+from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
 
 
 class AgentRecallTextualApp(
@@ -38,12 +40,13 @@ class AgentRecallTextualApp(
     App[None],
 ):
     CSS = APP_CSS
-    BINDINGS = TUI_BINDINGS
+    BINDINGS = list(TUI_BINDINGS)
 
     def __init__(
         self,
         *,
         render_dashboard: Callable[..., Any],
+        dashboard_context: DashboardRenderContext,
         execute_command: ExecuteCommandFn,
         list_sessions_for_picker: ListSessionsForPickerFn,
         list_prd_items_for_picker: ListPrdItemsForPickerFn | None = None,
@@ -70,6 +73,7 @@ class AgentRecallTextualApp(
     ):
         super().__init__()
         self._render_dashboard = render_dashboard
+        self._dashboard_context = dashboard_context
         self._execute_command = execute_command
         self._list_sessions_for_picker = list_sessions_for_picker
         self._list_prd_items_for_picker = list_prd_items_for_picker
@@ -113,7 +117,7 @@ class AgentRecallTextualApp(
         yield Header(show_clock=True)
         with Vertical(id="root"):
             with Vertical(id="app_shell"):
-                yield Static(id="dashboard")
+                yield Vertical(id="dashboard")
                 with Vertical(id="activity"):
                     yield Static(id="terminal_panel")
                     yield Log(id="activity_log", highlight=False, auto_scroll=False)
@@ -176,12 +180,59 @@ class AgentRecallTextualApp(
 
     def _refresh_dashboard_panel(self) -> None:
         self._sync_runtime_theme()
-        renderable = self._render_dashboard(
+        panels = build_dashboard_panels(
+            self._dashboard_context,
             all_cursor_workspaces=self.all_cursor_workspaces,
             include_banner_header=True,
             view=self.current_view,
             refresh_seconds=self.refresh_seconds,
             show_slash_console=False,
         )
-        self.query_one("#dashboard", Static).update(renderable)
+        dashboard = self.query_one("#dashboard", Vertical)
+        dashboard.remove_class("view-all")
+        dashboard.remove_children()
+        if panels.header is not None:
+            header = Static(id="dashboard_header")
+            header.update(panels.header)
+            dashboard.mount(header)
+        if self.current_view == "all":
+            self._mount_all_view(dashboard, panels)
+        elif self.current_view == "knowledge":
+            dashboard.mount(Static(panels.knowledge, id="dashboard_knowledge"))
+        elif self.current_view == "timeline":
+            dashboard.mount(Static(panels.timeline, id="dashboard_timeline"))
+        elif self.current_view == "llm":
+            dashboard.mount(Static(panels.llm, id="dashboard_llm"))
+        elif self.current_view == "sources":
+            dashboard.mount(Static(panels.sources, id="dashboard_sources"))
+        elif self.current_view == "settings":
+            dashboard.mount(Static(panels.settings, id="dashboard_settings"))
+        elif self.current_view == "console":
+            pass
+        else:
+            overview_row = Horizontal(id="dashboard_overview_row")
+            overview_row.mount(
+                Static(panels.knowledge, id="dashboard_knowledge"),
+                Static(panels.sources_compact, id="dashboard_sources"),
+            )
+            dashboard.mount(overview_row)
         self._refresh_activity_panel()
+
+    def _mount_all_view(self, dashboard: Vertical, panels: DashboardPanels) -> None:
+        dashboard.add_class("view-all")
+        grid = Vertical(id="dashboard_all_grid")
+        sidebar = Vertical(id="dashboard_all_sidebar")
+        main = Vertical(id="dashboard_all_main")
+
+        sidebar.mount(
+            Static(panels.knowledge, id="dashboard_knowledge"),
+            Static(panels.sources, id="dashboard_sources"),
+            Static(panels.llm, id="dashboard_llm"),
+            Static(panels.settings, id="dashboard_settings"),
+        )
+        main.mount(
+            Static(panels.timeline, id="dashboard_timeline"),
+        )
+
+        grid.mount(sidebar, main)
+        dashboard.mount(grid)

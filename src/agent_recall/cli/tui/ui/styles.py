@@ -15,6 +15,62 @@ APP_CSS = """
         overflow: auto;
         min-height: 0;
     }
+    #dashboard.view-all {
+        overflow: hidden;
+    }
+    #dashboard_all_grid {
+        layout: horizontal;
+        width: 100%;
+        height: auto;
+        min-height: 0;
+        gap: 1;
+    }
+    #dashboard_all_sidebar {
+        width: 44;
+        min-width: 32;
+        height: auto;
+        min-height: 0;
+    }
+    #dashboard_all_main {
+        width: 1fr;
+        height: auto;
+        min-height: 0;
+    }
+    #dashboard_all_sidebar #dashboard_knowledge,
+    #dashboard_all_sidebar #dashboard_sources,
+    #dashboard_all_sidebar #dashboard_settings,
+    #dashboard_all_sidebar #dashboard_llm {
+        width: 100%;
+    }
+    #dashboard_all_main #dashboard_timeline {
+        height: 1fr;
+        min-height: 18;
+    }
+    #dashboard_overview_row {
+        layout: horizontal;
+        width: 100%;
+        height: auto;
+        min-height: 0;
+        gap: 1;
+    }
+    #dashboard_overview_row #dashboard_knowledge {
+        width: 1fr;
+    }
+    #dashboard_overview_row #dashboard_sources {
+        width: 1fr;
+    }
+    @media (max-width: 120) {
+        #dashboard_all_grid {
+            layout: vertical;
+        }
+        #dashboard_all_sidebar {
+            width: 100%;
+            min-width: 0;
+        }
+        #dashboard_overview_row {
+            layout: vertical;
+        }
+    }
     #terminal_panel {
         height: 1fr;
         min-height: 6;
