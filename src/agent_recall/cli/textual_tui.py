@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -37,6 +38,33 @@ ListSessionsForPickerFn = Callable[[int, bool], list[dict[str, Any]]]
 ListPrdItemsForPickerFn = Callable[[], dict[str, Any]]
 ThemeResolveFn = Callable[[str], Theme | None]
 _LOADING_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+_DEBUG_LOG_PATH = Path("/Users/natecard/OnHere/Repos/self-docs/.cursor/debug.log")
+
+
+def _write_debug_log(
+    *,
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: dict[str, Any] | None = None,
+    run_id: str = "pre-fix",
+) -> None:
+    payload: dict[str, Any] = {
+        "id": f"log_{int(time.time() * 1000)}_{os.getpid()}",
+        "timestamp": int(time.time() * 1000),
+        "location": location,
+        "message": message,
+        "data": data or {},
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+    }
+    try:
+        _DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except OSError:
+        return
+
 
 _PROVIDER_BASE_URL_DEFAULTS = {
     "anthropic": "https://api.anthropic.com/v1",
@@ -1859,6 +1887,7 @@ class AgentRecallTextualApp(App[None]):
         self._knowledge_run_workers: set[int] = set()
         self._pending_setup_payload: dict[str, Any] | None = None
         self._last_activity_render: tuple[str, str, str] | None = None
+        self._debug_scroll_sample_count = 0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -2037,9 +2066,30 @@ class AgentRecallTextualApp(App[None]):
         was_at_bottom = activity_widget.is_vertical_scroll_end
         previous_scroll_x = activity_widget.scroll_x
         previous_scroll_y = activity_widget.scroll_y
+        focused_widget = self.focused
+        focused_widget_id = focused_widget.id if focused_widget is not None else ""
 
         activity_widget.update(Panel(lines, title=title, subtitle=subtitle))
         self._last_activity_render = render_key
+        if self._worker_context and self._debug_scroll_sample_count < 8:
+            self._debug_scroll_sample_count += 1
+            # region agent log
+            _write_debug_log(
+                hypothesis_id="H6",
+                location="textual_tui.py:_refresh_activity_panel",
+                message="Activity panel refreshed while worker running",
+                data={
+                    "sample": self._debug_scroll_sample_count,
+                    "was_at_bottom": bool(was_at_bottom),
+                    "prev_scroll_x": int(previous_scroll_x),
+                    "prev_scroll_y": int(previous_scroll_y),
+                    "max_scroll_y": int(activity_widget.max_scroll_y),
+                    "focused_widget_id": focused_widget_id,
+                    "worker_context_size": len(self._worker_context),
+                    "line_count": len(history_lines),
+                },
+            )
+            # endregion
 
         if was_at_bottom:
             activity_widget.scroll_end(animate=False)
@@ -2051,6 +2101,124 @@ class AgentRecallTextualApp(App[None]):
             animate=False,
             force=True,
         )
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key not in {"up", "down", "pageup", "pagedown", "home", "end"}:
+            return
+        focused_widget = self.focused
+        focused_widget_id = focused_widget.id if focused_widget is not None else ""
+        activity_widget = self.query_one("#activity_log", Static)
+        if self._worker_context and focused_widget_id == "activity_result_list":
+            self._close_inline_result_list(announce=False)
+            # region agent log
+            _write_debug_log(
+                hypothesis_id="H8",
+                location="textual_tui.py:on_key",
+                message="Auto-closed stale result list on scroll key during active worker",
+                data={"key": str(event.key)},
+            )
+            # endregion
+
+        if self._worker_context:
+            if event.key in {"down", "pagedown", "end"}:
+                target_y = (
+                    int(activity_widget.max_scroll_y)
+                    if event.key == "end"
+                    else int(activity_widget.scroll_y) + (20 if event.key == "pagedown" else 3)
+                )
+                activity_widget.scroll_to(
+                    x=int(activity_widget.scroll_x),
+                    y=target_y,
+                    animate=False,
+                    force=True,
+                )
+            elif event.key in {"up", "pageup", "home"}:
+                target_y = (
+                    0
+                    if event.key == "home"
+                    else int(activity_widget.scroll_y) - (20 if event.key == "pageup" else 3)
+                )
+                activity_widget.scroll_to(
+                    x=int(activity_widget.scroll_x),
+                    y=target_y,
+                    animate=False,
+                    force=True,
+                )
+        # region agent log
+        _write_debug_log(
+            hypothesis_id="H5",
+            location="textual_tui.py:on_key",
+            message="Scroll/navigation key observed",
+            data={
+                "key": str(event.key),
+                "focused_widget_id": focused_widget_id,
+                "scroll_y": int(activity_widget.scroll_y),
+                "max_scroll_y": int(activity_widget.max_scroll_y),
+            },
+        )
+        # endregion
+
+    def on_mouse_scroll_up(self, _event: events.MouseScrollUp) -> None:
+        activity_widget = self.query_one("#activity_log", Static)
+        if self._worker_context and self._result_list_open:
+            self._close_inline_result_list(announce=False)
+            # region agent log
+            _write_debug_log(
+                hypothesis_id="H8",
+                location="textual_tui.py:on_mouse_scroll_up",
+                message="Auto-closed stale result list on mouse scroll up",
+                data={},
+            )
+            # endregion
+        if self._worker_context:
+            activity_widget.scroll_to(
+                x=int(activity_widget.scroll_x),
+                y=int(activity_widget.scroll_y) - 3,
+                animate=False,
+                force=True,
+            )
+        # region agent log
+        _write_debug_log(
+            hypothesis_id="H5",
+            location="textual_tui.py:on_mouse_scroll_up",
+            message="Mouse scroll up observed",
+            data={
+                "scroll_y": int(activity_widget.scroll_y),
+                "max_scroll_y": int(activity_widget.max_scroll_y),
+            },
+        )
+        # endregion
+
+    def on_mouse_scroll_down(self, _event: events.MouseScrollDown) -> None:
+        activity_widget = self.query_one("#activity_log", Static)
+        if self._worker_context and self._result_list_open:
+            self._close_inline_result_list(announce=False)
+            # region agent log
+            _write_debug_log(
+                hypothesis_id="H8",
+                location="textual_tui.py:on_mouse_scroll_down",
+                message="Auto-closed stale result list on mouse scroll down",
+                data={},
+            )
+            # endregion
+        if self._worker_context:
+            activity_widget.scroll_to(
+                x=int(activity_widget.scroll_x),
+                y=int(activity_widget.scroll_y) + 3,
+                animate=False,
+                force=True,
+            )
+        # region agent log
+        _write_debug_log(
+            hypothesis_id="H5",
+            location="textual_tui.py:on_mouse_scroll_down",
+            message="Mouse scroll down observed",
+            data={
+                "scroll_y": int(activity_widget.scroll_y),
+                "max_scroll_y": int(activity_widget.max_scroll_y),
+            },
+        )
+        # endregion
 
     def _append_activity(self, line: str) -> None:
         self.activity.append(line)
@@ -2367,6 +2535,18 @@ class AgentRecallTextualApp(App[None]):
 
     def action_run_ralph_loop(self) -> None:
         """Run the Ralph loop with live output streaming to the activity console."""
+        if self._result_list_open:
+            self._close_inline_result_list(announce=False)
+            # region agent log
+            _write_debug_log(
+                hypothesis_id="H8",
+                location="textual_tui.py:action_run_ralph_loop",
+                message="Closed inline result list before starting Ralph loop",
+                data={},
+            )
+            # endregion
+        self.query_one("#activity_log", Static).display = True
+        self.query_one("#activity_result_list", OptionList).display = False
         self.status = "Ralph loop starting"
         self._append_activity("Starting Ralph loop...")
 
