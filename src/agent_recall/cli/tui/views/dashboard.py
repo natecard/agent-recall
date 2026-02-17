@@ -12,6 +12,13 @@ from rich.table import Table
 
 from agent_recall.cli.banner import BannerRenderer
 from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
+from agent_recall.cli.tui.widgets import (
+    KnowledgeWidget,
+    LLMConfigWidget,
+    SettingsWidget,
+    SourcesWidget,
+    TimelineWidget,
+)
 from agent_recall.core.onboarding import API_KEY_ENV_BY_PROVIDER
 from agent_recall.ralph.iteration_store import IterationReportStore
 from agent_recall.storage.files import KnowledgeTier
@@ -139,76 +146,43 @@ def build_tui_dashboard(
     banner_renderer = BannerRenderer(context.console, context.theme_manager)
     header_text = banner_renderer.get_tui_header_text()
 
-    knowledge_summary = Table(
-        expand=True,
-        box=box.SIMPLE,
-        pad_edge=False,
-        collapse_padding=True,
+    knowledge_widget = KnowledgeWidget(
+        repo_name=repo_name,
+        stats=stats,
+        guardrails_len=len(guardrails),
+        style_len=len(style),
+        recent_len=len(recent),
+        total_tokens=cost_summary.total_tokens,
+        total_cost_usd=cost_summary.total_cost_usd,
+        format_usd=context.format_usd,
     )
-    knowledge_summary.add_column("Item", style="table_header", width=12, no_wrap=True)
-    knowledge_summary.add_column("Value", overflow="fold")
-    knowledge_summary.add_row("Repository", repo_name)
-    knowledge_summary.add_row("Processed", str(stats.get("processed_sessions", 0)))
-    knowledge_summary.add_row("Logs", str(stats.get("log_entries", 0)))
-    knowledge_summary.add_row("Chunks", str(stats.get("chunks", 0)))
-    knowledge_summary.add_row("GUARDRAILS", f"{len(guardrails):,} chars")
-    knowledge_summary.add_row("STYLE", f"{len(style):,} chars")
-    knowledge_summary.add_row("RECENT", f"{len(recent):,} chars")
-    knowledge_summary.add_row("Tokens", f"{cost_summary.total_tokens:,}")
-    knowledge_summary.add_row("Cost", context.format_usd(cost_summary.total_cost_usd))
-
-    llm_base_url_display = llm_config.base_url or "default"
-    llm_summary = Table(
-        expand=True,
-        box=box.SIMPLE,
-        pad_edge=False,
-        collapse_padding=True,
+    llm_widget = LLMConfigWidget(
+        llm_config=llm_config,
+        api_key_set_display=api_key_set_display,
+        view=view,
     )
-    if view == "all":
-        llm_summary.add_column("Setting", style="table_header", width=12, no_wrap=True)
-        llm_summary.add_column("Value", overflow="fold")
-        llm_summary.add_row("Provider", llm_config.provider)
-        llm_summary.add_row("Model", llm_config.model)
-        llm_summary.add_row("Temperature", str(llm_config.temperature))
-        llm_summary.add_row("Max tokens", str(llm_config.max_tokens))
-        llm_summary.add_row("API Key Set", api_key_set_display)
-    else:
-        llm_summary.add_column("Provider", style="table_header")
-        llm_summary.add_column("Model", style="table_header", overflow="fold")
-        llm_summary.add_column("Base URL", style="table_header", overflow="fold")
-        llm_summary.add_column("Temperature", style="table_header")
-        llm_summary.add_column("Max tokens", style="table_header")
-        llm_summary.add_column("API Key Set", style="table_header")
-        llm_summary.add_row(
-            llm_config.provider,
-            llm_config.model,
-            llm_base_url_display,
-            str(llm_config.temperature),
-            str(llm_config.max_tokens),
-            api_key_set_display,
-        )
-
-    settings_table = Table(
-        expand=True,
-        box=box.SIMPLE,
-        pad_edge=False,
-        collapse_padding=True,
+    sources_widget = SourcesWidget(
+        source_table=source_table,
+        compact_lines=source_compact_lines,
+        last_synced_display=last_synced_display,
+        compact=False,
     )
-    settings_table.add_column("Setting", style="table_header")
-    settings_table.add_column("Value", overflow="fold")
-    settings_table.add_row("Current view", view)
-    settings_table.add_row("Refresh seconds", str(refresh_seconds))
-    settings_table.add_row("Theme", context.theme_manager.get_theme_name())
-    if view != "all":
-        settings_table.add_row(
-            "Interactive shell",
-            "yes" if context.is_interactive_terminal() else "no",
-        )
-        settings_table.add_row("Repository", repo_name)
-    settings_table.add_row(
-        "Active agents" if view == "all" else "Configured agents",
-        active_agents_wrapped if view == "all" else configured_agents_wrapped,
+    sources_compact_widget = SourcesWidget(
+        source_table=source_table,
+        compact_lines=source_compact_lines,
+        last_synced_display=last_synced_display,
+        compact=True,
     )
+    settings_widget = SettingsWidget(
+        view=view,
+        refresh_seconds=refresh_seconds,
+        theme_name=context.theme_manager.get_theme_name(),
+        interactive_shell=context.is_interactive_terminal(),
+        repo_name=repo_name,
+        active_agents_wrapped=active_agents_wrapped,
+        configured_agents_wrapped=configured_agents_wrapped,
+    )
+    timeline_widget = TimelineWidget(timeline_lines=timeline_lines)
 
     now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -224,25 +198,12 @@ def build_tui_dashboard(
             )
         )
 
-    knowledge_panel = Panel(knowledge_summary, title="Knowledge Base", border_style="accent")
-    llm_panel = Panel(llm_summary, title="LLM Configuration", border_style="accent")
-    sources_panel = Panel(
-        Group(source_table, f"[dim]Last Synced:[/dim] {last_synced_display}"),
-        title="Session Sources",
-        border_style="accent",
-    )
-    source_compact_lines.append(f"[dim]Last Synced:[/dim] {last_synced_display}")
-    sources_compact_panel = Panel(
-        "\n".join(source_compact_lines),
-        title="Session Sources",
-        border_style="accent",
-    )
-    settings_panel = Panel(settings_table, title="Settings", border_style="accent")
-    timeline_panel = Panel(
-        "\n".join(timeline_lines),
-        title="Iteration Timeline",
-        border_style="accent",
-    )
+    knowledge_panel = knowledge_widget.render()
+    llm_panel = llm_widget.render()
+    sources_panel = sources_widget.render()
+    sources_compact_panel = sources_compact_widget.render()
+    settings_panel = settings_widget.render()
+    timeline_panel = timeline_widget.render()
 
     def _two_panel_row(left: Panel, right: Panel) -> Table:
         row = Table.grid(expand=True, padding=(0, 2))
