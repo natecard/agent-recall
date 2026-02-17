@@ -4,7 +4,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from rich import box
+from rich.console import Group
 from rich.panel import Panel
+from rich.rule import Rule
+from rich.syntax import Syntax
 from rich.table import Table
 
 
@@ -18,8 +21,17 @@ class KnowledgeWidget:
     total_tokens: int
     total_cost_usd: float
     format_usd: Callable[[float], str]
+    guardrails_text: str = ""
+    style_text: str = ""
+    recent_text: str = ""
 
-    def render(self) -> Panel:
+    def render(self, *, detail: bool = False) -> Panel:
+        if detail:
+            return Panel(
+                self._render_detail(),
+                title="Knowledge Files",
+                border_style="accent",
+            )
         table = Table(
             expand=True,
             box=box.SIMPLE,
@@ -38,3 +50,18 @@ class KnowledgeWidget:
         table.add_row("Tokens", f"{self.total_tokens:,}")
         table.add_row("Cost", self.format_usd(self.total_cost_usd))
         return Panel(table, title="Knowledge Base", border_style="accent")
+
+    def _render_detail(self) -> Group:
+        sections = [
+            ("GUARDRAILS", self.guardrails_text),
+            ("STYLE", self.style_text),
+            ("RECENT", self.recent_text),
+        ]
+        renderables = []
+        for title, content in sections:
+            renderables.append(Rule(title))
+            body = content.strip()
+            if not body:
+                body = "(empty)"
+            renderables.append(Syntax(body, "markdown", word_wrap=False))
+        return Group(*renderables)

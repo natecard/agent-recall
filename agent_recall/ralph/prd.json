@@ -104,7 +104,7 @@
     },
     {
       "id": "AR-1004",
-      "priority": 2,
+      "priority": 1,
       "title": "Enhanced Knowledge & Timeline Browsers",
       "description": "Transform the static Knowledge and Timeline summaries into fully browsable interfaces. The Knowledge view should allow reading the actual Guardrails/Style/Recent content with syntax highlighting. The Timeline should allow clicking an entry to view the full iteration report and diff.",
       "user_story": "As a user, I want to read my Guardrails or review a past iteration's diff within the TUI so that I don't have to switch to an external editor.",
@@ -122,11 +122,11 @@
         "Users can escape back to the main view easily"
       ],
       "validation_commands": ["uv run pytest tests/test_textual_tui.py"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-1005",
-      "priority": 3,
+      "priority": 2,
       "title": "Ralph Status View & Loop Visualization",
       "description": "Create a dedicated 'Ralph' view in the TUI (or integration into the 'All' view) to visualize the current state of the Ralph loop. This view should display real-time information about the active iteration, including the PRD item being worked on, the current phase (planning/coding/validating), and recent activity. It should source data from `.agent/ralph/iterations/current.json` for live state and `ralph_state.json` for historical context.",
       "user_story": "As a user running long autonomous loops, I want to see exactly which PRD item Ralph is working on and its current progress without having to grep through log files.",

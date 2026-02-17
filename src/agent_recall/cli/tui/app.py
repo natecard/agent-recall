@@ -201,9 +201,25 @@ class AgentRecallTextualApp(
         if self.current_view == "all":
             self._mount_all_view(dashboard, panels)
         elif self.current_view == "knowledge":
-            dashboard.mount(Static(panels.knowledge, id="dashboard_knowledge"))
+            detail_panel = build_dashboard_panels(
+                self._dashboard_context,
+                all_cursor_workspaces=self.all_cursor_workspaces,
+                include_banner_header=True,
+                view="knowledge",
+                refresh_seconds=self.refresh_seconds,
+                show_slash_console=False,
+            ).knowledge
+            dashboard.mount(Static(detail_panel, id="dashboard_knowledge"))
         elif self.current_view == "timeline":
-            dashboard.mount(Static(panels.timeline, id="dashboard_timeline"))
+            detail_panel = build_dashboard_panels(
+                self._dashboard_context,
+                all_cursor_workspaces=self.all_cursor_workspaces,
+                include_banner_header=True,
+                view="timeline",
+                refresh_seconds=self.refresh_seconds,
+                show_slash_console=False,
+            ).timeline
+            dashboard.mount(Static(detail_panel, id="dashboard_timeline"))
         elif self.current_view == "llm":
             dashboard.mount(Static(panels.llm, id="dashboard_llm"))
         elif self.current_view == "sources":
