@@ -514,7 +514,7 @@ class CommandPaletteModal(ModalScreen[str | None]):
                 )
                 yield OptionList(id="palette_options")
                 yield Static(
-                    "Enter to run · Type any CLI command to execute directly",
+                    "Type to filter, use ↑↓ to navigate, Enter to run",
                     id="palette_hint",
                 )
 

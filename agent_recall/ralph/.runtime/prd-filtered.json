@@ -14,7 +14,7 @@
   "items": [
     {
       "id": "AR-901",
-      "priority": 1,
+      "priority": 2,
       "title": "Fix TUI Command Palette Arrow Navigation",
       "description": "The TUI Command Palette currently traps focus in the input field, preventing Up/Down arrow keys from navigating the list of commands. This item involves intercepting key events in the `CommandPaletteModal` to manually control the `OptionList` highlight when arrows are pressed, even while the input has focus.",
       "user_story": "As a user of the TUI Command Palette, I want to use the Up and Down arrow keys to navigate the list of suggestions while typing, so that I can quickly select a command without having to press Tab or click.",
@@ -54,7 +54,7 @@
       "validation_commands": [
         "uv run pytest tests/test_textual_tui.py -k palette"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }
