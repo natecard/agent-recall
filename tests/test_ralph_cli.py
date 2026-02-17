@@ -93,6 +93,18 @@ def test_build_agent_cmd_from_ralph_config_with_model() -> None:
     assert cmd == "codex --print --model gpt-5.3-codex"
 
 
+def test_build_agent_cmd_from_ralph_config_opencode_with_model() -> None:
+    cmd = build_agent_cmd_from_ralph_config(
+        {"coding_cli": "opencode", "cli_model": "github-copilot/gpt-5.3-codex"}
+    )
+    assert cmd == 'opencode run -m github-copilot/gpt-5.3-codex "$(cat {prompt_file})"'
+
+
+def test_build_agent_cmd_from_ralph_config_opencode_without_model() -> None:
+    cmd = build_agent_cmd_from_ralph_config({"coding_cli": "opencode"})
+    assert cmd == 'opencode run "$(cat {prompt_file})"'
+
+
 def test_build_agent_cmd_from_ralph_config_missing_cli_returns_none() -> None:
     cmd = build_agent_cmd_from_ralph_config({"cli_model": "gpt-5.3-codex"})
     assert cmd is None

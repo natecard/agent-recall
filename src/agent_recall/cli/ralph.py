@@ -239,13 +239,22 @@ def build_agent_cmd_from_ralph_config(ralph_config: dict[str, Any]) -> str | Non
     if not binary:
         return None
 
-    parts = [binary, "--print"]
     cli_model_value = ralph_config.get("cli_model")
     cli_model = (
         str(cli_model_value).strip()
         if isinstance(cli_model_value, str) and cli_model_value.strip()
         else ""
     )
+
+    # OpenCode behaves better when the prompt is passed as an explicit arg from a file
+    # path placeholder, rather than piping stdin through a generic --print mode.
+    if coding_cli == "opencode":
+        model_segment = ""
+        if cli_model:
+            model_segment = f"-m {shlex.quote(cli_model)} "
+        return f'{shlex.quote(binary)} run {model_segment}"$(cat {{prompt_file}})"'
+
+    parts = [binary, "--print"]
     if cli_model and model_flag:
         parts.extend([model_flag, cli_model])
     return " ".join(shlex.quote(part) for part in parts)

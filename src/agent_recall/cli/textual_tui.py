@@ -43,6 +43,8 @@ ListPrdItemsForPickerFn = Callable[[], dict[str, Any]]
 ThemeResolveFn = Callable[[str], Theme | None]
 _LOADING_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 _DEBUG_LOG_PATH = Path("/Users/natecard/OnHere/Repos/self-docs/.cursor/debug.log")
+_RALPH_STREAM_FLUSH_SECONDS = 0.08
+_RALPH_STREAM_FLUSH_MAX_CHARS = 8192
 
 
 def _write_debug_log(
@@ -2652,15 +2654,41 @@ class AgentRecallTextualApp(App[None]):
                 if selected_arg:
                     cmd.extend(["--prd-ids", selected_arg])
 
+            pending_fragments: list[str] = []
+            pending_chars = 0
+            last_flush_monotonic = time.monotonic()
+
+            def _flush_pending_fragments() -> None:
+                nonlocal pending_fragments, pending_chars, last_flush_monotonic
+                if not pending_fragments:
+                    return
+                combined = "".join(pending_fragments)
+                pending_fragments = []
+                pending_chars = 0
+                self.call_from_thread(self._append_activity, combined)
+                last_flush_monotonic = time.monotonic()
+
+            def _on_stream_fragment(fragment: str) -> None:
+                nonlocal pending_chars
+                pending_fragments.append(fragment)
+                pending_chars += len(fragment)
+                now = time.monotonic()
+                if (
+                    pending_chars >= _RALPH_STREAM_FLUSH_MAX_CHARS
+                    or (now - last_flush_monotonic) >= _RALPH_STREAM_FLUSH_SECONDS
+                ):
+                    _flush_pending_fragments()
+
             try:
                 exit_code = run_streaming_command(
                     cmd,
                     cwd=Path.cwd(),
-                    on_emit=lambda fragment: self.call_from_thread(self._append_activity, fragment),
+                    on_emit=_on_stream_fragment,
                     context="tui_ralph_run",
                     partial_flush_ms=120,
                     transport="pipe",
                 )
+                _flush_pending_fragments()
             except OSError as exc:
                 self.call_from_thread(self._append_activity, f"Ralph loop failed: {exc}")
                 return {"total_iterations": 0, "passed": 0, "failed": 0}
