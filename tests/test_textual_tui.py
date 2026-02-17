@@ -10,6 +10,7 @@ from agent_recall.cli.textual_tui import (
     _clean_optional_text,
     _is_knowledge_run_command,
     _is_palette_cli_command_redundant,
+    _sanitize_activity_fragment,
     get_palette_actions,
 )
 
@@ -87,6 +88,14 @@ def test_clean_optional_text_handles_none_variants() -> None:
     assert _clean_optional_text("None") == ""
     assert _clean_optional_text("null") == ""
     assert _clean_optional_text(" value ") == "value"
+
+
+def test_sanitize_activity_fragment_strips_terminal_control_sequences() -> None:
+    raw = "\x1b[7mhello\x1b[0m\rabc\b!\x1b]8;;https://example.com\x07link\x1b]8;;\x07"
+    cleaned = _sanitize_activity_fragment(raw)
+    assert cleaned == "hello\nab!link"
+    assert "\x1b" not in cleaned
+    assert "\b" not in cleaned
 
 
 def test_palette_cli_command_redundancy_filter() -> None:

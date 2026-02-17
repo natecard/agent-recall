@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.theme import Theme
 from textual import events
@@ -19,7 +18,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Footer, Header, Input, OptionList, Select, Static
+from textual.widgets import Button, Checkbox, Footer, Header, Input, Log, OptionList, Select, Static
 from textual.widgets.option_list import Option
 from textual.worker import Worker, WorkerState
 
@@ -45,6 +44,8 @@ _LOADING_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇"
 _DEBUG_LOG_PATH = Path("/Users/natecard/OnHere/Repos/self-docs/.cursor/debug.log")
 _RALPH_STREAM_FLUSH_SECONDS = 0.08
 _RALPH_STREAM_FLUSH_MAX_CHARS = 8192
+_ANSI_ESCAPE_PATTERN = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+_OSC_ESCAPE_PATTERN = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
 
 
 def _write_debug_log(
@@ -85,6 +86,25 @@ _PROVIDER_BASE_URL_DEFAULTS = {
 
 def _strip_rich_markup(text: str) -> str:
     return re.sub(r"\[[^\]]+\]", "", text)
+
+
+def _sanitize_activity_fragment(fragment: str) -> str:
+    """Normalize raw terminal fragments for stable TUI rendering."""
+    if not fragment:
+        return ""
+    text = _OSC_ESCAPE_PATTERN.sub("", fragment)
+    text = _ANSI_ESCAPE_PATTERN.sub("", text)
+    text = text.replace("\r", "\n")
+    out: list[str] = []
+    for char in text:
+        if char == "\b":
+            if out:
+                out.pop()
+            continue
+        if ord(char) < 32 and char not in {"\n", "\t"}:
+            continue
+        out.append(char)
+    return "".join(out)
 
 
 def _clean_optional_text(value: Any) -> str:
@@ -497,9 +517,10 @@ def get_palette_actions() -> list[PaletteAction]:
 class CommandPaletteModal(ModalScreen[str | None]):
     BINDINGS = [Binding("escape", "dismiss(None)", "Close")]
 
-    def __init__(self, actions: list[PaletteAction]):
+    def __init__(self, actions: list[PaletteAction], cli_commands: list[str]):
         super().__init__()
         self.actions = actions
+        self.cli_commands = cli_commands
         self.query_text = ""
 
     def compose(self) -> ComposeResult:
@@ -599,6 +620,15 @@ class CommandPaletteModal(ModalScreen[str | None]):
                 continue
             grouped[action.group].append(action)
 
+        cli_commands: list[str] = []
+        for command in self.cli_commands:
+            if _is_palette_cli_command_redundant(command):
+                continue
+            normalized = _normalize_palette_command(command)
+            if query and query not in normalized:
+                continue
+            cli_commands.append(command)
+
         option_list = self.query_one("#palette_options", OptionList)
         list_width = int(option_list.size.width) if int(option_list.size.width or 0) > 0 else 72
         options: list[Option] = []
@@ -649,6 +679,22 @@ class CommandPaletteModal(ModalScreen[str | None]):
                         id=f"action:{action.action_id}",
                     )
                 )
+
+        if cli_commands:
+            options.append(Option("", id="heading:spacer:cli", disabled=True))
+            options.append(
+                Option(
+                    "[bold accent]CLI Commands[/bold accent]",
+                    id="heading:cli",
+                    disabled=True,
+                )
+            )
+            for command in cli_commands:
+                command_text = _normalize_palette_command(command)
+                line = command_text
+                if query:
+                    line = f"{line} [dim]- raw CLI command[/dim]"
+                options.append(Option(line, id=f"action:cmd:{command_text}"))
 
         option_list.set_options(options)
 
@@ -1726,6 +1772,9 @@ class AgentRecallTextualApp(App[None]):
     #activity_log {
         height: 1fr;
         overflow: auto;
+        border: round $accent;
+        background: $panel;
+        padding: 1 2;
     }
     #activity_result_list {
         height: 1fr;
@@ -1918,7 +1967,7 @@ class AgentRecallTextualApp(App[None]):
         self._worker_context: dict[int, str] = {}
         self._knowledge_run_workers: set[int] = set()
         self._pending_setup_payload: dict[str, Any] | None = None
-        self._last_activity_render: tuple[str, str, str] | None = None
+        self._last_activity_render: tuple[str, str] | None = None
         self._debug_scroll_sample_count = 0
         self._activity_follow_tail = True
 
@@ -1929,7 +1978,7 @@ class AgentRecallTextualApp(App[None]):
                 yield Static(id="dashboard")
                 with Vertical(id="activity"):
                     yield Static(id="terminal_panel")
-                    yield Static(id="activity_log")
+                    yield Log(id="activity_log", highlight=False, auto_scroll=False)
                     yield OptionList(id="activity_result_list")
         yield Footer()
 
@@ -1981,7 +2030,7 @@ class AgentRecallTextualApp(App[None]):
 
     def action_open_command_palette(self) -> None:
         self.push_screen(
-            CommandPaletteModal(get_palette_actions()),
+            CommandPaletteModal(get_palette_actions(), self._command_suggestions),
             self._handle_palette_action,
         )
 
@@ -2080,8 +2129,6 @@ class AgentRecallTextualApp(App[None]):
         self._refresh_activity_panel()
 
     def _refresh_activity_panel(self) -> None:
-        history_lines = list(self.activity) if self.activity else ["No activity yet."]
-        lines = "\n".join(history_lines)
         subtitle = f"{self.current_view} · {self.refresh_seconds:.1f}s · Ctrl+P commands"
         title = self.status
         if self._knowledge_run_workers:
@@ -2091,18 +2138,17 @@ class AgentRecallTextualApp(App[None]):
             subtitle = f"{subtitle} · running synthesis"
         if self._worker_context:
             title = f"{title} …"
-        render_key = (title, subtitle, lines)
+        render_key = (title, subtitle)
         if render_key == self._last_activity_render:
             return
 
-        activity_widget = self.query_one("#activity_log", Static)
+        activity_widget = self.query_one("#activity_log", Log)
         was_at_bottom = activity_widget.is_vertical_scroll_end
-        previous_scroll_x = activity_widget.scroll_x
-        previous_scroll_y = activity_widget.scroll_y
         focused_widget = self.focused
         focused_widget_id = focused_widget.id if focused_widget is not None else ""
 
-        activity_widget.update(Panel(lines, title=title, subtitle=subtitle))
+        activity_widget.border_title = title
+        activity_widget.border_subtitle = subtitle
         self._last_activity_render = render_key
         if self._worker_context and self._debug_scroll_sample_count < 8:
             self._debug_scroll_sample_count += 1
@@ -2114,12 +2160,12 @@ class AgentRecallTextualApp(App[None]):
                 data={
                     "sample": self._debug_scroll_sample_count,
                     "was_at_bottom": bool(was_at_bottom),
-                    "prev_scroll_x": int(previous_scroll_x),
-                    "prev_scroll_y": int(previous_scroll_y),
+                    "prev_scroll_x": int(activity_widget.scroll_x),
+                    "prev_scroll_y": int(activity_widget.scroll_y),
                     "max_scroll_y": int(activity_widget.max_scroll_y),
                     "focused_widget_id": focused_widget_id,
                     "worker_context_size": len(self._worker_context),
-                    "line_count": len(history_lines),
+                    "line_count": len(self.activity),
                 },
             )
             # endregion
@@ -2129,17 +2175,9 @@ class AgentRecallTextualApp(App[None]):
 
         if self._activity_follow_tail:
             activity_widget.scroll_end(animate=False)
-            return
-
-        activity_widget.scroll_to(
-            x=previous_scroll_x,
-            y=previous_scroll_y,
-            animate=False,
-            force=True,
-        )
 
     def _apply_activity_scroll_key(self, key: str) -> None:
-        activity_widget = self.query_one("#activity_log", Static)
+        activity_widget = self.query_one("#activity_log", Log)
         if key in {"down", "pagedown", "end"}:
             if key == "end":
                 activity_widget.scroll_end(animate=False)
@@ -2177,7 +2215,7 @@ class AgentRecallTextualApp(App[None]):
         except Exception:  # noqa: BLE001
             focused_widget = None
         focused_widget_id = focused_widget.id if focused_widget is not None else ""
-        activity_widget = self.query_one("#activity_log", Static)
+        activity_widget = self.query_one("#activity_log", Log)
         if focused_widget_id == "activity_result_list":
             self._close_inline_result_list(announce=False)
             # region agent log
@@ -2207,7 +2245,7 @@ class AgentRecallTextualApp(App[None]):
         # endregion
 
     def on_mouse_scroll_up(self, _event: events.MouseScrollUp) -> None:
-        activity_widget = self.query_one("#activity_log", Static)
+        activity_widget = self.query_one("#activity_log", Log)
         if self._result_list_open:
             self._close_inline_result_list(announce=False)
             # region agent log
@@ -2238,7 +2276,7 @@ class AgentRecallTextualApp(App[None]):
         # endregion
 
     def on_mouse_scroll_down(self, _event: events.MouseScrollDown) -> None:
-        activity_widget = self.query_one("#activity_log", Static)
+        activity_widget = self.query_one("#activity_log", Log)
         if self._result_list_open:
             self._close_inline_result_list(announce=False)
             # region agent log
@@ -2269,7 +2307,16 @@ class AgentRecallTextualApp(App[None]):
         # endregion
 
     def _append_activity(self, line: str) -> None:
-        self.activity.append(line)
+        clean = _sanitize_activity_fragment(line)
+        if not clean:
+            return
+        self.activity.append(clean)
+        payload = clean if clean.endswith(("\n", "\r")) else f"{clean}\n"
+        try:
+            activity_widget = self.query_one("#activity_log", Log)
+            activity_widget.write(payload, scroll_end=self._activity_follow_tail)
+        except Exception:  # noqa: BLE001
+            pass
         self._refresh_activity_panel()
 
     def _show_inline_result_list(self, lines: list[str]) -> None:
@@ -2282,7 +2329,7 @@ class AgentRecallTextualApp(App[None]):
         )
         picker.highlighted = 0
         picker.display = True
-        self.query_one("#activity_log", Static).display = False
+        self.query_one("#activity_log", Log).display = False
         self._result_list_open = True
         self.status = "Command output list"
         picker.focus()
@@ -2292,7 +2339,7 @@ class AgentRecallTextualApp(App[None]):
             return
         picker = self.query_one("#activity_result_list", OptionList)
         picker.display = False
-        self.query_one("#activity_log", Static).display = True
+        self.query_one("#activity_log", Log).display = True
         self._result_list_open = False
         if announce:
             self._append_activity("Closed command output list.")
@@ -2593,7 +2640,7 @@ class AgentRecallTextualApp(App[None]):
                 data={},
             )
             # endregion
-        self.query_one("#activity_log", Static).display = True
+        self.query_one("#activity_log", Log).display = True
         self.query_one("#activity_result_list", OptionList).display = False
         self.status = "Ralph loop starting"
         self._append_activity("Starting Ralph loop...")

@@ -148,7 +148,7 @@
     },
     {
       "id": "AR-707",
-      "priority": 1,
+      "priority": 3,
       "title": "OpenCode Plugin Integration",
       "description": "Implement Ralph as an OpenCode plugin that subscribes to session lifecycle events (session start, idle, tool use). This enables the same hook-based workflow that Claude Code provides, but for the OpenCode ecosystem.",
       "user_story": "As a developer using OpenCode, I want Ralph to react to my coding sessions just like it does with Claude Code hooks.",
@@ -315,7 +315,30 @@
       "validation_commands": [
         "uv run pytest tests/test_textual_tui.py -k palette"
       ],
-      "passes": false
+      "passes": true
+    },
+    {
+      "id": "AR-903",
+      "priority": 1,
+      "title": "Deduplicate TUI Command Palette & CLI Actions",
+      "description": "The TUI Command Palette currently only shows predefined PaletteActions. It should also include available CLI command suggestions (from `_build_command_suggestions`), but must deduplicate them to avoid showing redundant entries for commands that already have a dedicated PaletteAction. This involves wiring up the unused `_is_palette_cli_command_redundant` logic.",
+      "user_story": "As a user, I want to find both high-level actions and raw CLI commands in the palette without seeing duplicate entries for the same operation.",
+      "steps": [
+        "Pass `_command_suggestions` to `CommandPaletteModal` constructor",
+        "Update `CommandPaletteModal._rebuild_options` to include filtered CLI commands",
+        "Use `_is_palette_cli_command_redundant` to filter CLI commands that overlap with `PaletteAction`s",
+        "Append non-redundant CLI commands to the palette options, potentially in a new 'CLI' or 'Other' group"
+      ],
+      "acceptance_criteria": [
+        "Command Palette displays both PaletteActions and unique CLI commands",
+        "Commands like `ralph enable` do not appear as raw CLI text because they are covered by 'Start Ralph Loop' action",
+        "Raw CLI commands that have no corresponding action (e.g. obscure subcommands) are visible and runnable",
+        "Filtering logic in `_is_palette_cli_command_redundant` is correctly applied"
+      ],
+      "validation_commands": [
+        "uv run pytest tests/test_textual_tui.py -k palette"
+      ],
+      "passes": true
     }
   ]
 }
