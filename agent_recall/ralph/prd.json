@@ -14,7 +14,7 @@
   "items": [
     {
       "id": "AR-707",
-      "priority": 2,
+      "priority": 1,
       "title": "OpenCode Plugin Integration",
       "description": "Implement Ralph as an OpenCode plugin that subscribes to session lifecycle events (session start, idle, tool use). This enables the same hook-based workflow that Claude Code provides, but for the OpenCode ecosystem.",
       "user_story": "As a developer using OpenCode, I want Ralph to react to my coding sessions just like it does with Claude Code hooks.",
@@ -38,7 +38,7 @@
     },
     {
       "id": "AR-1001",
-      "priority": 1,
+      "priority": 2,
       "title": "Refactor Dashboard to Component Architecture",
       "description": "Refactor the monolithic `build_tui_dashboard` function into separate, reusable Textual `Widget` classes for each logical section (Knowledge, LLM, Sources, Settings, Timeline). This moves away from the current method of rendering static Rich groups on every tick to a component-based model where widgets manage their own state and updates. This is a prerequisite for adding interactivity and fixing the 'All' view.",
       "user_story": "As a developer extending the TUI, I want clear separation of concerns in the dashboard code so that I can add features to the Timeline or Settings views without navigating a single 300-line function.",
@@ -59,7 +59,7 @@
       "validation_commands": [
         "uv run pytest tests/test_textual_tui.py"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-1002",
