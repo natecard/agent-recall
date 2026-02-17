@@ -223,6 +223,11 @@ INITIAL_GUARDRAILS = """# Guardrails
 Rules and warnings for this codebase. Entries added automatically from agent sessions.
     """
 
+INITIAL_RULES = """# Rules
+
+User-authored operating rules for coding agents in this repository.
+"""
+
 INITIAL_STYLE = """# Style Guide
 
 Coding patterns and preferences for this codebase. Entries added automatically from agent sessions.
@@ -922,6 +927,7 @@ def init(
     (AGENT_DIR / "logs").mkdir(exist_ok=True)
     (AGENT_DIR / "archive").mkdir(exist_ok=True)
 
+    (AGENT_DIR / "RULES.md").write_text(INITIAL_RULES)
     (AGENT_DIR / "GUARDRAILS.md").write_text(INITIAL_GUARDRAILS)
     (AGENT_DIR / "STYLE.md").write_text(INITIAL_STYLE)
     (AGENT_DIR / "RECENT.md").write_text(INITIAL_RECENT)
@@ -936,6 +942,7 @@ def init(
             "[success]✓ Initialized .agent/ directory[/success]\n\n"
             "Files created:\n"
             "  • config.yaml - Configuration\n"
+            "  • RULES.md - User-authored agent rules\n"
             "  • GUARDRAILS.md - Hard rules and warnings\n"
             "  • STYLE.md - Patterns and preferences\n"
             "  • RECENT.md - Session summaries\n"

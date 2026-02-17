@@ -4,11 +4,13 @@ This is a dedicated Ralph setup for the Agent Recall project.
 
 It differs from the generic loop by enforcing per-iteration memory evolution in:
 
+- `.agent/RULES.md` (user-authored policy)
 - `.agent/GUARDRAILS.md`
 - `.agent/STYLE.md`
 - `.agent/RECENT.md`
 
-If the agent does not update those files itself, the loop appends fallback memory notes automatically so each iteration leaves better context for the next one.
+`RULES.md` is user-maintained and injected into every loop prompt.
+`GUARDRAILS.md`, `STYLE.md`, and `RECENT.md` are system-updated from iteration reports every iteration.
 
 ## Structure
 
@@ -56,6 +58,7 @@ Defaults target the current repo's `.agent` directory. Override if needed:
 
 ```bash
 --memory-dir .agent \
+--rules-file .agent/RULES.md \
 --guardrails-file .agent/GUARDRAILS.md \
 --style-file .agent/STYLE.md \
 --recent-file .agent/RECENT.md

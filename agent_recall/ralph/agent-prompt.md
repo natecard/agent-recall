@@ -6,14 +6,15 @@ The loop injects current PRD data, recent progress, memory files, recent Ralph c
 
 ## Context Provided
 
-- Read-only tier files: `.agent/GUARDRAILS.md`, `.agent/STYLE.md`, `.agent/RECENT.md`
+- User-authored rules: `.agent/RULES.md` (highest project policy)
+- Read-only generated tier files: `.agent/GUARDRAILS.md`, `.agent/STYLE.md`, `.agent/RECENT.md`
 - PRD state with unpassed items
 - Iteration report path: `{current_report_path}`
 - Current task: `{item_id} - {item_title}`
 - Task description: `{description}`
 - Validation command: `{validation_command}`
 
-Tier files are read-only context. Do not write to them. The system updates them from iteration reports.
+Generated tier files are read-only context. Do not write to them. The system updates them from iteration reports.
 
 ## Task Selection
 
@@ -28,7 +29,8 @@ Tracer-bullet means: deliver a tiny end-to-end slice first to get feedback early
 
 After selecting the task:
 
-- Re-rank unpassed PRD items by setting numeric `priority` values.
+- Re-rank remaining unpassed PRD items by setting numeric `priority` values.
+- Use the focus PRD slice for implementation context, and the condensed full PRD list for end-of-iteration regrading.
 - Keep only one selected item in active implementation scope.
 
 ## Execution
@@ -58,7 +60,8 @@ Update `{current_report_path}` with this JSON schema (agent-writable fields only
 
 ## What NOT To Do
 
-❌ Do NOT write to `.agent/GUARDRAILS.md`, `.agent/STYLE.md`, or `.agent/RECENT.md`.
+❌ Do NOT violate `.agent/RULES.md`.
+❌ Do NOT write to generated tier files `.agent/GUARDRAILS.md`, `.agent/STYLE.md`, or `.agent/RECENT.md`.
 ❌ Do NOT append to `agent_recall/ralph/progress.txt`.
 ❌ Do NOT start a second feature.
 

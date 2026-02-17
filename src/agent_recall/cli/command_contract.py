@@ -321,6 +321,18 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("cli",),
         ),
         CommandContract(
+            command="ralph plugin opencode-install",
+            aliases=(),
+            description="Install OpenCode plugin for Ralph session events",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="ralph plugin opencode-uninstall",
+            aliases=(),
+            description="Remove OpenCode plugin for Ralph session events",
+            surfaces=("cli",),
+        ),
+        CommandContract(
             command="ralph create-report",
             aliases=(),
             description="Create iteration report (current.json)",

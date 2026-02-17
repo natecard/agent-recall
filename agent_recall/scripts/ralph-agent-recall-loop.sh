@@ -16,6 +16,7 @@ Core options:
   --agent-timeout-seconds N    Timeout per agent iteration in seconds (default: 0, disabled)
   --prd-file PATH              PRD JSON path (default: agent_recall/ralph/prd.json)
   --prd-ids ID1,ID2,...        Comma-separated PRD item IDs to process (omit for all)
+  --prompt-prd-top-n N         Number of highest-priority unpassed PRDs to include in prompt (default: 8)
   --progress-file PATH         Progress log path (default: agent_recall/ralph/progress.txt)
   --prompt-template PATH       Base prompt template (default: agent_recall/ralph/agent-prompt.md)
   --max-iterations N           Max loop iterations (default: 10)
@@ -34,6 +35,7 @@ Context options:
 
 Memory options:
   --memory-dir PATH            Memory directory (default: .agent)
+  --rules-file PATH            Rules file path (default: .agent/RULES.md)
   --guardrails-file PATH       Guardrails file path (default: .agent/GUARDRAILS.md)
   --style-file PATH            Style file path (default: .agent/STYLE.md)
   --recent-file PATH           Recent file path (default: .agent/RECENT.md)
@@ -64,6 +66,7 @@ AGENT_OUTPUT_MODE="plain"
 AGENT_TIMEOUT_SECONDS=0
 AGENT_TIMEOUT_BACKEND="none"
 PRD_FILE="agent_recall/ralph/prd.json"
+PROMPT_PRD_TOP_N=8
 PROGRESS_FILE="agent_recall/ralph/progress.txt"
 PROMPT_TEMPLATE="agent_recall/ralph/agent-prompt.md"
 MAX_ITERATIONS=10
@@ -79,6 +82,7 @@ PRE_ITERATION_CMD=""
 NOTIFY_CMD=""
 RUNTIME_DIR="agent_recall/ralph/.runtime"
 MEMORY_DIR=".agent"
+RULES_FILE="$MEMORY_DIR/RULES.md"
 GUARDRAILS_FILE="$MEMORY_DIR/GUARDRAILS.md"
 STYLE_FILE="$MEMORY_DIR/STYLE.md"
 RECENT_FILE="$MEMORY_DIR/RECENT.md"
@@ -90,9 +94,18 @@ ARCHIVE_ONLY=0
 SELECTED_IDS_JSON="null"
 
 ensure_memory_files() {
+  mkdir -p "$(dirname "$RULES_FILE")"
   mkdir -p "$(dirname "$GUARDRAILS_FILE")"
   mkdir -p "$(dirname "$STYLE_FILE")"
   mkdir -p "$(dirname "$RECENT_FILE")"
+
+  if [[ ! -f $RULES_FILE ]]; then
+    cat >"$RULES_FILE" <<'EOF_U'
+# Rules
+
+User-authored operating rules for Ralph loop agents.
+EOF_U
+  fi
 
   if [[ ! -f $GUARDRAILS_FILE ]]; then
     cat >"$GUARDRAILS_FILE" <<'EOF_G'
@@ -145,6 +158,10 @@ while [[ $# -gt 0 ]]; do
     PRD_IDS="$2"
     shift 2
     ;;
+  --prompt-prd-top-n)
+    PROMPT_PRD_TOP_N="$2"
+    shift 2
+    ;;
   --progress-file)
     PROGRESS_FILE="$2"
     shift 2
@@ -191,9 +208,14 @@ while [[ $# -gt 0 ]]; do
     ;;
   --memory-dir)
     MEMORY_DIR="$2"
+    RULES_FILE="$MEMORY_DIR/RULES.md"
     GUARDRAILS_FILE="$MEMORY_DIR/GUARDRAILS.md"
     STYLE_FILE="$MEMORY_DIR/STYLE.md"
     RECENT_FILE="$MEMORY_DIR/RECENT.md"
+    shift 2
+    ;;
+  --rules-file)
+    RULES_FILE="$2"
     shift 2
     ;;
   --guardrails-file)
@@ -327,6 +349,11 @@ fi
 
 if ! is_positive_int "$MEMORY_TAIL_LINES"; then
   echo "Error: --memory-tail-lines must be a positive integer." >&2
+  exit 1
+fi
+
+if ! is_positive_int "$PROMPT_PRD_TOP_N"; then
+  echo "Error: --prompt-prd-top-n must be a positive integer." >&2
   exit 1
 fi
 
@@ -468,6 +495,45 @@ unpassed_items_json() {
   jq -c --argjson ids "$SELECTED_IDS_JSON" \
     '.items | map(select(.id as $id | $ids | index($id))) | map(select(.passes != true))' \
     "$PRD_FILE"
+}
+
+focus_items_json() {
+  local limit="$1"
+  if [[ $SELECTED_IDS_JSON == "null" ]]; then
+    jq -c --argjson limit "$limit" '.items
+      | map(select(.passes != true))
+      | sort_by(.priority // 999999)
+      | .[:$limit]' "$PRD_FILE"
+    return
+  fi
+  jq -c --argjson ids "$SELECTED_IDS_JSON" --argjson limit "$limit" '.items
+    | map(select(.id as $id | $ids | index($id)))
+    | map(select(.passes != true))
+    | sort_by(.priority // 999999)
+    | .[:$limit]' "$PRD_FILE"
+}
+
+all_items_for_regrade_json() {
+  if [[ $SELECTED_IDS_JSON == "null" ]]; then
+    jq -c '.items
+      | map({
+          id: .id,
+          priority: .priority,
+          title: (.title // .description // ""),
+          passes: (.passes == true)
+        })
+      | sort_by(.priority // 999999)' "$PRD_FILE"
+    return
+  fi
+  jq -c --argjson ids "$SELECTED_IDS_JSON" '.items
+    | map(select(.id as $id | $ids | index($id)))
+    | map({
+        id: .id,
+        priority: .priority,
+        title: (.title // .description // ""),
+        passes: (.passes == true)
+      })
+    | sort_by(.priority // 999999)' "$PRD_FILE"
 }
 
 remaining_count() {
@@ -912,6 +978,8 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   WORK_MODE="feature"
   NEXT_ITEM=""
   UNPASSED_ITEMS="[]"
+  FOCUS_ITEMS="[]"
+  ALL_PRD_REVIEW="[]"
 
   if [[ $REMAINING == "0" ]]; then
     echo "No remaining PRD items."
@@ -931,8 +999,14 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
       echo "Unable to enumerate unpassed PRD items while work remains." >&2
       exit 1
     fi
+    FOCUS_ITEMS="$(focus_items_json "$PROMPT_PRD_TOP_N")"
+    if [[ $FOCUS_ITEMS == "[]" ]]; then
+      echo "Unable to build focus PRD slice while work remains." >&2
+      exit 1
+    fi
     NEXT_ITEM='{"id":"AGENT-SELECTED","priority":null,"title":"Agent-selected highest-priority item for this iteration","passes":false}'
   fi
+  ALL_PRD_REVIEW="$(all_items_for_regrade_json)"
 
   ITERATION_ITEM_ID=""
   ITERATION_ITEM_TITLE=""
@@ -975,32 +1049,24 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     echo "- PRD file: $PRD_FILE"
     echo "- Progress file: $PROGRESS_FILE"
     echo "- Remaining PRD items: $REMAINING"
+    echo "- Prompt PRD focus size: $PROMPT_PRD_TOP_N"
 
     echo ""
-    echo "## Current PRD"
+    echo "## Focus PRD Slice (Highest Priority Unpassed)"
     echo '```json'
-    if [[ $SELECTED_IDS_JSON == "null" ]]; then
-      jq . "$PRD_FILE"
+    if [[ $WORK_MODE == "feature" ]]; then
+      printf '%s\n' "$FOCUS_ITEMS" | jq .
     else
-      jq --argjson ids "$SELECTED_IDS_JSON" \
-        '.items = [.items[]? | select(.id as $id | $ids | index($id))]' \
-        "$PRD_FILE"
+      printf '[%s]\n' "$NEXT_ITEM" | jq .
     fi
     echo '```'
 
-    if [[ $WORK_MODE == "feature" ]]; then
-      echo ""
-      echo "## Unpassed PRD Items (Agent Must Select One)"
-      echo '```json'
-      printf '%s\n' "$UNPASSED_ITEMS" | jq .
-      echo '```'
-    else
-      echo ""
-      echo "## Target Item For This Iteration"
-      echo '```json'
-      printf '%s\n' "$NEXT_ITEM" | jq .
-      echo '```'
-    fi
+    echo ""
+    echo "## Full PRD Priority Review (Condensed)"
+    echo "Review and regrade this list before finishing the iteration."
+    echo '```json'
+    printf '%s\n' "$ALL_PRD_REVIEW" | jq .
+    echo '```'
 
     if [[ -s $PROGRESS_FILE ]]; then
       echo ""
@@ -1012,6 +1078,15 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
 
     echo ""
     echo "## Agent Recall Memory Context"
+    echo "### RULES.md"
+    echo '```md'
+    if [[ -f $RULES_FILE ]]; then
+      tail -n "$MEMORY_TAIL_LINES" "$RULES_FILE"
+    else
+      echo "(missing)"
+    fi
+    echo '```'
+
     echo "### GUARDRAILS.md"
     echo '```md'
     if [[ -f $GUARDRAILS_FILE ]]; then
@@ -1066,30 +1141,31 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     echo "## Agent Recall Directives"
     echo "The directives in this section override any conflicting instructions above."
     if [[ $WORK_MODE == "feature" ]]; then
-      echo "1. Select what you deem the highest-priority unpassed PRD item."
-      echo "2. Assign or adjust priority values across unpassed items to reflect your ordering."
+      echo "1. Select one item from the Focus PRD Slice and treat it as your only implementation target."
+      echo "2. Before finishing, re-evaluate and regrade priorities for remaining unpassed items using the Full PRD Priority Review list."
       echo "3. Work ONLY on your selected item; do not start a second feature."
     else
       echo "1. Work ONLY on the stabilization item for this iteration."
       echo "2. Keep changes scoped; do not start a second feature."
-      echo "3. Keep priority assignments coherent for any remaining PRD items."
+      echo "3. Keep priority assignments coherent for any remaining PRD items using the Full PRD Priority Review list."
     fi
-    echo "4. Do not request missing placeholders; use the provided report path: $CURRENT_REPORT_PATH."
-    echo "5. Update $PRD_FILE for completed work only."
-    echo "6. Treat tier files as read-only; do NOT edit $GUARDRAILS_FILE, $STYLE_FILE, or $RECENT_FILE (system updates them from iteration reports)."
+    echo "4. RULES.md is user-authored policy. Follow it as highest-precedence project instruction unless it conflicts with system safety constraints."
+    echo "5. Do not request missing placeholders; use the provided report path: $CURRENT_REPORT_PATH."
+    echo "6. Update $PRD_FILE for completed work and priority regrading."
+    echo "7. Treat generated memory files as read-only; do NOT edit $GUARDRAILS_FILE, $STYLE_FILE, or $RECENT_FILE (system updates them from iteration reports)."
     if [[ -n $VALIDATE_CMD ]]; then
-      echo "7. Run validation and ensure it passes before committing."
+      echo "8. Run validation and ensure it passes before committing."
     else
-      echo "7. Run available local checks before committing."
+      echo "8. Run available local checks before committing."
     fi
-    echo "8. Make one commit for this iteration and include 'RALPH' in the message."
-    echo "9. If all PRD work is complete and no further work remains, print exactly:"
+    echo "9. Make one commit for this iteration and include 'RALPH' in the message."
+    echo "10. If all PRD work is complete and no further work remains, print exactly:"
     printf '   %s\n' "$COMPLETE_MARKER"
     if [[ -n $ALT_COMPLETE_MARKER ]]; then
-      echo "10. Alternate completion marker accepted by the loop:"
+      echo "11. Alternate completion marker accepted by the loop:"
       printf '   %s\n' "$ALT_COMPLETE_MARKER"
     fi
-    echo "11. If blocked and cannot proceed safely, print exactly:"
+    echo "12. If blocked and cannot proceed safely, print exactly:"
     printf '   %s\n' "$ABORT_MARKER"
   } >"$PROMPT_FILE"
 
@@ -1165,9 +1241,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     fi
   fi
   run_compaction "$i" "$SHOULD_COMPACT"
-  if [[ $SHOULD_COMPACT -eq 1 ]]; then
-    run_synthesize_climate "$i"
-  fi
+  run_synthesize_climate "$i"
   refresh_context_after_compaction "$i" "$ITERATION_ITEM_ID" "$ITERATION_ITEM_TITLE"
 
   if [[ $ABORT_SEEN -eq 1 ]]; then

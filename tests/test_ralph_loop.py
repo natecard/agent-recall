@@ -40,6 +40,7 @@ def _write_default_repo_layout(repo_root: Path) -> None:
     (ralph_dir / "progress.txt").write_text("# Agent Recall Ralph Progress Log\n")
     (ralph_dir / "agent-prompt.md").write_text("# Agent Recall Ralph Task\n")
 
+    (agent_dir / "RULES.md").write_text("# Rules\n- Keep changes small.\n")
     (agent_dir / "GUARDRAILS.md").write_text("# Guardrails\n")
     (agent_dir / "STYLE.md").write_text("# Style\n")
     (agent_dir / "RECENT.md").write_text("# Recent\n")
@@ -75,6 +76,7 @@ def _write_two_item_repo_layout(repo_root: Path) -> None:
     (ralph_dir / "progress.txt").write_text("# Agent Recall Ralph Progress Log\n")
     (ralph_dir / "agent-prompt.md").write_text("# Agent Recall Ralph Task\n")
 
+    (agent_dir / "RULES.md").write_text("# Rules\n- Keep changes small.\n")
     (agent_dir / "GUARDRAILS.md").write_text("# Guardrails\n")
     (agent_dir / "STYLE.md").write_text("# Style\n")
     (agent_dir / "RECENT.md").write_text("# Recent\n")
@@ -134,6 +136,7 @@ def test_ralph_loop_injects_iteration_memory_and_agent_context(tmp_path: Path) -
 
     assert "## Agent Recall Memory Context" in prompt
     assert "## Agent Recall Directives" in prompt
+    assert "### RULES.md" in prompt
     assert "### GUARDRAILS.md" in prompt
     assert "### STYLE.md" in prompt
     assert "### RECENT.md" in prompt
@@ -228,12 +231,67 @@ def test_ralph_loop_supports_external_repo_layout_with_custom_paths(tmp_path: Pa
     prompt = prompt_path.read_text()
 
     assert "External item" in prompt
+    assert "### RULES.md" in prompt
     assert "### GUARDRAILS.md" in prompt
     assert "### STYLE.md" in prompt
     assert "### RECENT.md" in prompt
+    assert (context_dir / "RULES.md").exists()
     assert (context_dir / "GUARDRAILS.md").exists()
     assert (context_dir / "STYLE.md").exists()
     assert (context_dir / "RECENT.md").exists()
+
+
+def test_ralph_loop_prompt_scopes_focus_prds_with_top_n(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "agent_recall" / "ralph"
+    agent_dir = tmp_path / ".agent"
+    ralph_dir.mkdir(parents=True, exist_ok=True)
+    agent_dir.mkdir(parents=True, exist_ok=True)
+
+    (ralph_dir / "prd.json").write_text(
+        """{
+  "project": "Ralph Test",
+  "items": [
+    {"id": "RLPH-001", "priority": 1, "title": "First", "passes": false},
+    {"id": "RLPH-002", "priority": 2, "title": "Second", "passes": false},
+    {"id": "RLPH-003", "priority": 3, "title": "Third", "passes": false},
+    {"id": "RLPH-004", "priority": 4, "title": "Fourth", "passes": false}
+  ]
+}
+"""
+    )
+    (ralph_dir / "progress.txt").write_text("# Progress\n")
+    (ralph_dir / "agent-prompt.md").write_text("# Task\n")
+    (agent_dir / "RULES.md").write_text("# Rules\n- Keep scope tight.\n")
+    (agent_dir / "GUARDRAILS.md").write_text("# Guardrails\n")
+    (agent_dir / "STYLE.md").write_text("# Style\n")
+    (agent_dir / "RECENT.md").write_text("# Recent\n")
+
+    result = _run_loop(
+        tmp_path,
+        "--prd-file",
+        str(ralph_dir / "prd.json"),
+        "--prompt-prd-top-n",
+        "2",
+    )
+
+    assert result.returncode == 2
+    prompt_path = tmp_path / "agent_recall" / "ralph" / ".runtime" / "prompt-1.md"
+    prompt = prompt_path.read_text(encoding="utf-8")
+
+    focus_start = prompt.index("## Focus PRD Slice (Highest Priority Unpassed)")
+    review_start = prompt.index("## Full PRD Priority Review (Condensed)")
+    focus_section = prompt[focus_start:review_start]
+    review_section = prompt[review_start:]
+
+    assert "RLPH-001" in focus_section
+    assert "RLPH-002" in focus_section
+    assert "RLPH-003" not in focus_section
+    assert "RLPH-004" not in focus_section
+
+    assert "RLPH-001" in review_section
+    assert "RLPH-002" in review_section
+    assert "RLPH-003" in review_section
+    assert "RLPH-004" in review_section
 
 
 def test_ralph_loop_stream_json_completion_marker_exits_success(tmp_path: Path) -> None:

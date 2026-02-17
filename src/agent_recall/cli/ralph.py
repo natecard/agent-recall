@@ -53,6 +53,11 @@ from agent_recall.ralph.notifications import (
     dispatch_claude_notification,
     dispatch_notification,
 )
+from agent_recall.ralph.opencode_plugin import (
+    get_opencode_plugin_paths,
+    install_opencode_plugin,
+    uninstall_opencode_plugin,
+)
 from agent_recall.ralph.prd_archive import PRDArchive
 from agent_recall.ralph.synthesis import ClimateSynthesizer, SynthesisConfig
 from agent_recall.storage import create_storage_backend
@@ -64,6 +69,7 @@ from agent_recall.storage.sqlite import SQLiteStorage
 
 ralph_app = typer.Typer(help="Manage Ralph loop configuration")
 hooks_app = typer.Typer(help="Manage Ralph Claude Code hooks")
+plugin_app = typer.Typer(help="Manage Ralph OpenCode plugins")
 
 AGENT_DIR = Path(".agent")
 DB_PATH = AGENT_DIR / "state.db"
@@ -787,6 +793,17 @@ def ralph_run(
         "-p",
         help="Path to PRD JSON file (default: auto-detected)",
     ),
+    prompt_prd_top_n: int = typer.Option(
+        8,
+        "--prompt-prd-top-n",
+        min=1,
+        help="Top-N unpassed PRD items to include in each iteration prompt",
+    ),
+    rules_file: Path | None = typer.Option(
+        None,
+        "--rules-file",
+        help="Path to RULES.md for loop prompt context (default: .agent/RULES.md)",
+    ),
     compact_mode: str = typer.Option(
         "always",
         "--compact-mode",
@@ -950,9 +967,13 @@ def ralph_run(
         compact_mode,
         "--sleep-seconds",
         str(sleep_seconds),
+        "--prompt-prd-top-n",
+        str(prompt_prd_top_n),
     ]
     if validate_cmd:
         cmd.extend(["--validate-cmd", validate_cmd])
+    if rules_file is not None:
+        cmd.extend(["--rules-file", str(rules_file)])
     if pre_iteration_cmd:
         cmd.extend(["--pre-iteration-cmd", pre_iteration_cmd])
 
@@ -1340,6 +1361,55 @@ def ralph_hooks_uninstall(
 ralph_app.add_typer(hooks_app, name="hooks")
 
 
+@plugin_app.command("opencode-install")
+def ralph_opencode_install(
+    project_dir: Path = typer.Option(
+        Path.cwd(),
+        "--project-dir",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        help="Project directory that owns the .opencode plugin",
+    ),
+) -> None:
+    """Install OpenCode plugin for Ralph session events."""
+    _get_theme_manager()
+    changed = install_opencode_plugin(project_dir)
+    paths = get_opencode_plugin_paths(project_dir)
+    if changed:
+        console.print(
+            f"[success]✓ OpenCode plugin installed[/success]\n  Plugin: {paths.plugin_path}"
+        )
+    else:
+        console.print(f"OpenCode plugin already installed at {paths.plugin_path}")
+
+
+@plugin_app.command("opencode-uninstall")
+def ralph_opencode_uninstall(
+    project_dir: Path = typer.Option(
+        Path.cwd(),
+        "--project-dir",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        help="Project directory that owns the .opencode plugin",
+    ),
+) -> None:
+    """Remove OpenCode plugin for Ralph session events."""
+    _get_theme_manager()
+    changed = uninstall_opencode_plugin(project_dir)
+    paths = get_opencode_plugin_paths(project_dir)
+    if changed:
+        console.print(
+            f"[success]✓ OpenCode plugin removed[/success]\n  Plugin: {paths.plugin_path}"
+        )
+    else:
+        console.print(f"No OpenCode plugin found at {paths.plugin_path}")
+
+
+ralph_app.add_typer(plugin_app, name="plugin")
+
+
 @ralph_app.command("create-report")
 def ralph_create_report(
     iteration: int = typer.Option(..., "--iteration", "-n", min=1),
@@ -1493,7 +1563,12 @@ def ralph_synthesize_climate(
     _get_theme_manager()
     _ensure_agent_dir_exists()
     config = load_config(AGENT_DIR)
-    llm = ralph_cli_get_llm()
+    llm: LLMProvider | None = None
+    try:
+        llm = ralph_cli_get_llm()
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[warning]LLM unavailable, using heuristic synthesis: {exc}[/warning]")
+        llm = None
     synth_cfg = config.ralph.synthesis
     synthesizer = ClimateSynthesizer(
         AGENT_DIR / "ralph",

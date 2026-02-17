@@ -13,6 +13,7 @@ from agent_recall.storage.sqlite import SQLiteStorage
 def _make_agent_dir(tmp_path: Path) -> Path:
     agent_dir = tmp_path / ".agent"
     agent_dir.mkdir()
+    (agent_dir / "RULES.md").write_text("# Rules\n- Keep changes small.\n")
     (agent_dir / "GUARDRAILS.md").write_text("# Guardrails\n")
     (agent_dir / "STYLE.md").write_text("# Style\n")
     (agent_dir / "RECENT.md").write_text("# Recent\n")
@@ -237,3 +238,21 @@ def test_context_refresh_reads_latest_tier_file_state(tmp_path: Path) -> None:
     assert "updated-after-compaction" not in ctx1
     assert "updated-after-compaction" in ctx2
     assert "initial" not in ctx2
+
+
+def test_context_refresh_includes_rules_file(tmp_path: Path) -> None:
+    agent_dir = _make_agent_dir(tmp_path)
+    storage = SQLiteStorage(agent_dir / "state.db")
+    files = FileStorage(agent_dir)
+    (agent_dir / "RULES.md").write_text("# Rules\n- Always run local checks.\n")
+
+    with patch(
+        "agent_recall.ralph.context_refresh.write_adapter_payloads",
+        return_value={},
+    ) as mock_write:
+        hook = ContextRefreshHook(agent_dir, storage, files)
+        hook.refresh()
+
+    context = mock_write.call_args[1]["context"]
+    assert "## Rules" in context
+    assert "Always run local checks." in context

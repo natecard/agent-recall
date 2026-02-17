@@ -61,6 +61,8 @@ def handle_palette_action(app, action_id: str | None) -> None:
         "ralph-select": "ralph select",
         "ralph-hooks-install": "ralph hooks install",
         "ralph-hooks-uninstall": "ralph hooks uninstall",
+        "ralph-opencode-install": "ralph plugin opencode-install",
+        "ralph-opencode-uninstall": "ralph plugin opencode-uninstall",
         "ralph-watch": "ralph watch",
         "sources": "sources",
         "sessions": "sessions",

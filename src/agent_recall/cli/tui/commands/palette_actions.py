@@ -326,6 +326,22 @@ def get_palette_actions() -> list[PaletteAction]:
             keywords="ralph hooks uninstall claude settings",
         ),
         PaletteAction(
+            "ralph-opencode-install",
+            "Install OpenCode Plugin",
+            "Install OpenCode plugin for Ralph session events",
+            "Settings",
+            shortcut="ralph plugin opencode-install",
+            keywords="ralph plugin opencode install",
+        ),
+        PaletteAction(
+            "ralph-opencode-uninstall",
+            "Remove OpenCode Plugin",
+            "Remove OpenCode plugin for Ralph session events",
+            "Settings",
+            shortcut="ralph plugin opencode-uninstall",
+            keywords="ralph plugin opencode uninstall",
+        ),
+        PaletteAction(
             "ralph-watch",
             "Watch Claude Logs",
             "Stream Claude Code JSONL events in the activity panel",

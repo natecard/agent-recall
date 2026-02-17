@@ -34,7 +34,7 @@
       "validation_commands": [
         "uv run pytest tests/ -k opencode_plugin -x --tb=short"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-1001",
@@ -63,7 +63,7 @@
     },
     {
       "id": "AR-1002",
-      "priority": 3,
+      "priority": 2,
       "title": "Refactor 'All View' to Responsive Grid Layout",
       "description": "Replace the static vertical stacking in the 'All' view with a proper CSS Grid layout. The current implementation forces a rigid 2-column row structure. A grid layout should adapt to the terminal window size, allowing for a more information-dense and readable dashboard. The 'All' view should effectively become a high-level cockpit.",
       "user_story": "As a user with a large terminal window, I want the 'All' view to utilize the available space efficiently, showing me the timeline, status, and config side-by-side rather than in a long scrolling list.",
@@ -87,7 +87,7 @@
     },
     {
       "id": "AR-1003",
-      "priority": 4,
+      "priority": 3,
       "title": "Interactive Configuration & Sources Views",
       "description": "Upgrade the read-only Settings, LLM, and Sources views to be interactive. Users should be able to toggle settings, change models, and trigger source syncs directly from the UI without editing text files or restarting. This addresses the need for simple accessibility to common tasks.",
       "user_story": "As a user, I want to quickly switch LLM models or trigger a manual sync of a source within the TUI so that I can experiment with different configurations rapidly.",
@@ -110,7 +110,7 @@
     },
     {
       "id": "AR-1004",
-      "priority": 5,
+      "priority": 4,
       "title": "Enhanced Knowledge & Timeline Browsers",
       "description": "Transform the static Knowledge and Timeline summaries into fully browsable interfaces. The Knowledge view should allow reading the actual Guardrails/Style/Recent content with syntax highlighting. The Timeline should allow clicking an entry to view the full iteration report and diff.",
       "user_story": "As a user, I want to read my Guardrails or review a past iteration's diff within the TUI so that I don't have to switch to an external editor.",

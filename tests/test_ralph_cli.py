@@ -105,6 +105,39 @@ def test_build_agent_cmd_from_ralph_config_opencode_without_model() -> None:
     assert cmd == 'opencode run "$(cat {prompt_file})"'
 
 
+def test_opencode_plugin_cli_install_and_uninstall(tmp_path: Path) -> None:
+    runner = CliRunner()
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+
+    result = runner.invoke(
+        cli_main.app,
+        [
+            "ralph",
+            "plugin",
+            "opencode-install",
+            "--project-dir",
+            str(project_dir),
+        ],
+    )
+    assert result.exit_code == 0
+    plugin_path = project_dir / ".opencode" / "plugins" / "agent-recall-ralph.js"
+    assert plugin_path.exists()
+
+    result = runner.invoke(
+        cli_main.app,
+        [
+            "ralph",
+            "plugin",
+            "opencode-uninstall",
+            "--project-dir",
+            str(project_dir),
+        ],
+    )
+    assert result.exit_code == 0
+    assert not plugin_path.exists()
+
+
 def test_build_agent_cmd_from_ralph_config_missing_cli_returns_none() -> None:
     cmd = build_agent_cmd_from_ralph_config({"cli_model": "gpt-5.3-codex"})
     assert cmd is None

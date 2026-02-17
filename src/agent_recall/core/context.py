@@ -22,6 +22,15 @@ class ContextAssembler:
         """Assemble full context for an agent."""
         parts: list[str] = []
 
+        rules_path = self.files.agent_dir / "RULES.md"
+        if rules_path.exists():
+            try:
+                rules = rules_path.read_text(encoding="utf-8")
+            except OSError:
+                rules = ""
+            if rules.strip():
+                parts.append(f"## Rules\n\n{rules.strip()}")
+
         guardrails = self.files.read_tier(KnowledgeTier.GUARDRAILS)
         if guardrails.strip():
             parts.append(f"## Guardrails\n\n{guardrails.strip()}")

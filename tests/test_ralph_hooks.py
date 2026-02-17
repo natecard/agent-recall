@@ -18,6 +18,13 @@ from agent_recall.ralph.hooks import (
     should_block_payload,
     uninstall_hooks,
 )
+from agent_recall.ralph.opencode_plugin import (
+    OPENCODE_PLUGIN_FILENAME,
+    get_opencode_plugin_paths,
+    install_opencode_plugin,
+    render_opencode_plugin,
+    uninstall_opencode_plugin,
+)
 
 
 def test_build_guardrail_patterns_defaults_and_dedup() -> None:
@@ -143,3 +150,36 @@ def test_install_hooks_is_idempotent(tmp_path: Path) -> None:
         )
         == 1
     )
+
+
+def test_opencode_plugin_install_and_uninstall(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    changed = install_opencode_plugin(project_dir)
+    assert changed is True
+    paths = get_opencode_plugin_paths(project_dir)
+    assert paths.plugin_path.exists()
+    removed = uninstall_opencode_plugin(project_dir)
+    assert removed is True
+    assert not paths.plugin_path.exists()
+
+
+def test_opencode_plugin_install_is_idempotent(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    install_opencode_plugin(project_dir)
+    changed = install_opencode_plugin(project_dir)
+    assert changed is False
+
+
+def test_opencode_plugin_filename_constant() -> None:
+    assert OPENCODE_PLUGIN_FILENAME.endswith(".js")
+
+
+def test_opencode_plugin_renders_expected_hooks() -> None:
+    payload = render_opencode_plugin()
+    assert "session.created" in payload
+    assert "session.idle" in payload
+    assert "tool.execute.before" in payload
+    assert "tool.execute.after" in payload
+    assert "opencode_events.jsonl" in payload
