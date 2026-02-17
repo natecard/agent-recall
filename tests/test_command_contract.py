@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import agent_recall.cli.main as cli_main
 from agent_recall.cli.command_contract import command_parity_report
-from agent_recall.cli.textual_tui import _build_command_suggestions
+from agent_recall.cli.tui import _build_command_suggestions
 
 
 def test_command_parity_report_separates_surfaces() -> None:

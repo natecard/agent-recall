@@ -4,7 +4,7 @@ from typing import Any, cast
 
 import yaml
 
-from agent_recall.cli.textual_tui import (
+from agent_recall.cli.tui import (
     AgentRecallTextualApp,
     _build_command_suggestions,
     _clean_optional_text,
@@ -154,7 +154,7 @@ def test_tui_ralph_run_streams_shell_loop_with_configured_agent_cmd(tmp_path, mo
     )
     monkeypatch.setenv("AGENT_RECALL_RALPH_STREAM_DEBUG", "0")
     monkeypatch.setattr(
-        "agent_recall.cli.textual_tui.run_streaming_command",
+        "agent_recall.cli.tui.logic.ralph_mixin.run_streaming_command",
         lambda cmd, **kwargs: (
             captured_cmd.__setitem__(slice(None), list(cmd)),
             kwargs["on_emit"]("cli output line 1\n"),
