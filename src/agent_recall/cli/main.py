@@ -878,7 +878,17 @@ def _handle_tui_view_command(raw: str, current_view: str) -> tuple[bool, str, li
     if command not in {"view", "menu"}:
         return False, current_view, []
 
-    valid_views = {"overview", "sources", "llm", "knowledge", "settings", "console", "all"}
+    valid_views = {
+        "overview",
+        "sources",
+        "llm",
+        "knowledge",
+        "settings",
+        "timeline",
+        "ralph",
+        "console",
+        "all",
+    }
     if len(parts) == 1:
         return (
             True,
@@ -886,7 +896,7 @@ def _handle_tui_view_command(raw: str, current_view: str) -> tuple[bool, str, li
             [
                 f"[dim]Current view: {current_view}[/dim]",
                 "[dim]Available views: overview, sources, llm, "
-                "knowledge, settings, console, all[/dim]",
+                "knowledge, settings, timeline, ralph, console, all[/dim]",
             ],
         )
 
@@ -2139,10 +2149,19 @@ def _render_iteration_timeline(store: IterationReportStore, *, max_entries: int)
 
 
 def _dashboard_render_context() -> DashboardRenderContext:
+    ralph_max_iterations: int | None = None
+    try:
+        ralph_config = read_ralph_config(get_files())
+        max_iter_value = ralph_config.get("max_iterations")
+        if isinstance(max_iter_value, int | float) and max_iter_value >= 1:
+            ralph_max_iterations = int(max_iter_value)
+    except Exception:  # noqa: BLE001
+        ralph_max_iterations = None
     return DashboardRenderContext(
         console=console,
         theme_manager=_theme_manager,
         agent_dir=AGENT_DIR,
+        ralph_max_iterations=ralph_max_iterations,
         get_storage=get_storage,
         get_files=get_files,
         get_repo_selected_sources=_get_repo_selected_sources,

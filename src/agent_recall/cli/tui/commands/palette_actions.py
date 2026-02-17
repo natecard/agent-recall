@@ -24,6 +24,7 @@ def _build_command_suggestions(cli_commands: list[str]) -> list[str]:
             "view llm",
             "view knowledge",
             "view settings",
+            "view ralph",
             "view console",
             "view all",
             "menu overview",
@@ -269,6 +270,13 @@ def get_palette_actions() -> list[PaletteAction]:
             "Iteration outcomes and summaries",
             "Views",
             keywords="view timeline iterations",
+        ),
+        PaletteAction(
+            "view:ralph",
+            "Ralph View",
+            "Ralph loop status and recent outcomes",
+            "Views",
+            keywords="view ralph status loop",
         ),
         PaletteAction(
             "view:console",

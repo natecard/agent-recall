@@ -10,7 +10,7 @@ def build_tui_help_lines() -> list[str]:
             continue
         lines.append(f"[dim]/{contract.command}[/dim] - {contract.description}")
     lines.append(
-        "[dim]/view overview|sources|llm|knowledge|settings|timeline|console|all[/dim]"
+        "[dim]/view overview|sources|llm|knowledge|settings|timeline|ralph|console|all[/dim]"
         " - switch TUI view"
     )
     lines.append("[dim]/run[/dim] - Alias for /sync (includes synthesis by default)")

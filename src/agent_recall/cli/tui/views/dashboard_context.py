@@ -13,6 +13,7 @@ class DashboardRenderContext:
     console: Console
     theme_manager: Any
     agent_dir: Path
+    ralph_max_iterations: int | None
     get_storage: Callable[[], Any]
     get_files: Callable[[], Any]
     get_repo_selected_sources: Callable[[Any], list[str] | None]

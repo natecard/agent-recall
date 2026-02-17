@@ -67,6 +67,7 @@ def _build_test_app() -> AgentRecallTextualApp:
         console=Console(width=120, record=True),
         theme_manager=_ThemeManager(),
         agent_dir=Path("/tmp"),
+        ralph_max_iterations=10,
         get_storage=lambda: _Storage(),
         get_files=lambda: _Files(),
         get_repo_selected_sources=lambda _files: None,

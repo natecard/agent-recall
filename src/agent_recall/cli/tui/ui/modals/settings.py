@@ -26,6 +26,7 @@ class SettingsModal(ModalScreen[dict[str, Any] | None]):
             "knowledge",
             "settings",
             "timeline",
+            "ralph",
             "console",
             "all",
         ]

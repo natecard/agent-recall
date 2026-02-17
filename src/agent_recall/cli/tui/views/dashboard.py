@@ -16,6 +16,7 @@ from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
 from agent_recall.cli.tui.widgets import (
     KnowledgeWidget,
     LLMConfigWidget,
+    RalphStatusWidget,
     SettingsWidget,
     SourcesWidget,
     TimelineWidget,
@@ -35,6 +36,7 @@ class DashboardPanels:
     sources_compact: Panel
     settings: Panel
     timeline: Panel
+    ralph: Panel
     slash_console: Panel | None
     source_names: list[str]
 
@@ -202,6 +204,10 @@ def build_dashboard_panels(
         active_agents_wrapped=active_agents_wrapped,
         configured_agents_wrapped=configured_agents_wrapped,
     )
+    ralph_widget = RalphStatusWidget(
+        agent_dir=context.agent_dir,
+        max_iterations=context.ralph_max_iterations,
+    )
     detail_title = None
     detail_body = None
     if view == "timeline":
@@ -241,6 +247,7 @@ def build_dashboard_panels(
     sources_compact_panel = sources_compact_widget.render()
     settings_panel = settings_widget.render()
     timeline_panel = timeline_widget.render(detail=view == "timeline")
+    ralph_panel = ralph_widget.render()
 
     slash_panel = None
     if show_slash_console:
@@ -264,6 +271,7 @@ def build_dashboard_panels(
         sources_compact=sources_compact_panel,
         settings=settings_panel,
         timeline=timeline_panel,
+        ralph=ralph_panel,
         slash_console=slash_panel,
         source_names=source_names,
     )
@@ -305,6 +313,8 @@ def build_tui_dashboard(
         renderables.append(panels.knowledge)
     elif view == "timeline":
         renderables.append(panels.timeline)
+    elif view == "ralph":
+        renderables.append(panels.ralph)
     elif view == "llm":
         renderables.append(panels.llm)
     elif view == "sources":

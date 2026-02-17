@@ -126,7 +126,7 @@
     },
     {
       "id": "AR-1005",
-      "priority": 2,
+      "priority": 1,
       "title": "Ralph Status View & Loop Visualization",
       "description": "Create a dedicated 'Ralph' view in the TUI (or integration into the 'All' view) to visualize the current state of the Ralph loop. This view should display real-time information about the active iteration, including the PRD item being worked on, the current phase (planning/coding/validating), and recent activity. It should source data from `.agent/ralph/iterations/current.json` for live state and `ralph_state.json` for historical context.",
       "user_story": "As a user running long autonomous loops, I want to see exactly which PRD item Ralph is working on and its current progress without having to grep through log files.",
@@ -147,7 +147,7 @@
         "The UI clearly distinguishes between 'Running' and 'Idle' states"
       ],
       "validation_commands": ["uv run pytest tests/test_textual_tui.py"],
-      "passes": false
+      "passes": true
     }
   ]
 }

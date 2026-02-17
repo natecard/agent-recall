@@ -66,6 +66,7 @@ def _context() -> DashboardRenderContext:
         console=Console(width=120, record=True),
         theme_manager=_ThemeManagerStub(),
         agent_dir=Path.cwd() / ".agent",
+        ralph_max_iterations=10,
         get_storage=lambda: _StorageStub(),
         get_files=lambda: _FilesStub(),
         get_repo_selected_sources=lambda _files: ["cursor", "claude"],
@@ -91,6 +92,7 @@ def test_build_dashboard_view_panel_counts() -> None:
         "llm": 3,
         "settings": 3,
         "timeline": 3,
+        "ralph": 3,
         "console": 2,
         "all": 5,
     }

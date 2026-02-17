@@ -220,6 +220,8 @@ class AgentRecallTextualApp(
                 show_slash_console=False,
             ).timeline
             dashboard.mount(Static(detail_panel, id="dashboard_timeline"))
+        elif self.current_view == "ralph":
+            dashboard.mount(Static(panels.ralph, id="dashboard_ralph"))
         elif self.current_view == "llm":
             dashboard.mount(Static(panels.llm, id="dashboard_llm"))
         elif self.current_view == "sources":
