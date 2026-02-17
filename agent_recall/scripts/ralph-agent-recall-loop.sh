@@ -87,6 +87,7 @@ COMPACT_MODE="always"
 LOCK_FILE="$RUNTIME_DIR/loop.lock"
 LOCK_ACQUIRED=0
 ARCHIVE_ONLY=0
+SELECTED_IDS_JSON="null"
 
 ensure_memory_files() {
   mkdir -p "$(dirname "$GUARDRAILS_FILE")"
@@ -419,39 +420,64 @@ ensure_memory_files
 detect_timeout_backend
 acquire_lock
 
-# When --prd-ids (or RALPH_PRD_IDS) is set, filter PRD to only selected items.
+# When --prd-ids (or RALPH_PRD_IDS) is set, scope candidate selection to only those items.
+# Keep PRD_FILE pointing at the original PRD so agent edits and archive/prune operate on source.
 if [[ -n $PRD_IDS ]]; then
-  FILTERED_PRD="$RUNTIME_DIR/prd-filtered.json"
-  ids_json="$(echo "$PRD_IDS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' | jq -R . | jq -s .)"
-  if ! jq --argjson ids "$ids_json" '.items = [.items[]? | select(.id as $id | $ids | index($id))]' "$PRD_FILE" >"$FILTERED_PRD"; then
-    echo "Error: Failed to filter PRD by --prd-ids." >&2
-    exit 1
-  fi
-  filtered_count="$(jq -r '.items | length' "$FILTERED_PRD")"
+  SELECTED_IDS_JSON="$(echo "$PRD_IDS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' | jq -R . | jq -s .)"
+  filtered_count="$(
+    jq -r --argjson ids "$SELECTED_IDS_JSON" \
+      '[.items[]? | select(.id as $id | $ids | index($id))] | length' \
+      "$PRD_FILE"
+  )"
   if [[ $filtered_count -eq 0 ]]; then
     echo "Error: No PRD items match --prd-ids ($PRD_IDS). Check IDs exist in $PRD_FILE." >&2
     exit 1
   fi
-  PRD_FILE="$FILTERED_PRD"
 fi
 
 all_done() {
-  jq -e '.items | all(.passes == true)' "$PRD_FILE" >/dev/null
+  if [[ $SELECTED_IDS_JSON == "null" ]]; then
+    jq -e '.items | all(.passes == true)' "$PRD_FILE" >/dev/null
+    return
+  fi
+  jq -e --argjson ids "$SELECTED_IDS_JSON" \
+    '[.items[]? | select(.id as $id | $ids | index($id))] | all(.passes == true)' \
+    "$PRD_FILE" >/dev/null
 }
 
 next_item_json() {
-  jq -c '.items
+  if [[ $SELECTED_IDS_JSON == "null" ]]; then
+    jq -c '.items
+      | map(select(.passes != true))
+      | sort_by(.priority // 999999)
+      | .[0] // empty' "$PRD_FILE"
+    return
+  fi
+  jq -c --argjson ids "$SELECTED_IDS_JSON" '.items
+    | map(select(.id as $id | $ids | index($id)))
     | map(select(.passes != true))
     | sort_by(.priority // 999999)
     | .[0] // empty' "$PRD_FILE"
 }
 
 unpassed_items_json() {
-  jq -c '.items | map(select(.passes != true))' "$PRD_FILE"
+  if [[ $SELECTED_IDS_JSON == "null" ]]; then
+    jq -c '.items | map(select(.passes != true))' "$PRD_FILE"
+    return
+  fi
+  jq -c --argjson ids "$SELECTED_IDS_JSON" \
+    '.items | map(select(.id as $id | $ids | index($id))) | map(select(.passes != true))' \
+    "$PRD_FILE"
 }
 
 remaining_count() {
-  jq -r '.items | map(select(.passes != true)) | length' "$PRD_FILE"
+  if [[ $SELECTED_IDS_JSON == "null" ]]; then
+    jq -r '.items | map(select(.passes != true)) | length' "$PRD_FILE"
+    return
+  fi
+  jq -r --argjson ids "$SELECTED_IDS_JSON" \
+    '.items | map(select(.id as $id | $ids | index($id))) | map(select(.passes != true)) | length' \
+    "$PRD_FILE"
 }
 
 recent_commits() {
@@ -953,7 +979,13 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     echo ""
     echo "## Current PRD"
     echo '```json'
-    jq . "$PRD_FILE"
+    if [[ $SELECTED_IDS_JSON == "null" ]]; then
+      jq . "$PRD_FILE"
+    else
+      jq --argjson ids "$SELECTED_IDS_JSON" \
+        '.items = [.items[]? | select(.id as $id | $ids | index($id))]' \
+        "$PRD_FILE"
+    fi
     echo '```'
 
     if [[ $WORK_MODE == "feature" ]]; then
@@ -1159,6 +1191,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   if [[ $HAS_COMPLETE -eq 1 ]]; then
     if [[ $LAST_VALIDATE_EXIT -eq 0 ]]; then
       echo "Completion marker seen and validation green. Exiting early."
+      run_archive_completed "$i"
       run_synthesize_climate "$i"
       run_notify "complete" "$i"
       exit 0

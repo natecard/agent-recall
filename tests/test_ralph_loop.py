@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -44,6 +45,41 @@ def _write_default_repo_layout(repo_root: Path) -> None:
     (agent_dir / "RECENT.md").write_text("# Recent\n")
 
 
+def _write_two_item_repo_layout(repo_root: Path) -> None:
+    ralph_dir = repo_root / "agent_recall" / "ralph"
+    agent_dir = repo_root / ".agent"
+
+    ralph_dir.mkdir(parents=True, exist_ok=True)
+    agent_dir.mkdir(parents=True, exist_ok=True)
+
+    (ralph_dir / "prd.json").write_text(
+        """{
+  "project": "Ralph Test",
+  "items": [
+    {
+      "id": "RLPH-001",
+      "priority": 1,
+      "title": "First item",
+      "passes": false
+    },
+    {
+      "id": "RLPH-002",
+      "priority": 2,
+      "title": "Second item",
+      "passes": false
+    }
+  ]
+}
+""",
+    )
+    (ralph_dir / "progress.txt").write_text("# Agent Recall Ralph Progress Log\n")
+    (ralph_dir / "agent-prompt.md").write_text("# Agent Recall Ralph Task\n")
+
+    (agent_dir / "GUARDRAILS.md").write_text("# Guardrails\n")
+    (agent_dir / "STYLE.md").write_text("# Style\n")
+    (agent_dir / "RECENT.md").write_text("# Recent\n")
+
+
 def _run_loop(
     repo_root: Path,
     *extra_args: str,
@@ -68,6 +104,19 @@ def _run_loop(
         capture_output=True,
         text=True,
         check=False,
+    )
+
+
+def _mark_pass_and_emit_complete_agent_cmd(item_id: str) -> str:
+    assistant_line = json.dumps(
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "done"}]}}
+    )
+    result_line = json.dumps({"type": "result", "result": "<promise>COMPLETE</promise>"})
+    return (
+        f"jq '(.items[] | select(.id==\"{item_id}\") | .passes) = true' "
+        "agent_recall/ralph/prd.json > agent_recall/ralph/prd.json.tmp "
+        "&& mv agent_recall/ralph/prd.json.tmp agent_recall/ralph/prd.json "
+        f"&& printf '%s\\n' '{assistant_line}' '{result_line}'"
     )
 
 
@@ -205,6 +254,62 @@ def test_ralph_loop_stream_json_completion_marker_exits_success(tmp_path: Path) 
 
     assert result.returncode == 0
     assert "Completion marker seen and validation green. Exiting early." in result.stdout
+
+
+def test_ralph_loop_completion_marker_archives_partial_progress(tmp_path: Path) -> None:
+    _write_two_item_repo_layout(tmp_path)
+
+    agent_cmd = _mark_pass_and_emit_complete_agent_cmd("RLPH-001")
+    result = _run_loop(
+        tmp_path,
+        "--agent-output-mode",
+        "stream-json",
+        agent_cmd=agent_cmd,
+    )
+
+    assert result.returncode == 0
+
+    archive_path = tmp_path / ".agent" / "ralph" / "prd_archive.json"
+    assert archive_path.exists()
+    archived = json.loads(archive_path.read_text(encoding="utf-8"))
+    archived_ids = {str(item.get("id")) for item in archived.get("items", [])}
+    assert "RLPH-001" in archived_ids
+
+    prd_path = tmp_path / "agent_recall" / "ralph" / "prd.json"
+    prd_payload = json.loads(prd_path.read_text(encoding="utf-8"))
+    remaining_ids = {str(item.get("id")) for item in prd_payload.get("items", [])}
+    assert "RLPH-001" not in remaining_ids
+    assert "RLPH-002" in remaining_ids
+
+
+def test_ralph_loop_prd_ids_archives_from_source_prd(tmp_path: Path) -> None:
+    _write_two_item_repo_layout(tmp_path)
+    prd_path = tmp_path / "agent_recall" / "ralph" / "prd.json"
+
+    agent_cmd = _mark_pass_and_emit_complete_agent_cmd("RLPH-002")
+    result = _run_loop(
+        tmp_path,
+        "--agent-output-mode",
+        "stream-json",
+        "--prd-file",
+        str(prd_path),
+        "--prd-ids",
+        "RLPH-002",
+        agent_cmd=agent_cmd,
+    )
+
+    assert result.returncode == 0
+
+    archive_path = tmp_path / ".agent" / "ralph" / "prd_archive.json"
+    assert archive_path.exists()
+    archived = json.loads(archive_path.read_text(encoding="utf-8"))
+    archived_ids = {str(item.get("id")) for item in archived.get("items", [])}
+    assert "RLPH-002" in archived_ids
+
+    prd_payload = json.loads(prd_path.read_text(encoding="utf-8"))
+    remaining_ids = {str(item.get("id")) for item in prd_payload.get("items", [])}
+    assert "RLPH-002" not in remaining_ids
+    assert "RLPH-001" in remaining_ids
 
 
 def test_ralph_loop_runtime_validation_signal_enriches_memory_files(tmp_path: Path) -> None:

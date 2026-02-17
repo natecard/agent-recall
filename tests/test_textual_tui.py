@@ -105,7 +105,8 @@ def test_palette_cli_command_redundancy_filter() -> None:
     assert _is_palette_cli_command_redundant("sources") is True
     assert _is_palette_cli_command_redundant("sessions") is True
     assert _is_palette_cli_command_redundant("theme list") is True
-    assert _is_palette_cli_command_redundant("theme show") is False
+    assert _is_palette_cli_command_redundant("theme show") is True
+    assert _is_palette_cli_command_redundant("ralph status") is True
     assert _is_palette_cli_command_redundant("config model") is True
     assert _is_palette_cli_command_redundant("providers") is False
 

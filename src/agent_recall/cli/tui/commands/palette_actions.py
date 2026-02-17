@@ -59,14 +59,6 @@ def _is_palette_cli_command_redundant(command: str) -> bool:
     if not normalized:
         return True
 
-    # Distinct subcommands that provide unique value in palette UX.
-    distinct_subcommands = {
-        "theme show",
-        "ralph status",
-    }
-    if normalized in distinct_subcommands:
-        return False
-
     exact = {
         "open",
         "status",
