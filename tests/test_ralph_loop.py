@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -256,3 +257,15 @@ def test_ralph_loop_compaction_and_synthesis_before_refresh_context(tmp_path: Pa
         "Iteration 2 prompt must include compacted content; "
         "compaction runs before refresh-context so next iteration sees optimized memory"
     )
+
+
+def test_ralph_loop_reports_agent_transport_marker(tmp_path: Path) -> None:
+    _write_default_repo_layout(tmp_path)
+
+    result = _run_loop(tmp_path, agent_cmd="printf 'agent output\\n'")
+
+    assert result.returncode == 2
+    if sys.platform == "darwin":
+        assert "Agent transport: pty(script)" in result.stdout
+    else:
+        assert "Agent transport: legacy(pipe)" in result.stdout

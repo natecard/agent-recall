@@ -464,11 +464,23 @@ recent_commits() {
   fi
 }
 
+can_use_script_pty() {
+  if [[ ${OSTYPE:-} != darwin* ]]; then
+    return 1
+  fi
+  if ! command -v script >/dev/null 2>&1; then
+    return 1
+  fi
+  script -q /dev/null true >/dev/null 2>&1
+}
+
 run_agent() {
   local prompt_file="$1"
   local log_file="$2"
   local cmd="$AGENT_CMD"
   local -a timeout_prefix=()
+  local transport="legacy(pipe)"
+  local command_has_prompt_file=0
 
   if [[ $AGENT_TIMEOUT_SECONDS -gt 0 ]]; then
     case "$AGENT_TIMEOUT_BACKEND" in
@@ -484,19 +496,64 @@ run_agent() {
     esac
   fi
 
-  if [[ $AGENT_TIMEOUT_SECONDS -gt 0 ]]; then
-    if [[ $cmd == *"{prompt_file}"* ]]; then
-      cmd="${cmd//\{prompt_file\}/$prompt_file}"
-      "${timeout_prefix[@]}" bash -lc "$cmd" 2>&1 | tee "$log_file"
+  if [[ $cmd == *"{prompt_file}"* ]]; then
+    cmd="${cmd//\{prompt_file\}/$prompt_file}"
+    command_has_prompt_file=1
+  fi
+
+  if [[ $AGENT_OUTPUT_MODE != "stream-json" ]] && can_use_script_pty; then
+    transport="pty(script)"
+    if [[ $command_has_prompt_file -eq 1 ]]; then
+      if [[ $AGENT_TIMEOUT_SECONDS -gt 0 ]]; then
+        {
+          echo "Agent transport: $transport"
+          "${timeout_prefix[@]}" script -q /dev/null bash -lc "$cmd"
+        } 2>&1 | tee "$log_file"
+      else
+        {
+          echo "Agent transport: $transport"
+          script -q /dev/null bash -lc "$cmd"
+        } 2>&1 | tee "$log_file"
+      fi
     else
-      "${timeout_prefix[@]}" bash -lc "$cmd" <"$prompt_file" 2>&1 | tee "$log_file"
+      if [[ $AGENT_TIMEOUT_SECONDS -gt 0 ]]; then
+        {
+          echo "Agent transport: $transport"
+          "${timeout_prefix[@]}" script -q /dev/null bash -lc "$cmd" <"$prompt_file"
+        } 2>&1 | tee "$log_file"
+      else
+        {
+          echo "Agent transport: $transport"
+          script -q /dev/null bash -lc "$cmd" <"$prompt_file"
+        } 2>&1 | tee "$log_file"
+      fi
+    fi
+    return
+  fi
+
+  if [[ $command_has_prompt_file -eq 1 ]]; then
+    if [[ $AGENT_TIMEOUT_SECONDS -gt 0 ]]; then
+      {
+        echo "Agent transport: $transport"
+        "${timeout_prefix[@]}" bash -lc "$cmd"
+      } 2>&1 | tee "$log_file"
+    else
+      {
+        echo "Agent transport: $transport"
+        bash -lc "$cmd"
+      } 2>&1 | tee "$log_file"
     fi
   else
-    if [[ $cmd == *"{prompt_file}"* ]]; then
-      cmd="${cmd//\{prompt_file\}/$prompt_file}"
-      bash -lc "$cmd" 2>&1 | tee "$log_file"
+    if [[ $AGENT_TIMEOUT_SECONDS -gt 0 ]]; then
+      {
+        echo "Agent transport: $transport"
+        "${timeout_prefix[@]}" bash -lc "$cmd" <"$prompt_file"
+      } 2>&1 | tee "$log_file"
     else
-      bash -lc "$cmd" <"$prompt_file" 2>&1 | tee "$log_file"
+      {
+        echo "Agent transport: $transport"
+        bash -lc "$cmd" <"$prompt_file"
+      } 2>&1 | tee "$log_file"
     fi
   fi
 }

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import io
+from typing import Any, cast
 
 import yaml
 
@@ -12,6 +12,33 @@ from agent_recall.cli.textual_tui import (
     _is_palette_cli_command_redundant,
     get_palette_actions,
 )
+
+
+def _build_test_app() -> AgentRecallTextualApp:
+    def theme_defaults() -> tuple[list[str], str]:
+        themes = ["dark+"]
+        return themes, "dark+"
+
+    def discover_models(*_args: object, **_kwargs: object) -> tuple[list[str], str | None]:
+        models = ["gpt-test"]
+        return models, None
+
+    return AgentRecallTextualApp(
+        render_dashboard=lambda *_args, **_kwargs: "",
+        execute_command=lambda *_args, **_kwargs: (False, []),
+        list_sessions_for_picker=lambda *_args, **_kwargs: [],
+        run_setup_payload=lambda *_args, **_kwargs: (False, []),
+        run_model_config=lambda *_args, **_kwargs: [],
+        theme_defaults_provider=theme_defaults,
+        theme_runtime_provider=None,
+        theme_resolve_provider=None,
+        model_defaults_provider=lambda: {},
+        setup_defaults_provider=lambda: {},
+        discover_models=discover_models,
+        providers=[],
+        list_prd_items_for_picker=None,
+        cli_commands=[],
+    )
 
 
 def test_build_command_suggestions_excludes_slash_variants() -> None:
@@ -106,51 +133,30 @@ def test_tui_ralph_run_streams_shell_loop_with_configured_agent_cmd(tmp_path, mo
     fake_script = tmp_path / "ralph-agent-recall-loop.sh"
     fake_script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
 
-    def theme_defaults() -> tuple[list[str], str]:
-        themes = ["dark+"]
-        return themes, "dark+"
-
-    def discover_models(*_args: object, **_kwargs: object) -> tuple[list[str], str | None]:
-        models = ["gpt-test"]
-        return models, None
-
-    app = AgentRecallTextualApp(
-        render_dashboard=lambda *_args, **_kwargs: "",
-        execute_command=lambda *_args, **_kwargs: (False, []),
-        list_sessions_for_picker=lambda *_args, **_kwargs: [],
-        run_setup_payload=lambda *_args, **_kwargs: (False, []),
-        run_model_config=lambda *_args, **_kwargs: [],
-        theme_defaults_provider=theme_defaults,
-        theme_runtime_provider=None,
-        theme_resolve_provider=None,
-        model_defaults_provider=lambda: {},
-        setup_defaults_provider=lambda: {},
-        discover_models=discover_models,
-        providers=[],
-        list_prd_items_for_picker=None,
-        cli_commands=[],
-    )
+    app = _build_test_app()
 
     captured_activity: list[str] = []
     captured_cmd: list[str] = []
     worker_result: dict[str, object] = {}
 
-    class _FakePopen:
-        def __init__(self, cmd, **_kwargs) -> None:  # noqa: ANN001
-            captured_cmd[:] = list(cmd)
-            self.stdout = io.StringIO("cli output line 1\ncli output line 2\n")
-            self.returncode = 0
-
-        def wait(self) -> int:
-            return int(self.returncode)
-
     monkeypatch.setattr(
         "agent_recall.cli.ralph.get_default_script_path",
         lambda: fake_script,
     )
-    monkeypatch.setattr("agent_recall.cli.textual_tui.subprocess.Popen", _FakePopen)
+    monkeypatch.setenv("AGENT_RECALL_RALPH_STREAM_DEBUG", "0")
+    monkeypatch.setattr(
+        "agent_recall.cli.textual_tui.run_streaming_command",
+        lambda cmd, **kwargs: (
+            captured_cmd.__setitem__(slice(None), list(cmd)),
+            kwargs["on_emit"]("cli output line 1\n"),
+            kwargs["on_emit"]("cli output line 2\n"),
+            0,
+        )[-1],
+    )
     monkeypatch.setattr(app, "_append_activity", lambda line: captured_activity.append(line))
     monkeypatch.setattr(app, "call_from_thread", lambda fn, *args: fn(*args))
+    dummy_widget = type("DummyWidget", (), {"display": False})()
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: dummy_widget)
 
     def _run_worker_inline(fn, **_kwargs):  # noqa: ANN001
         worker_result.update(fn())
@@ -175,6 +181,56 @@ def test_tui_ralph_run_streams_shell_loop_with_configured_agent_cmd(tmp_path, mo
     assert captured_cmd[captured_cmd.index("--compact-mode") + 1] == "off"
     assert "--prd-ids" in captured_cmd
     assert captured_cmd[captured_cmd.index("--prd-ids") + 1] == "AR-1,AR-2"
-    assert "cli output line 1" in captured_activity
-    assert "cli output line 2" in captured_activity
+    assert any("cli output line 1" in line for line in captured_activity)
+    assert any("cli output line 2" in line for line in captured_activity)
     assert worker_result["exit_code"] == 0
+
+
+def test_activity_scroll_keys_work_without_active_worker(monkeypatch) -> None:
+    app = _build_test_app()
+
+    class _DummyActivityWidget:
+        def __init__(self) -> None:
+            self.scroll_x = 0
+            self.scroll_y = 10
+            self.max_scroll_y = 100
+
+        @property
+        def is_vertical_scroll_end(self) -> bool:
+            return int(self.scroll_y) >= int(self.max_scroll_y)
+
+        def scroll_to(self, *, x: int, y: int, animate: bool, force: bool) -> None:
+            _ = animate, force
+            self.scroll_x = x
+            self.scroll_y = y
+
+        def scroll_end(self, animate: bool = False) -> None:
+            _ = animate
+            self.scroll_y = self.max_scroll_y
+
+    class _FakeKeyEvent:
+        def __init__(self, key: str) -> None:
+            self.key = key
+            self.prevented = False
+            self.stopped = False
+
+        def prevent_default(self) -> None:
+            self.prevented = True
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    widget = _DummyActivityWidget()
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: widget)
+
+    app._worker_context.clear()
+    app.on_key(cast(Any, _FakeKeyEvent("up")))
+    assert widget.scroll_y == 7
+    assert app._activity_follow_tail is False
+
+    event = _FakeKeyEvent("end")
+    app.on_key(cast(Any, event))
+    assert widget.scroll_y == widget.max_scroll_y
+    assert app._activity_follow_tail is True
+    assert event.prevented is True
+    assert event.stopped is True

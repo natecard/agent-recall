@@ -255,3 +255,50 @@ def test_ralph_run_loop_passes_coding_cli_params() -> None:
         assert len(output_events) >= 1
         agent_events = [e for e in events if e.get("event") == "agent_complete"]
         assert len(agent_events) == 1
+
+
+def test_ralph_run_shell_mode_streams_via_shared_pipeline(monkeypatch) -> None:
+    with runner.isolated_filesystem():
+        script_path = Path("ralph-agent-recall-loop.sh")
+        script_path.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+        monkeypatch.setattr("agent_recall.cli.ralph.get_default_script_path", lambda: script_path)
+        monkeypatch.setenv("AGENT_RECALL_RALPH_STREAM_DEBUG", "0")
+
+        prd_path = Path("agent_recall") / "ralph" / "prd.json"
+        prd_path.parent.mkdir(parents=True, exist_ok=True)
+        prd_path.write_text(
+            '{"items":[{"id":"AR-1","title":"Test","passes":false}]}',
+            encoding="utf-8",
+        )
+
+        captured_cmd: list[str] = []
+
+        def _fake_stream_runner(cmd, **kwargs):  # noqa: ANN001
+            captured_cmd[:] = list(cmd)
+            kwargs["on_emit"]("stream fragment 1\n")
+            kwargs["on_emit"]("stream fragment 2\n")
+            return 0
+
+        monkeypatch.setattr("agent_recall.cli.ralph.run_streaming_command", _fake_stream_runner)
+
+        result = runner.invoke(
+            cli_main.app,
+            [
+                "ralph",
+                "run",
+                "--agent-cmd",
+                "echo test",
+                "--max-iterations",
+                "1",
+                "--sleep-seconds",
+                "0",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert captured_cmd
+        assert captured_cmd[0] == str(script_path)
+        assert "--agent-cmd" in captured_cmd
+        assert "stream fragment 1" in result.output
+        assert "stream fragment 2" in result.output
+        assert "Ralph loop completed successfully." in result.output

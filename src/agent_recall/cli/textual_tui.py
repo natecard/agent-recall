@@ -4,7 +4,6 @@ import json
 import os
 import re
 import shlex
-import subprocess
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable
@@ -25,6 +24,11 @@ from textual.widgets.option_list import Option
 from textual.worker import Worker, WorkerState
 
 from agent_recall.cli.command_contract import get_command_contract
+from agent_recall.cli.stream_pipeline import (
+    run_streaming_command,
+    stream_debug_dir,
+    stream_debug_enabled,
+)
 from agent_recall.core.onboarding import API_KEY_ENV_BY_PROVIDER
 from agent_recall.ingest.sources import SOURCE_DEFINITIONS
 from agent_recall.ralph.notifications import dispatch_notification
@@ -1888,6 +1892,7 @@ class AgentRecallTextualApp(App[None]):
         self._pending_setup_payload: dict[str, Any] | None = None
         self._last_activity_render: tuple[str, str, str] | None = None
         self._debug_scroll_sample_count = 0
+        self._activity_follow_tail = True
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -2092,6 +2097,9 @@ class AgentRecallTextualApp(App[None]):
             # endregion
 
         if was_at_bottom:
+            self._activity_follow_tail = True
+
+        if self._activity_follow_tail:
             activity_widget.scroll_end(animate=False)
             return
 
@@ -2102,13 +2110,47 @@ class AgentRecallTextualApp(App[None]):
             force=True,
         )
 
+    def _apply_activity_scroll_key(self, key: str) -> None:
+        activity_widget = self.query_one("#activity_log", Static)
+        if key in {"down", "pagedown", "end"}:
+            if key == "end":
+                activity_widget.scroll_end(animate=False)
+                self._activity_follow_tail = True
+                return
+            delta = 20 if key == "pagedown" else 3
+            activity_widget.scroll_to(
+                x=int(activity_widget.scroll_x),
+                y=int(activity_widget.scroll_y) + delta,
+                animate=False,
+                force=True,
+            )
+            self._activity_follow_tail = activity_widget.is_vertical_scroll_end
+            return
+
+        if key in {"up", "pageup", "home"}:
+            target_y = (
+                0
+                if key == "home"
+                else int(activity_widget.scroll_y) - (20 if key == "pageup" else 3)
+            )
+            activity_widget.scroll_to(
+                x=int(activity_widget.scroll_x),
+                y=target_y,
+                animate=False,
+                force=True,
+            )
+            self._activity_follow_tail = False
+
     def on_key(self, event: events.Key) -> None:
         if event.key not in {"up", "down", "pageup", "pagedown", "home", "end"}:
             return
-        focused_widget = self.focused
+        try:
+            focused_widget = self.focused
+        except Exception:  # noqa: BLE001
+            focused_widget = None
         focused_widget_id = focused_widget.id if focused_widget is not None else ""
         activity_widget = self.query_one("#activity_log", Static)
-        if self._worker_context and focused_widget_id == "activity_result_list":
+        if focused_widget_id == "activity_result_list":
             self._close_inline_result_list(announce=False)
             # region agent log
             _write_debug_log(
@@ -2119,31 +2161,9 @@ class AgentRecallTextualApp(App[None]):
             )
             # endregion
 
-        if self._worker_context:
-            if event.key in {"down", "pagedown", "end"}:
-                target_y = (
-                    int(activity_widget.max_scroll_y)
-                    if event.key == "end"
-                    else int(activity_widget.scroll_y) + (20 if event.key == "pagedown" else 3)
-                )
-                activity_widget.scroll_to(
-                    x=int(activity_widget.scroll_x),
-                    y=target_y,
-                    animate=False,
-                    force=True,
-                )
-            elif event.key in {"up", "pageup", "home"}:
-                target_y = (
-                    0
-                    if event.key == "home"
-                    else int(activity_widget.scroll_y) - (20 if event.key == "pageup" else 3)
-                )
-                activity_widget.scroll_to(
-                    x=int(activity_widget.scroll_x),
-                    y=target_y,
-                    animate=False,
-                    force=True,
-                )
+        self._apply_activity_scroll_key(event.key)
+        event.prevent_default()
+        event.stop()
         # region agent log
         _write_debug_log(
             hypothesis_id="H5",
@@ -2160,7 +2180,7 @@ class AgentRecallTextualApp(App[None]):
 
     def on_mouse_scroll_up(self, _event: events.MouseScrollUp) -> None:
         activity_widget = self.query_one("#activity_log", Static)
-        if self._worker_context and self._result_list_open:
+        if self._result_list_open:
             self._close_inline_result_list(announce=False)
             # region agent log
             _write_debug_log(
@@ -2170,13 +2190,13 @@ class AgentRecallTextualApp(App[None]):
                 data={},
             )
             # endregion
-        if self._worker_context:
-            activity_widget.scroll_to(
-                x=int(activity_widget.scroll_x),
-                y=int(activity_widget.scroll_y) - 3,
-                animate=False,
-                force=True,
-            )
+        activity_widget.scroll_to(
+            x=int(activity_widget.scroll_x),
+            y=int(activity_widget.scroll_y) - 3,
+            animate=False,
+            force=True,
+        )
+        self._activity_follow_tail = False
         # region agent log
         _write_debug_log(
             hypothesis_id="H5",
@@ -2191,7 +2211,7 @@ class AgentRecallTextualApp(App[None]):
 
     def on_mouse_scroll_down(self, _event: events.MouseScrollDown) -> None:
         activity_widget = self.query_one("#activity_log", Static)
-        if self._worker_context and self._result_list_open:
+        if self._result_list_open:
             self._close_inline_result_list(announce=False)
             # region agent log
             _write_debug_log(
@@ -2201,13 +2221,13 @@ class AgentRecallTextualApp(App[None]):
                 data={},
             )
             # endregion
-        if self._worker_context:
-            activity_widget.scroll_to(
-                x=int(activity_widget.scroll_x),
-                y=int(activity_widget.scroll_y) + 3,
-                animate=False,
-                force=True,
-            )
+        activity_widget.scroll_to(
+            x=int(activity_widget.scroll_x),
+            y=int(activity_widget.scroll_y) + 3,
+            animate=False,
+            force=True,
+        )
+        self._activity_follow_tail = activity_widget.is_vertical_scroll_end
         # region agent log
         _write_debug_log(
             hypothesis_id="H5",
@@ -2633,24 +2653,22 @@ class AgentRecallTextualApp(App[None]):
                     cmd.extend(["--prd-ids", selected_arg])
 
             try:
-                process = subprocess.Popen(
+                exit_code = run_streaming_command(
                     cmd,
                     cwd=Path.cwd(),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
+                    on_emit=lambda fragment: self.call_from_thread(self._append_activity, fragment),
+                    context="tui_ralph_run",
+                    partial_flush_ms=120,
+                    transport="pipe",
                 )
-                assert process.stdout is not None  # noqa: S101
-                for line in iter(process.stdout.readline, ""):
-                    stripped = line.rstrip("\n")
-                    if stripped:
-                        self.call_from_thread(self._append_activity, stripped)
-                process.wait()
-                exit_code = int(process.returncode or 0)
             except OSError as exc:
                 self.call_from_thread(self._append_activity, f"Ralph loop failed: {exc}")
                 return {"total_iterations": 0, "passed": 0, "failed": 0}
+            if stream_debug_enabled():
+                self.call_from_thread(
+                    self._append_activity,
+                    f"Stream debug artifacts: {stream_debug_dir(Path.cwd())}",
+                )
             if notify_enabled:
                 dispatch_notification(
                     RalphNotificationEvent.LOOP_FINISHED,

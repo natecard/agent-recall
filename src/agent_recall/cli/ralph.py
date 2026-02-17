@@ -4,7 +4,6 @@ import asyncio
 import json
 import re
 import shlex
-import subprocess
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -15,6 +14,11 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from agent_recall.cli.stream_pipeline import (
+    run_streaming_command,
+    stream_debug_dir,
+    stream_debug_enabled,
+)
 from agent_recall.cli.theme import DEFAULT_THEME, ThemeManager
 from agent_recall.core.config import load_config
 from agent_recall.core.onboarding import inject_stored_api_keys
@@ -944,24 +948,24 @@ def ralph_run(
         cmd.extend(["--pre-iteration-cmd", pre_iteration_cmd])
 
     try:
-        process = subprocess.Popen(
+        returncode = run_streaming_command(
             cmd,
             cwd=Path.cwd(),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
+            on_emit=lambda fragment: console.print(
+                fragment,
+                end="",
+                markup=False,
+                highlight=False,
+            ),
+            context="ralph_cli_shell_run",
+            partial_flush_ms=120,
+            transport="pipe",
         )
-        assert process.stdout is not None  # noqa: S101
-        for line in iter(process.stdout.readline, ""):
-            stripped = line.rstrip("\n")
-            if stripped:
-                console.print(f"[dim]{stripped}[/dim]")
-        process.wait()
-        returncode = process.returncode
     except KeyboardInterrupt:
         console.print("[warning]Ralph loop interrupted.[/warning]")
         raise typer.Exit(130) from None
+    if stream_debug_enabled():
+        console.print(f"[dim]Stream debug artifacts: {stream_debug_dir(Path.cwd())}[/dim]")
 
     if returncode == 0:
         console.print("[success]✓ Ralph loop completed successfully.[/success]")
