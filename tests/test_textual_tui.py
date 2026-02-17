@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import yaml
 from rich.console import Console
+from rich.panel import Panel
 
 from agent_recall.cli.tui import (
     AgentRecallTextualApp,
@@ -15,6 +16,7 @@ from agent_recall.cli.tui import (
     _sanitize_activity_fragment,
     get_palette_actions,
 )
+from agent_recall.cli.tui.views import DashboardPanels
 from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
 
 
@@ -376,3 +378,84 @@ def test_selecting_source_sync_option_runs_sync(monkeypatch) -> None:
     app.on_option_list_option_selected(cast(Any, _Event()))
 
     assert captured == ["cursor"]
+
+
+def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) -> None:
+    app = _build_test_app()
+    app.current_view = "overview"
+    app._dashboard_layout_view = "overview"
+
+    panels = DashboardPanels(
+        header=Panel("header"),
+        knowledge=Panel("knowledge"),
+        llm=Panel("llm"),
+        sources=Panel("sources"),
+        sources_compact=Panel("sources_compact"),
+        settings=Panel("settings"),
+        timeline=Panel("timeline"),
+        ralph=Panel("ralph"),
+        slash_console=None,
+        source_names=["cursor"],
+    )
+
+    class _FakeDashboard:
+        def __init__(self) -> None:
+            self.remove_children_calls = 0
+
+        def remove_children(self):  # noqa: ANN204
+            self.remove_children_calls += 1
+
+            class _Awaitable:
+                def __await__(self):  # noqa: ANN204
+                    if False:
+                        yield None
+                    return None
+
+            return _Awaitable()
+
+    class _FakeStatic:
+        def __init__(self) -> None:
+            self.updates: list[object] = []
+
+        def update(self, renderable: object) -> None:
+            self.updates.append(renderable)
+
+    dashboard = _FakeDashboard()
+    header = _FakeStatic()
+    knowledge = _FakeStatic()
+    sources = _FakeStatic()
+    by_selector: dict[str, object] = {
+        "#dashboard": dashboard,
+        "#dashboard_header": header,
+        "#dashboard_knowledge": knowledge,
+        "#dashboard_sources": sources,
+    }
+
+    def _query_one(selector: str, *_args: object, **_kwargs: object) -> object:
+        return by_selector[selector]
+
+    monkeypatch.setattr(
+        "agent_recall.cli.tui.app.build_dashboard_panels",
+        lambda *args, **kwargs: panels,
+    )
+    monkeypatch.setattr(app, "query_one", _query_one)
+    monkeypatch.setattr(app, "_sync_runtime_theme", lambda: None)
+    monkeypatch.setattr(app, "_refresh_activity_panel", lambda: None)
+
+    app._refresh_dashboard_panel()
+    app._refresh_dashboard_panel()
+
+    assert dashboard.remove_children_calls == 0
+
+    # Verify we got Panel objects with the expected content
+    assert len(header.updates) == 2
+    assert isinstance(header.updates[0], Panel)
+    assert header.updates[0].renderable == "header"
+
+    assert len(knowledge.updates) == 2
+    assert isinstance(knowledge.updates[0], Panel)
+    assert knowledge.updates[0].renderable == "knowledge"
+
+    assert len(sources.updates) == 2
+    assert isinstance(sources.updates[0], Panel)
+    assert sources.updates[0].renderable == "sources_compact"

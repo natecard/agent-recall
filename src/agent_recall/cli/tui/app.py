@@ -113,6 +113,8 @@ class AgentRecallTextualApp(
         self._last_activity_render: tuple[str, str] | None = None
         self._debug_scroll_sample_count = 0
         self._activity_follow_tail = True
+        self._dashboard_refresh_generation = 0
+        self._dashboard_layout_view: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -139,6 +141,7 @@ class AgentRecallTextualApp(
             self.status = "Onboarding required"
             self._append_activity("Onboarding required. Opening setup wizard...")
             self.call_after_refresh(self.action_open_setup_modal)
+        self.call_after_refresh(lambda: self._check_responsive(self.size.width))
 
     def on_unmount(self) -> None:
         self._teardown_runtime()
@@ -153,6 +156,7 @@ class AgentRecallTextualApp(
         self.exit()
 
     def on_resize(self, event: events.Resize) -> None:
+        self._check_responsive(event.size.width)
         _ = event
         if self._resize_refresh_timer is not None:
             self._resize_refresh_timer.stop()
@@ -162,6 +166,16 @@ class AgentRecallTextualApp(
     def _flush_resize_refresh(self) -> None:
         self._resize_refresh_timer = None
         self._refresh_dashboard_panel()
+
+    def _check_responsive(self, width: int) -> None:
+        try:
+            dashboard = self.query_one("#dashboard")
+            if width < 120:
+                dashboard.add_class("narrow")
+            else:
+                dashboard.remove_class("narrow")
+        except Exception:
+            pass
 
     def _configure_refresh_timer(self, refresh_seconds: float) -> None:
         if self._refresh_timer is not None:
@@ -180,6 +194,8 @@ class AgentRecallTextualApp(
         self._knowledge_run_workers.clear()
 
     def _refresh_dashboard_panel(self) -> None:
+        self._dashboard_refresh_generation += 1
+        refresh_generation = self._dashboard_refresh_generation
         self._sync_runtime_theme()
         panels = build_dashboard_panels(
             self._dashboard_context,
@@ -190,36 +206,60 @@ class AgentRecallTextualApp(
             show_slash_console=False,
         )
         dashboard = self.query_one("#dashboard", Vertical)
-        dashboard.remove_class("view-all")
-        dashboard.remove_children()
         if panels.source_names:
             self._refresh_source_actions(panels.source_names)
+
+        if self._dashboard_layout_view == self.current_view and self._update_dashboard_widgets(
+            panels
+        ):
+            self._refresh_activity_panel()
+            return
+
+        await_remove = dashboard.remove_children()
+
+        async def _mount_after_prune() -> None:
+            await await_remove
+            if refresh_generation != self._dashboard_refresh_generation:
+                return
+            self._apply_dashboard_view_class(dashboard)
+            self._mount_dashboard_widgets(dashboard, panels)
+            self._dashboard_layout_view = self.current_view
+            self._refresh_activity_panel()
+
+        self.call_next(_mount_after_prune)
+
+    def _apply_dashboard_view_class(self, dashboard: Vertical) -> None:
+        if self.current_view == "all":
+            dashboard.add_class("view-all")
+        else:
+            dashboard.remove_class("view-all")
+
+    def _build_view_detail_panel(self, view: str) -> Any:
+        detail_panels = build_dashboard_panels(
+            self._dashboard_context,
+            all_cursor_workspaces=self.all_cursor_workspaces,
+            include_banner_header=True,
+            view=view,
+            refresh_seconds=self.refresh_seconds,
+            show_slash_console=False,
+        )
+        if view == "knowledge":
+            return detail_panels.knowledge
+        return detail_panels.timeline
+
+    def _mount_dashboard_widgets(self, dashboard: Vertical, panels: DashboardPanels) -> None:
         if panels.header is not None:
-            header = Static(id="dashboard_header")
-            header.update(panels.header)
-            dashboard.mount(header)
+            dashboard.mount(Static(panels.header, id="dashboard_header"))
         if self.current_view == "all":
             self._mount_all_view(dashboard, panels)
         elif self.current_view == "knowledge":
-            detail_panel = build_dashboard_panels(
-                self._dashboard_context,
-                all_cursor_workspaces=self.all_cursor_workspaces,
-                include_banner_header=True,
-                view="knowledge",
-                refresh_seconds=self.refresh_seconds,
-                show_slash_console=False,
-            ).knowledge
-            dashboard.mount(Static(detail_panel, id="dashboard_knowledge"))
+            dashboard.mount(
+                Static(self._build_view_detail_panel("knowledge"), id="dashboard_knowledge")
+            )
         elif self.current_view == "timeline":
-            detail_panel = build_dashboard_panels(
-                self._dashboard_context,
-                all_cursor_workspaces=self.all_cursor_workspaces,
-                include_banner_header=True,
-                view="timeline",
-                refresh_seconds=self.refresh_seconds,
-                show_slash_console=False,
-            ).timeline
-            dashboard.mount(Static(detail_panel, id="dashboard_timeline"))
+            dashboard.mount(
+                Static(self._build_view_detail_panel("timeline"), id="dashboard_timeline")
+            )
         elif self.current_view == "ralph":
             dashboard.mount(Static(panels.ralph, id="dashboard_ralph"))
         elif self.current_view == "llm":
@@ -231,13 +271,57 @@ class AgentRecallTextualApp(
         elif self.current_view == "console":
             pass
         else:
-            overview_row = Horizontal(id="dashboard_overview_row")
-            overview_row.mount(
+            overview_row = Horizontal(
                 Static(panels.knowledge, id="dashboard_knowledge"),
                 Static(panels.sources_compact, id="dashboard_sources"),
+                id="dashboard_overview_row",
             )
             dashboard.mount(overview_row)
-        self._refresh_activity_panel()
+
+    def _update_static_widget(self, selector: str, renderable: Any) -> bool:
+        try:
+            widget = self.query_one(selector, Static)
+        except Exception:
+            return False
+        widget.update(renderable)
+        return True
+
+    def _update_dashboard_widgets(self, panels: DashboardPanels) -> bool:
+        if panels.header is None:
+            return False
+        if not self._update_static_widget("#dashboard_header", panels.header):
+            return False
+        if self.current_view == "all":
+            return (
+                self._update_static_widget("#dashboard_knowledge", panels.knowledge)
+                and self._update_static_widget("#dashboard_sources", panels.sources)
+                and self._update_static_widget("#dashboard_llm", panels.llm)
+                and self._update_static_widget("#dashboard_settings", panels.settings)
+                and self._update_static_widget("#dashboard_timeline", panels.timeline)
+            )
+        if self.current_view == "knowledge":
+            return self._update_static_widget(
+                "#dashboard_knowledge",
+                self._build_view_detail_panel("knowledge"),
+            )
+        if self.current_view == "timeline":
+            return self._update_static_widget(
+                "#dashboard_timeline",
+                self._build_view_detail_panel("timeline"),
+            )
+        if self.current_view == "ralph":
+            return self._update_static_widget("#dashboard_ralph", panels.ralph)
+        if self.current_view == "llm":
+            return self._update_static_widget("#dashboard_llm", panels.llm)
+        if self.current_view == "sources":
+            return self._update_static_widget("#dashboard_sources", panels.sources)
+        if self.current_view == "settings":
+            return self._update_static_widget("#dashboard_settings", panels.settings)
+        if self.current_view == "console":
+            return True
+        return self._update_static_widget(
+            "#dashboard_knowledge", panels.knowledge
+        ) and self._update_static_widget("#dashboard_sources", panels.sources_compact)
 
     def _refresh_source_actions(self, source_names: list[str]) -> None:
         if self.current_view not in {"sources", "all"}:
@@ -294,20 +378,20 @@ class AgentRecallTextualApp(
         self._worker_context[id(worker)] = f"sync-source:{source_name}"
 
     def _mount_all_view(self, dashboard: Vertical, panels: DashboardPanels) -> None:
-        dashboard.add_class("view-all")
-        grid = Vertical(id="dashboard_all_grid")
-        sidebar = Vertical(id="dashboard_all_sidebar")
-        main = Vertical(id="dashboard_all_main")
-
-        sidebar.mount(
+        sidebar = Vertical(
             Static(panels.knowledge, id="dashboard_knowledge"),
             Static(panels.sources, id="dashboard_sources"),
             Static(panels.llm, id="dashboard_llm"),
             Static(panels.settings, id="dashboard_settings"),
+            id="dashboard_all_sidebar",
         )
-        main.mount(
+        main = Vertical(
             Static(panels.timeline, id="dashboard_timeline"),
+            id="dashboard_all_main",
         )
-
-        grid.mount(sidebar, main)
+        grid = Vertical(
+            sidebar,
+            main,
+            id="dashboard_all_grid",
+        )
         dashboard.mount(grid)

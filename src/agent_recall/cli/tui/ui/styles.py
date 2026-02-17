@@ -23,13 +23,13 @@ APP_CSS = """
         width: 100%;
         height: auto;
         min-height: 0;
-        gap: 1;
     }
     #dashboard_all_sidebar {
         width: 44;
         min-width: 32;
         height: auto;
         min-height: 0;
+        margin: 0 1 0 0;
     }
     #dashboard_all_main {
         width: 1fr;
@@ -55,25 +55,27 @@ APP_CSS = """
         width: 100%;
         height: auto;
         min-height: 0;
-        gap: 1;
     }
     #dashboard_overview_row #dashboard_knowledge {
         width: 1fr;
+        margin: 0 1 0 0;
     }
     #dashboard_overview_row #dashboard_sources {
         width: 1fr;
     }
-    @media (max-width: 120) {
-        #dashboard_all_grid {
-            layout: vertical;
-        }
-        #dashboard_all_sidebar {
-            width: 100%;
-            min-width: 0;
-        }
-        #dashboard_overview_row {
-            layout: vertical;
-        }
+    .narrow #dashboard_all_grid {
+        layout: vertical;
+    }
+    .narrow #dashboard_all_sidebar {
+        width: 100%;
+        min-width: 0;
+        margin: 0 0 1 0;
+    }
+    .narrow #dashboard_overview_row {
+        layout: vertical;
+    }
+    .narrow #dashboard_overview_row #dashboard_knowledge {
+        margin: 0 0 1 0;
     }
     #terminal_panel {
         height: 1fr;
