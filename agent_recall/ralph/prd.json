@@ -56,9 +56,7 @@
         "Individual widgets can be refreshed independently",
         "Tests pass with new component structure"
       ],
-      "validation_commands": [
-        "uv run pytest tests/test_textual_tui.py"
-      ],
+      "validation_commands": ["uv run pytest tests/test_textual_tui.py"],
       "passes": true
     },
     {
@@ -80,14 +78,12 @@
         "Timeline is visible without scrolling the entire dashboard",
         "All key information is visible at a glance on standard 1080p terminal sizes"
       ],
-      "validation_commands": [
-        "uv run pytest tests/test_textual_tui.py"
-      ],
+      "validation_commands": ["uv run pytest tests/test_textual_tui.py"],
       "passes": true
     },
     {
       "id": "AR-1003",
-      "priority": 2,
+      "priority": 1,
       "title": "Interactive Configuration & Sources Views",
       "description": "Upgrade the read-only Settings, LLM, and Sources views to be interactive. Users should be able to toggle settings, change models, and trigger source syncs directly from the UI without editing text files or restarting. This addresses the need for simple accessibility to common tasks.",
       "user_story": "As a user, I want to quickly switch LLM models or trigger a manual sync of a source within the TUI so that I can experiment with different configurations rapidly.",
@@ -103,14 +99,12 @@
         "Sources view shows real-time status of sync operations",
         "Settings view allows toggling boolean flags (e.g., refresh rate, theme)"
       ],
-      "validation_commands": [
-        "uv run pytest tests/test_textual_tui.py"
-      ],
-      "passes": false
+      "validation_commands": ["uv run pytest tests/test_textual_tui.py"],
+      "passes": true
     },
     {
       "id": "AR-1004",
-      "priority": 3,
+      "priority": 2,
       "title": "Enhanced Knowledge & Timeline Browsers",
       "description": "Transform the static Knowledge and Timeline summaries into fully browsable interfaces. The Knowledge view should allow reading the actual Guardrails/Style/Recent content with syntax highlighting. The Timeline should allow clicking an entry to view the full iteration report and diff.",
       "user_story": "As a user, I want to read my Guardrails or review a past iteration's diff within the TUI so that I don't have to switch to an external editor.",
@@ -127,9 +121,32 @@
         "Detail view shows iteration summary, result, and git diff",
         "Users can escape back to the main view easily"
       ],
-      "validation_commands": [
-        "uv run pytest tests/test_textual_tui.py"
+      "validation_commands": ["uv run pytest tests/test_textual_tui.py"],
+      "passes": false
+    },
+    {
+      "id": "AR-1005",
+      "priority": 3,
+      "title": "Ralph Status View & Loop Visualization",
+      "description": "Create a dedicated 'Ralph' view in the TUI (or integration into the 'All' view) to visualize the current state of the Ralph loop. This view should display real-time information about the active iteration, including the PRD item being worked on, the current phase (planning/coding/validating), and recent activity. It should source data from `.agent/ralph/iterations/current.json` for live state and `ralph_state.json` for historical context.",
+      "user_story": "As a user running long autonomous loops, I want to see exactly which PRD item Ralph is working on and its current progress without having to grep through log files.",
+      "steps": [
+        "Create `src/agent_recall/cli/tui/widgets/ralph.py` with a `RalphStatusWidget` class",
+        "Update `DashboardPanels` in `dashboard.py` to include a `ralph` field",
+        "Modify `build_dashboard_panels` to instantiate `RalphStatusWidget` and generate the panel",
+        "Update `AgentRecallTextualApp` (`app.py`) to support a new `ralph` view and mount the panel",
+        "Implement logic in `RalphStatusWidget` to read `.agent/ralph/iterations/current.json` for active iteration details",
+        "Add fallback logic to read `ralph_state.json` for idle status and last run summary",
+        "Add a 'Ralph Status' command to the TUI command palette to switch to this view"
       ],
+      "acceptance_criteria": [
+        "A new 'Ralph' view is accessible in the TUI",
+        "When running, the view displays: Current Iteration #, Max Iterations, PRD Item ID & Title",
+        "When idle, the view displays: Last Run Timestamp, Last Outcome, Total Iterations",
+        "The view updates automatically as the loop progresses (via dashboard refresh)",
+        "The UI clearly distinguishes between 'Running' and 'Idle' states"
+      ],
+      "validation_commands": ["uv run pytest tests/test_textual_tui.py"],
       "passes": false
     }
   ]

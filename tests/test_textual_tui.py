@@ -351,3 +351,27 @@ def test_activity_scroll_keys_work_without_active_worker(monkeypatch) -> None:
     assert app._activity_follow_tail is True
     assert event.prevented is True
     assert event.stopped is True
+
+
+def test_selecting_source_sync_option_runs_sync(monkeypatch) -> None:
+    app = _build_test_app()
+    captured: list[str] = []
+
+    def _capture_sync(source_name: str) -> None:
+        captured.append(source_name)
+
+    monkeypatch.setattr(app, "_run_source_sync", _capture_sync)
+
+    class _OptionList:
+        id = "activity_result_list"
+
+    class _Option:
+        id = "sync-source:cursor"
+
+    class _Event:
+        option_list = _OptionList()
+        option = _Option()
+
+    app.on_option_list_option_selected(cast(Any, _Event()))
+
+    assert captured == ["cursor"]

@@ -9,6 +9,7 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Log, OptionList, Static
+from textual.widgets.option_list import Option
 
 from agent_recall.cli.tui.commands.palette_actions import _build_command_suggestions
 from agent_recall.cli.tui.logic.activity_mixin import ActivityMixin
@@ -191,6 +192,8 @@ class AgentRecallTextualApp(
         dashboard = self.query_one("#dashboard", Vertical)
         dashboard.remove_class("view-all")
         dashboard.remove_children()
+        if panels.source_names:
+            self._refresh_source_actions(panels.source_names)
         if panels.header is not None:
             header = Static(id="dashboard_header")
             header.update(panels.header)
@@ -217,6 +220,60 @@ class AgentRecallTextualApp(
             )
             dashboard.mount(overview_row)
         self._refresh_activity_panel()
+
+    def _refresh_source_actions(self, source_names: list[str]) -> None:
+        if self.current_view not in {"sources", "all"}:
+            return
+        if not source_names:
+            return
+        action_map: dict[str, str] = {}
+        for source_name in source_names:
+            if not source_name:
+                continue
+            action_id = f"sync-source:{source_name}"
+            action_label = f"Sync source: {source_name}"
+            action_map[action_id] = action_label
+        if not action_map:
+            return
+        picker = self.query_one("#activity_result_list", OptionList)
+        if self._result_list_open:
+            existing_ids = [option.id for option in picker.options if option.id]
+            if existing_ids and all(
+                id_value.startswith("sync-source:") for id_value in existing_ids
+            ):
+                if set(existing_ids) == set(action_map.keys()):
+                    return
+            else:
+                return
+
+        options = [
+            Option(action_label, id=action_id) for action_id, action_label in action_map.items()
+        ]
+        self._set_activity_result_options(options)
+        self.status = "Select source to sync"
+        self._refresh_activity_panel()
+
+    def _run_source_sync(self, source_name: str) -> None:
+        if not source_name:
+            return
+        if self._result_list_open:
+            self._close_inline_result_list(announce=False)
+        self._append_activity(f"> sync --no-compact --source {source_name}")
+        self.status = f"Syncing source: {source_name}"
+        command_parts = ["sync", "--no-compact", "--source", source_name]
+        if self.all_cursor_workspaces:
+            command_parts.append("--all-cursor-workspaces")
+        command = " ".join(command_parts)
+        viewport_width = max(int(self.size.width or 0), 80)
+        viewport_height = max(int(self.size.height or 0), 24)
+        worker = self.run_worker(
+            lambda: self._execute_command(command, viewport_width, viewport_height),
+            thread=True,
+            group="tui-ops",
+            exclusive=True,
+            exit_on_error=False,
+        )
+        self._worker_context[id(worker)] = f"sync-source:{source_name}"
 
     def _mount_all_view(self, dashboard: Vertical, panels: DashboardPanels) -> None:
         dashboard.add_class("view-all")

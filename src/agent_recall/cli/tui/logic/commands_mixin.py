@@ -269,6 +269,11 @@ class CommandsMixin:
 
     def on_option_list_option_selected(self: Any, event: OptionList.OptionSelected) -> None:
         if event.option_list.id == "activity_result_list":
+            option_id = event.option.id or ""
+            if option_id.startswith("sync-source:"):
+                source_name = option_id.split(":", 1)[1]
+                if hasattr(self, "_run_source_sync"):
+                    self._run_source_sync(source_name)
             return
 
     def _apply_setup_modal_result(self: Any, result: dict[str, Any] | None) -> None:

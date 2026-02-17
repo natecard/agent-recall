@@ -82,6 +82,26 @@ class WorkerMixin:
                 self.action_request_quit()
             return
 
+        if context.startswith("sync-source:"):
+            source_name = context.split(":", 1)[1]
+            lines = (
+                [line for line in result if isinstance(line, str)]
+                if isinstance(result, list)
+                else []
+            )
+            for line in lines:
+                cleaned = _strip_rich_markup(line).strip()
+                if cleaned:
+                    self._append_activity(cleaned)
+            if source_name:
+                self.status = f"Source sync complete: {source_name}"
+                self._append_activity(f"Source sync complete: {source_name}.")
+            else:
+                self.status = "Source sync complete"
+                self._append_activity("Source sync complete.")
+            self._refresh_dashboard_panel()
+            return
+
         if context == "session_picker":
             sessions: list[dict[str, Any]] = []
             if isinstance(result, list):

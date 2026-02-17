@@ -36,6 +36,7 @@ class DashboardPanels:
     settings: Panel
     timeline: Panel
     slash_console: Panel | None
+    source_names: list[str]
 
 
 def build_dashboard_panels(
@@ -98,10 +99,13 @@ def build_dashboard_panels(
     source_compact_lines: list[str] = []
     active_source_names: list[str] = []
 
-    ingesters = context.filter_ingesters_by_sources(
-        context.get_default_ingesters(cursor_all_workspaces=all_cursor_workspaces),
-        selected_sources,
+    ingesters = list(
+        context.filter_ingesters_by_sources(
+            context.get_default_ingesters(cursor_all_workspaces=all_cursor_workspaces),
+            selected_sources,
+        )
     )
+    source_names = [ingester.source_name for ingester in ingesters]
 
     for ingester in ingesters:
         try:
@@ -238,6 +242,7 @@ def build_dashboard_panels(
         settings=settings_panel,
         timeline=timeline_panel,
         slash_console=slash_panel,
+        source_names=source_names,
     )
 
 

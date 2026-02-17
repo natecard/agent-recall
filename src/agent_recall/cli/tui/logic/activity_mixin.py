@@ -204,20 +204,25 @@ class ActivityMixin:
             pass
         self._refresh_activity_panel()
 
-    def _show_inline_result_list(self: Any, lines: list[str]) -> None:
+    def _show_inline_result_list(self: Any, lines: list[str], *, focus: bool = True) -> None:
         if not lines:
             return
+        options = [Option(line, id=f"output:{index}") for index, line in enumerate(lines, start=1)]
+        self._set_activity_result_options(options)
+        self.status = "Command output list"
+        if focus:
+            self.query_one("#activity_result_list", OptionList).focus()
 
+    def _set_activity_result_options(self: Any, options: list[Option]) -> None:
         picker = self.query_one("#activity_result_list", OptionList)
-        picker.set_options(
-            [Option(line, id=f"output:{index}") for index, line in enumerate(lines, start=1)]
-        )
-        picker.highlighted = 0
+        picker.set_options(options)
+        for index, option in enumerate(options):
+            if not option.disabled:
+                picker.highlighted = index
+                break
         picker.display = True
         self.query_one("#activity_log", Log).display = False
         self._result_list_open = True
-        self.status = "Command output list"
-        picker.focus()
 
     def _close_inline_result_list(self: Any, announce: bool = True) -> None:
         if not self._result_list_open:
