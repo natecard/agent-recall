@@ -144,7 +144,7 @@ class AgentRecallTextualApp(
                 yield Vertical(id="dashboard")
                 with Vertical(id="cli_input_container"):
                     yield OptionList(id="cli_suggestions")
-                    yield Input(id="cli_input", placeholder="Type /help for commands...")
+                    yield Input(id="cli_input", placeholder="/ command  ·  Ctrl+P for palette")
                 with Vertical(id="activity"):
                     yield Static(id="terminal_panel")
                     yield Log(id="activity_log", highlight=False, auto_scroll=False)
@@ -650,24 +650,74 @@ class AgentRecallTextualApp(
             "ralph-select": "ralph-select",
             "ralph-run": "ralph-run",
             "ralph-config": "ralph-config",
+            "ralph-hooks-install": "ralph-hooks-install",
+            "ralph-hooks-uninstall": "ralph-hooks-uninstall",
+            "ralph-opencode-install": "ralph-opencode-install",
+            "ralph-opencode-uninstall": "ralph-opencode-uninstall",
+            "ralph-watch": "ralph-watch",
+            "watch": "ralph-watch",
+            "ralph-view-diff": "ralph-view-diff",
+            "diff": "ralph-view-diff",
+            "ralph-notifications": "ralph-notifications",
+            "ralph-notify": "ralph-notifications",
+            "notify": "ralph-notifications",
+            "ralph-terminal": "ralph-terminal",
+            "terminal": "ralph-terminal",
+            "run:select": "run:select",
+            "run-select": "run:select",
+            "select": "run:select",
         }
 
     def _handle_slash_command(self, command: str) -> None:
         if command == "help":
-            self._append_activity("Available slash commands:")
-            self._append_activity("  /quit, /q      - Exit the TUI")
-            self._append_activity("  /refresh, /r   - Refresh dashboard")
-            self._append_activity("  /sync, /s      - Sync conversations")
-            self._append_activity("  /run, /k       - Run knowledge update")
-            self._append_activity("  /sources       - Check source health")
-            self._append_activity("  /sessions      - Browse conversations")
-            self._append_activity("  /setup         - Open setup wizard")
-            self._append_activity("  /model         - Model preferences")
-            self._append_activity("  /settings      - Workspace preferences")
-            self._append_activity("  /layout        - Customise dashboard layout")
-            self._append_activity("  /theme         - Switch theme")
-            self._append_activity("  /view:<name>   - Switch view (overview, sources, llm, etc.)")
-            self._append_activity("  /ralph-*       - Ralph loop controls")
+            self._append_activity("[bold]Available slash commands:[/bold]")
+            self._append_activity("")
+            self._append_activity("[bold cyan]Core[/bold cyan]")
+            self._append_activity("  /setup              - Configure sources and model defaults")
+            self._append_activity(
+                "  /run, /k            - Run knowledge update (ingest + synthesize)"
+            )
+            self._append_activity("  /run:select         - Run selected conversations")
+            self._append_activity("  /sync, /s           - Sync conversations (ingest only)")
+            self._append_activity("  /refresh, /r        - Refresh dashboard")
+            self._append_activity("")
+            self._append_activity("[bold cyan]Views[/bold cyan]")
+            self._append_activity("  /view:overview      - Overview dashboard")
+            self._append_activity("  /view:sources       - Source connectivity status")
+            self._append_activity("  /view:llm           - LLM configuration")
+            self._append_activity("  /view:knowledge     - Knowledge base")
+            self._append_activity("  /view:timeline      - Iteration timeline")
+            self._append_activity("  /view:ralph         - Ralph loop status")
+            self._append_activity("  /view:console       - Console output")
+            self._append_activity("  /view:all           - All panels")
+            self._append_activity("")
+            self._append_activity("[bold cyan]Ralph[/bold cyan]")
+            self._append_activity("  /ralph-enable       - Start Ralph loop")
+            self._append_activity("  /ralph-disable      - Stop Ralph loop")
+            self._append_activity("  /ralph-status       - Show Ralph status")
+            self._append_activity("  /ralph-select       - Select PRD items")
+            self._append_activity("  /ralph-run          - Run Ralph loop")
+            self._append_activity("  /ralph-config       - Ralph configuration")
+            self._append_activity("  /ralph-hooks-install    - Install Claude hooks")
+            self._append_activity("  /ralph-hooks-uninstall  - Uninstall Claude hooks")
+            self._append_activity("  /ralph-opencode-install - Install OpenCode plugin")
+            self._append_activity("  /ralph-opencode-uninstall - Uninstall OpenCode plugin")
+            self._append_activity("  /ralph-watch, /watch    - Watch Claude logs")
+            self._append_activity("  /ralph-view-diff, /diff - View last iteration diff")
+            self._append_activity("  /ralph-notifications    - Toggle notifications")
+            self._append_activity("  /ralph-terminal         - Toggle terminal panel")
+            self._append_activity("")
+            self._append_activity("[bold cyan]Settings[/bold cyan]")
+            self._append_activity("  /model              - Model preferences")
+            self._append_activity("  /settings           - Workspace preferences")
+            self._append_activity("  /layout             - Customise dashboard layout")
+            self._append_activity("  /theme              - Switch theme")
+            self._append_activity("")
+            self._append_activity("[bold cyan]System[/bold cyan]")
+            self._append_activity("  /quit, /q           - Exit the TUI")
+            self._append_activity("  /sources            - Check source health")
+            self._append_activity("  /sessions           - Browse conversations")
+            self._append_activity("")
             self._append_activity("Press Ctrl+P for full command palette.")
             self.status = "Type a slash command and press Enter"
             return

@@ -1480,3 +1480,84 @@ def test_open_iteration_detail_builds_modal(monkeypatch) -> None:
     assert screen.kwargs["summary_text"] == "Did the thing."
     assert screen.kwargs["outcome_text"] == "COMPLETED"
     assert "AR-1004" in screen.kwargs["item_text"]
+
+
+def test_slash_command_map_includes_ralph_hooks_and_watch() -> None:
+    """Test that hyphenated Ralph slash commands are mapped correctly."""
+    app = _build_test_app()
+    command_map = app._build_slash_command_map()
+
+    assert command_map.get("ralph-hooks-install") == "ralph-hooks-install"
+    assert command_map.get("ralph-hooks-uninstall") == "ralph-hooks-uninstall"
+    assert command_map.get("ralph-opencode-install") == "ralph-opencode-install"
+    assert command_map.get("ralph-opencode-uninstall") == "ralph-opencode-uninstall"
+    assert command_map.get("ralph-watch") == "ralph-watch"
+    assert command_map.get("ralph-view-diff") == "ralph-view-diff"
+    assert command_map.get("ralph-notifications") == "ralph-notifications"
+    assert command_map.get("ralph-terminal") == "ralph-terminal"
+    assert command_map.get("run:select") == "run:select"
+
+
+def test_slash_command_aliases() -> None:
+    """Test that short aliases work correctly."""
+    app = _build_test_app()
+    command_map = app._build_slash_command_map()
+
+    assert command_map.get("watch") == "ralph-watch"
+    assert command_map.get("diff") == "ralph-view-diff"
+    assert command_map.get("run-select") == "run:select"
+    assert command_map.get("select") == "run:select"
+
+
+def test_help_output_is_grouped_by_category(monkeypatch) -> None:
+    """Test that /help output shows commands grouped by category."""
+    app = _build_test_app()
+
+    activity_calls: list[str] = []
+    monkeypatch.setattr(app, "_append_activity", activity_calls.append)
+
+    app._handle_slash_command("help")
+
+    help_text = "\n".join(activity_calls)
+
+    assert "Core" in help_text
+    assert "Views" in help_text
+    assert "Ralph" in help_text
+    assert "Settings" in help_text
+    assert "System" in help_text
+
+    assert "ralph-hooks-install" in help_text
+    assert "ralph-watch" in help_text
+    assert "ralph-view-diff" in help_text
+    assert "ralph-notifications" in help_text
+    assert "ralph-terminal" in help_text
+
+
+def test_cli_input_placeholder_updated() -> None:
+    """Test that the CLI input placeholder is updated in source code."""
+    from pathlib import Path
+
+    app_file = Path(__file__).parent.parent / "src" / "agent_recall" / "cli" / "tui" / "app.py"
+    content = app_file.read_text()
+
+    assert 'placeholder="/ command  ·  Ctrl+P for palette"' in content
+    assert "Type /help for commands" not in content
+
+
+def test_get_all_cli_commands_includes_ralph_slash_commands() -> None:
+    """Test that help_text includes all Ralph slash commands."""
+    from agent_recall.cli.tui.commands.help_text import get_all_cli_commands
+
+    commands = get_all_cli_commands()
+
+    assert "/ralph-hooks-install" in commands
+    assert "/ralph-hooks-uninstall" in commands
+    assert "/ralph-opencode-install" in commands
+    assert "/ralph-opencode-uninstall" in commands
+    assert "/ralph-watch" in commands
+    assert "/watch" in commands
+    assert "/ralph-view-diff" in commands
+    assert "/diff" in commands
+    assert "/ralph-notifications" in commands
+    assert "/ralph-terminal" in commands
+    assert "/run:select" in commands

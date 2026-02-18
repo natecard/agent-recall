@@ -125,4 +125,40 @@ def handle_local_command(app, raw: str) -> bool:
         app.status = "Ralph configuration"
         return True
 
+    if action == "ralph" and second == "watch":
+        app._run_backend_command("ralph watch")
+        app.status = "Watching Claude logs"
+        return True
+
+    if action == "ralph" and second in {"hooks-install", "hooks"}:
+        if len(parts) > 2 and parts[2].lower() == "uninstall":
+            app._run_backend_command("ralph hooks uninstall")
+            app.status = "Uninstalling Claude hooks"
+        else:
+            app._run_backend_command("ralph hooks install")
+            app.status = "Installing Claude hooks"
+        return True
+
+    if action == "ralph" and second == "hooks" and len(parts) > 2:
+        third = parts[2].lower()
+        if third == "install":
+            app._run_backend_command("ralph hooks install")
+            app.status = "Installing Claude hooks"
+            return True
+        if third == "uninstall":
+            app._run_backend_command("ralph hooks uninstall")
+            app.status = "Uninstalling Claude hooks"
+            return True
+
+    if action == "ralph" and second == "plugin" and len(parts) > 2:
+        third = parts[2].lower()
+        if third == "opencode-install":
+            app._run_backend_command("ralph plugin opencode-install")
+            app.status = "Installing OpenCode plugin"
+            return True
+        if third == "opencode-uninstall":
+            app._run_backend_command("ralph plugin opencode-uninstall")
+            app.status = "Uninstalling OpenCode plugin"
+            return True
+
     return False

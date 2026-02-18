@@ -13,176 +13,95 @@
   },
   "items": [
     {
-      "id": "AR-1003",
+      "id": "AR-1009",
       "priority": 1,
-      "title": "Interactive Configuration & Sources Views",
-      "description": "Upgrade the read-only Settings, LLM, and Sources views to be interactive. Users should be able to toggle settings, change models, and trigger source syncs directly from the UI without editing text files or restarting. This addresses the need for simple accessibility to common tasks.",
-      "user_story": "As a user, I want to quickly switch LLM models or trigger a manual sync of a source within the TUI so that I can experiment with different configurations rapidly.",
+      "title": "Slash Command Parity & Completeness",
+      "description": "The slash command system in `app.py` and `local_router.py` has diverged from the Command Palette: several actions exposed in `palette_actions.py` — including Ralph sub-commands like `ralph-hooks-install`, `ralph-hooks-uninstall`, `ralph-opencode-install`, `ralph-opencode-uninstall`, `ralph-watch`, `ralph-view-diff`, `ralph-notifications`, and `ralph-terminal`, plus the `run:select` session-run action — have no corresponding slash command entry. Meanwhile `local_router.py` handles some of these only when written as two-word phrases (`ralph view-diff`, `ralph notifications`) but never maps them from the canonical hyphenated form a user would naturally type. The fix is to make `_build_slash_command_map()` a full reflection of every `PaletteAction.action_id`, add the missing routes to `local_router.py`, update the `/help` output to list every real command grouped by category, and update the `#cli_input` placeholder to give a more useful hint.",
+      "user_story": "As a user, I want every command shown in the Command Palette to also work as a slash command so that I never have to open the palette just to trigger something I already know the name of.",
       "steps": [
-        "Convert `LLMConfigWidget` to use `Input` and `Select` widgets for provider/model/temperature",
-        "Convert `SourcesWidget` to use `DataTable` or `ListView` with 'Sync' buttons",
-        "Implement message passing or callbacks to update the underlying configuration/trigger syncs",
-        "Add visual feedback (spinners/notifications) for sync actions"
+        "Audit `get_palette_actions()` in `commands/palette_actions.py` and collect every `action_id` not already in `_build_slash_command_map()` — currently missing: `ralph-hooks-install`, `ralph-hooks-uninstall`, `ralph-opencode-install`, `ralph-opencode-uninstall`, `ralph-watch`, `ralph-view-diff`, `ralph-notifications`, `ralph-terminal`, and `run:select`",
+        "Add all missing entries to `_build_slash_command_map()` in `app.py`, mapping each hyphenated slug directly to its `action_id` (e.g., `'ralph-view-diff': 'ralph-view-diff'`, `'ralph-watch': 'ralph-watch'`)",
+        "Add convenient short aliases where they make sense: `'diff': 'ralph-view-diff'`, `'watch': 'ralph-watch'`, `'run-select': 'run:select'`, `'select': 'run:select'`",
+        "Extend `local_router.py` to handle all hyphenated ralph sub-commands — add `second` value branches for `hooks-install`, `hooks-uninstall`, `opencode-install`, `opencode-uninstall`, `watch`, `view-diff`, `notify`/`notifications`, and `terminal`",
+        "Rewrite the `/help` output in `_handle_slash_command()` to group commands by category (Core, Views, Ralph, Settings, System) mirroring the Command Palette groups, listing each slug and one-line description with consistent column alignment",
+        "Update the `#cli_input` placeholder from `'Type /help for commands...'` to `'/ command  ·  Ctrl+P for palette'`",
+        "Add the missing slash entries to `commands/help_text.py` so the autocomplete suggestion engine (AR-1006) draws from the complete set",
+        "Write tests in `tests/test_textual_tui.py` that pilot each newly added slash command and assert it triggers the correct handler without falling through to the 'unknown command' branch"
       ],
       "acceptance_criteria": [
-        "Users can edit LLM configuration in the UI and changes are persisted",
-        "Users can click a button to sync a specific source",
-        "Sources view shows real-time status of sync operations",
-        "Settings view allows toggling boolean flags (e.g., refresh rate, theme)"
+        "Every `action_id` in `get_palette_actions()` has a corresponding entry in `_build_slash_command_map()` or is handled by `local_router.py`",
+        "`/ralph-view-diff`, `/ralph-watch`, `/ralph-hooks-install`, `/ralph-hooks-uninstall`, `/ralph-opencode-install`, `/ralph-opencode-uninstall`, `/ralph-notifications`, and `/ralph-terminal` all execute without an 'unknown command' error",
+        "Short aliases `/diff` and `/watch` work and invoke the correct handlers",
+        "`/help` output is grouped by category and lists every command with aligned descriptions — no catch-all `/ralph-*` language remains",
+        "The `#cli_input` placeholder no longer reads 'Type /help for commands...'"
       ],
       "validation_commands": [
         "uv run pytest tests/test_textual_tui.py"
       ],
-      "passes": true,
-      "notes": "Tracer-bullet implementation: Interactive Sources view completed. Sources widget now uses DataTable with Sync buttons, shows real-time sync status with visual feedback (Syncing/Synced/Failed states), and integrates with existing sync infrastructure. LLM and Settings interactivity deferred to future iteration."
+      "passes": true
     },
     {
-      "id": "AR-1004",
+      "id": "AR-1010",
+      "priority": 3,
+      "title": "Command Palette UX Overhaul: Ordering, Limits & Cross-Session Recents",
+      "description": "The Command Palette (`CommandPaletteModal`) presents all groups in a fixed order with no cap on items per group and has no memory of what the user has previously run. Three improvements address this: (1) reorder groups to match the user's actual task flow — Recent first, then Core actions, Views, Sessions, Settings, System; (2) when unfiltered, cap each group at 5 visible items with a 'Show more…' affordance so the palette opens light and scannable; (3) add a persistent cross-session 'Recent' section that records the last 8 action IDs selected and stores them as a JSON list in the config directory, displayed at the top of the palette on every open.",
+      "user_story": "As a returning user, I want the Command Palette to immediately surface my most-used actions at the top so I can re-run common workflows with a single keystroke, and I want the default unfiltered list to be short and scannable rather than overwhelming.",
+      "steps": [
+        "Create `src/agent_recall/cli/tui/commands/palette_recents.py` with two functions: `load_recents(config_dir: Path, max_items: int = 8) -> list[str]` (reads `<config_dir>/palette_recents.json`, returns list of action IDs) and `record_recent(config_dir: Path, action_id: str, max_items: int = 8) -> None` (prepends, deduplicates, trims to `max_items`, writes back); both functions handle missing files and JSON errors gracefully",
+        "In `CommandPaletteModal.__init__()`, add a `recents: list[str]` parameter (list of action IDs) and store it as `self.recents`",
+        "In `AgentRecallTextualApp.action_open_command_palette()` in `commands_mixin.py`, call `load_recents(config_dir)` and pass the result into the modal constructor",
+        "After a successful selection in both `on_option_list_option_selected()` and `on_input_submitted()`, call `record_recent(config_dir, action_id)` before `self.dismiss()` — skip recording for heading/disabled items and the dynamic 'run-query' entry",
+        "In `_rebuild_options()`, change `grouped_order` to `[('Recent', 'Recent'), ('Core', 'Suggested'), ('Views', 'Views'), ('Sessions', 'Session'), ('Settings', 'Settings'), ('System', 'System')]`",
+        "Render the 'Recent' group by resolving each stored action ID back to its `PaletteAction` from `self.actions`; silently skip IDs that no longer exist; apply identical line formatting as other groups",
+        "When `query` is empty, cap each non-Recent group at 5 visible items; append a disabled `Option` like `[dim]  … N more  ·  type to filter[/dim]` for trimmed groups",
+        "When `query` is non-empty, remove the per-group cap entirely and hide the Recent section so search results are unobstructed",
+        "Add a CSS rule in `ui/styles.py` for the Recent section heading using a subtly distinct accent color",
+        "Write tests asserting: (a) `palette_recents.json` is written after selection, (b) recents appear at the top when unfiltered, (c) group cap limits items when unfiltered, (d) all matching items appear when a filter query is present"
+      ],
+      "acceptance_criteria": [
+        "Opening the palette without typing shows at most 5 items per non-Recent group with a '… N more' indicator where trimmed",
+        "The Recent section appears at the top and lists up to 8 of the user's most recently run actions across TUI sessions",
+        "Selecting any action records it to `palette_recents.json` on disk",
+        "Recent entries survive closing and reopening the TUI — they are read from disk on each palette open",
+        "Typing a search query hides the Recent section and removes per-group caps so all matching results are shown",
+        "Invalid or removed action IDs in the recents file are silently skipped without crashing",
+        "Group order in the unfiltered palette is: Recent → Suggested → Views → Session → Settings → System"
+      ],
+      "validation_commands": [
+        "uv run pytest tests/test_textual_tui.py"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-1011",
       "priority": 2,
-      "title": "Enhanced Knowledge & Timeline Browsers",
-      "description": "Transform the static Knowledge and Timeline summaries into fully browsable interfaces. The Knowledge view should allow reading the actual Guardrails/Style/Recent content with syntax highlighting. The Timeline should allow clicking an entry to view the full iteration report and diff.",
-      "user_story": "As a user, I want to read my Guardrails or review a past iteration's diff within the TUI so that I don't have to switch to an external editor.",
+      "title": "Inline Diff Summary Dashboard Widget",
+      "description": "The existing `DiffViewerModal` surfaces raw unified diff text on demand but is buried behind a command. Users monitoring a Ralph loop need a lightweight, always-visible diff summary in the dashboard that communicates what the last iteration changed at a glance: lines added in green, lines deleted in red, and a per-file breakdown with a file signifier. This is a new `DiffSummaryWidget` in `src/agent_recall/cli/tui/widgets/diff_summary.py` that reads the most recent Ralph iteration diff from the report store, parses the unified diff stats, and renders a compact Rich panel. It appears in the `all` view grid and is accessible as a dedicated `/view:diff` view.",
+      "user_story": "As a developer monitoring a Ralph loop, I want to see a colour-coded summary of what the last iteration changed — lines added, lines removed, and which files were affected — without opening a modal or leaving the dashboard.",
       "steps": [
-        "Implement `KnowledgeBrowser` widget with tabs for Guardrails/Style/Recent",
-        "Use `RichLog` or `Syntax` widget to display file content with scrolling",
-        "Make `TimelineWidget` items clickable (using `DataTable` or custom buttons)",
-        "Implement a `DetailModal` or side-sheet to show the full content of a selected timeline item (report + diff)",
-        "Add search/filter input for the Timeline"
+        "Create `src/agent_recall/cli/tui/widgets/diff_summary.py` with a `DiffSummaryWidget` dataclass following the pattern of `RalphStatusWidget` — receives `agent_dir: Path` and implements `render() -> Panel`",
+        "Implement `_load_latest_diff(self) -> str | None` which reads the most recent `IterationReport` from `IterationReportStore` and returns the raw unified diff string stored on the report, or `None` if unavailable",
+        "Implement a module-level `parse_diff_stats(diff_text: str) -> tuple[int, int, list[tuple[str, int, int]]]` function that parses a unified diff string and returns `(total_added, total_deleted, [(filename, added, deleted), ...])` — count lines starting with `+` (excluding `+++` headers) as added and lines starting with `-` (excluding `---` headers) as deleted; group by file using `diff --git a/` or `--- a/` headers",
+        "Implement `_render_panel(self, total_added, total_deleted, per_file) -> Panel` that builds a Rich `Table` with: a header row showing `[green]+{total_added}[/green]  [red]-{total_deleted}[/red]  {len(per_file)} files changed` in bold; a per-file breakdown with columns — file signifier prefix (the literal string `[F]` styled as `[dim cyan]`), truncated filename, `[green]+{added}[/green]`, `[red]-{deleted}[/red]`; a footer row showing the source iteration number and PRD item ID",
+        "When `diff_text` is `None` or empty, render a placeholder panel with the message `'No diff available — run Ralph loop to see changes'` in dim styling",
+        "Add `diff_summary: Panel | None` to `DashboardPanels` in `views/dashboard_context.py` and instantiate `DiffSummaryWidget` in `views/dashboard.py` `build_dashboard_panels()`",
+        "Mount the diff summary panel in the `all` view layout in `app.py` `_mount_dashboard_widgets()`, placed in the sidebar or as a third column depending on terminal width",
+        "Add `'diff'` to the `valid` views set in `local_router.py` and `_build_slash_command_map()`, and add `PaletteAction('view:diff', 'Diff View', 'Latest Ralph iteration diff summary', 'Views', keywords='diff changes files added deleted')` to `palette_actions.py`",
+        "Write unit tests in `tests/test_textual_tui.py` that pass synthetic unified diff strings to `parse_diff_stats` and assert correct totals and per-file breakdown; test the `None`/empty fallback renders the placeholder without raising"
       ],
       "acceptance_criteria": [
-        "Knowledge view displays full content of tier files",
-        "Timeline items are interactive; clicking opens details",
-        "Detail view shows iteration summary, result, and git diff",
-        "Users can escape back to the main view easily"
+        "The Diff Summary panel appears in the `all` view without disrupting the existing grid layout",
+        "`/view:diff` and the Command Palette 'Diff View' action display the standalone diff summary view",
+        "Lines starting with `+` (excluding `+++` file headers) are counted as added and rendered in green; lines starting with `-` (excluding `---` headers) are rendered in red",
+        "Each changed file appears on its own row with a `[F]` file signifier, truncated filename, and individual green/red counters",
+        "The panel header shows total added, total deleted, and total file count as a single scannable summary line",
+        "When no Ralph iteration diff is available, the panel shows a clear placeholder message rather than an error or empty space",
+        "The widget updates on every dashboard refresh cycle so new iteration diffs appear automatically"
       ],
       "validation_commands": [
         "uv run pytest tests/test_textual_tui.py"
       ],
-      "passes": true,
-      "notes": "Implemented interactive timeline detail browsing and knowledge detail access in TUI. Timeline view now uses an interactive DataTable that opens a modal with iteration summary and diff; knowledge detail remains accessible via the existing detail panel."
-    },
-    {
-      "id": "AR-1005",
-      "priority": 1,
-      "title": "Ralph Status View & Loop Visualization",
-      "description": "Create a dedicated 'Ralph' view in the TUI (or integration into the 'All' view) to visualize the current state of the Ralph loop. This view should display real-time information about the active iteration, including the PRD item being worked on, the current phase (planning/coding/validating), and recent activity. It should source data from `.agent/ralph/iterations/current.json` for live state and `ralph_state.json` for historical context.",
-      "user_story": "As a user running long autonomous loops, I want to see exactly which PRD item Ralph is working on and its current progress without having to grep through log files.",
-      "steps": [
-        "Create `src/agent_recall/cli/tui/widgets/ralph.py` with a `RalphStatusWidget` class",
-        "Update `DashboardPanels` in `dashboard.py` to include a `ralph` field",
-        "Modify `build_dashboard_panels` to instantiate `RalphStatusWidget` and generate the panel",
-        "Update `AgentRecallTextualApp` (`app.py`) to support a new `ralph` view and mount the panel",
-        "Implement logic in `RalphStatusWidget` to read `.agent/ralph/iterations/current.json` for active iteration details",
-        "Add fallback logic to read `ralph_state.json` for idle status and last run summary",
-        "Add a 'Ralph Status' command to the TUI command palette to switch to this view"
-      ],
-      "acceptance_criteria": [
-        "A new 'Ralph' view is accessible in the TUI",
-        "When running, the view displays: Current Iteration #, Max Iterations, PRD Item ID & Title",
-        "When idle, the view displays: Last Run Timestamp, Last Outcome, Total Iterations",
-        "The view updates automatically as the loop progresses (via dashboard refresh)",
-        "The UI clearly distinguishes between 'Running' and 'Idle' states"
-      ],
-      "validation_commands": [
-        "uv run pytest tests/test_textual_tui.py"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-1006",
-      "priority": 2,
-      "title": "CLI Input Autocomplete Dropdown",
-      "description": "The `#cli_input` text field at the bottom of the TUI currently accepts slash commands but provides no guidance beyond a static placeholder. When a user starts typing (especially after `/`), the input should reveal a live, filtered dropdown list of matching commands — similar to a VS Code command palette inline suggestion. This dramatically reduces the need to memorise commands and makes the TUI approachable to new users. The existing `#activity_result_list` `OptionList` widget (already used for inline picking) should be repurposed or cloned as the suggestion overlay, appearing just above the input field and dismissing cleanly on `Esc` or after a selection is committed.",
-      "user_story": "As a user, I want the CLI input to show me matching command suggestions as I type so that I can discover and execute commands without memorising every slash command.",
-      "steps": [
-        "Add an `on_input_changed` handler in `app.py` that fires whenever `#cli_input` value changes",
-        "Extract the full command list (slash commands + palette action CLI aliases) into a shared utility in `commands/help_text.py` so it can be consumed by both the suggestion engine and the existing help renderer",
-        "Filter the command list against the current input value (case-insensitive prefix + substring match) and limit results to a maximum of 8 suggestions",
-        "Re-use or duplicate the `#activity_result_list` `OptionList` as a new `#cli_suggestions` widget mounted inside `#cli_input_container`, positioned just above `#cli_input` via CSS (`dock: top` within the container, `display: none` by default)",
-        "Show `#cli_suggestions` (set `display: block`) when there are matches and the input is focused; hide it when there are no matches, on `Esc`, or when input loses focus",
-        "Handle keyboard navigation: `ArrowUp`/`ArrowDown` move highlight within the list while keeping focus on the input; `Tab` or `Enter` (when a suggestion is highlighted) completes the input value with the selected command and hides the list",
-        "Add CSS rules in `ui/styles.py` for `#cli_suggestions`: border, background matching `#modal_card`, max-height with overflow scroll, and a subtle highlight style for the focused item",
-        "Ensure the suggestion list is hidden and reset when the modal palette (`Ctrl+P`) opens so the two overlapping UIs do not conflict",
-        "Write unit tests in `tests/test_textual_tui.py` that pilot-type commands and assert that (a) matching suggestions appear, (b) `Tab` completes correctly, and (c) `Esc` dismisses without submitting"
-      ],
-      "acceptance_criteria": [
-        "Typing `/r` in the CLI input surfaces suggestions for `/refresh`, `/ralph-run`, `/ralph-enable`, `/ralph-disable`, etc.",
-        "Suggestions update in real time on every keystroke",
-        "A maximum of 8 suggestions are shown; the list scrolls if more matches exist",
-        "Arrow keys navigate the list without losing input focus",
-        "Tab or Enter (with a highlighted suggestion) completes the full command into the input field",
-        "Esc dismisses the suggestion list and returns focus to the input without submitting",
-        "The suggestion list does not appear for non-slash input or empty input",
-        "No visual overlap or z-index conflict with the command palette modal"
-      ],
-      "validation_commands": [
-        "uv run pytest tests/test_textual_tui.py"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-1007",
-      "priority": 1,
-      "title": "Context-Aware Dashboard Overview",
-      "description": "The current `overview` view hard-codes a side-by-side layout of the Knowledge Base and Session Sources panels regardless of the user's active workflow. This wastes prime dashboard real estate when the Ralph Loop is the primary concern. The overview should instead adapt to the user's current state: when the Ralph Loop is enabled (whether actively running or configured and idle), the dashboard should promote Ralph-relevant information — the Ralph Status panel and Timeline — to the overview, demoting or collapsing the Knowledge/Sources panels. When Ralph is unconfigured or disabled, the existing Knowledge + Sources layout is restored. This contextual logic is determined at render time inside `views/dashboard.py` by reading `ralph_state.json`.",
-      "user_story": "As a user who has the Ralph Loop enabled, I want the overview to immediately show me Ralph's current status and recent timeline activity so that I can monitor autonomous execution at a glance without manually switching views.",
-      "steps": [
-        "In `views/dashboard_context.py`, add a `ralph_enabled: bool` field to `DashboardContext` and populate it in the context-builder by checking `ralph_state.json` for `enabled == true`",
-        "Add a `ralph_running: bool` field populated by checking if a Ralph worker is currently active (e.g., `ralph_state['status'] == 'running'`)",
-        "Refactor `views/dashboard.py` `build_overview_panel()` to branch on `context.ralph_enabled`: if `False`, render the existing Knowledge + Sources horizontal layout unchanged; if `True`, render a Ralph-centric layout",
-        "Ralph-enabled overview layout (running state): full-width `RalphStatusWidget` at top (showing iteration, PRD item, phase), `TimelineWidget` below it showing the last 5 iterations",
-        "Ralph-enabled overview layout (idle/configured state): `RalphStatusWidget` in left column (showing last run, outcome, total iterations) with a condensed `KnowledgeWidget` in right column so users retain awareness of knowledge base health",
-        "Add a subtle status badge or header annotation ('Ralph Active' / 'Ralph Idle') to the overview panel title so the context switch is visually communicated",
-        "Ensure `_refresh_dashboard_panel()` in `app.py` re-evaluates Ralph state on every refresh cycle so the layout transitions automatically when Ralph starts or stops",
-        "Write tests in `tests/test_textual_tui.py` that mock `ralph_state.json` with `enabled=true/false` and assert the correct widget arrangement is mounted in each case"
-      ],
-      "acceptance_criteria": [
-        "When `ralph_state.json` has `enabled: false` or does not exist, the overview shows Knowledge Base + Session Sources side-by-side (existing behaviour preserved)",
-        "When Ralph is enabled and actively running, the overview shows a full-width Ralph Status panel followed by the Timeline widget",
-        "When Ralph is enabled but idle, the overview shows a split: Ralph Status (left) + condensed Knowledge (right)",
-        "The overview panel title reflects the current context with a clear textual indicator",
-        "Layout transitions occur automatically on the next dashboard refresh cycle without requiring a manual view switch",
-        "All existing named views (`/view:knowledge`, `/view:sources`, etc.) remain fully functional and unaffected"
-      ],
-      "validation_commands": [
-        "uv run pytest tests/test_textual_tui.py"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-1008",
-      "priority": 1,
-      "title": "Widget Layout & Banner Customisation Modal",
-      "description": "Power users want fine-grained control over what appears in their TUI. This feature introduces a `LayoutCustomiserModal` — accessible via a new `/layout` slash command and a `Ctrl+L` binding — that lets users toggle individual dashboard widgets on or off and choose the height of the ASCII title banner at the top of the TUI. Preferences are persisted to the existing settings store (alongside theme, view, and refresh rate) so the layout is restored across sessions. The modal follows the same card-based visual pattern as `SettingsModal` and `ModelConfigModal`.",
-      "user_story": "As a power user, I want to choose exactly which panels are visible in my TUI and shrink or hide the title banner so that I can maximise information density for my workflow.",
-      "steps": [
-        "Create `src/agent_recall/cli/tui/ui/modals/layout_customiser.py` with a `LayoutCustomiserModal(ModalScreen)` class following the existing modal card pattern",
-        "The modal should contain a section titled 'Visible Widgets' with a `Checkbox` for each widget: Knowledge Base, Session Sources, Timeline, Ralph Status, LLM Config, Settings; all checked by default",
-        "Add a 'Title Banner Size' `Select` with options: `hidden` (0 lines), `compact` (1-line text only), `normal` (default ASCII art, ~4 lines), `large` (full extended ASCII art)",
-        "On 'Apply', serialise the widget visibility map (`dict[str, bool]`) and banner size (`str`) into the TUI settings file (the same JSON that stores theme/refresh/view preferences)",
-        "In `app.py` `compose()`, read the persisted banner size and render the `Header` / ASCII banner section accordingly — this may require extracting the banner into its own `Static` widget with a configurable height CSS class",
-        "In `views/dashboard.py` `build_dashboard_panels()` and `_mount_dashboard_widgets()` in `app.py`, skip mounting any widget whose key is set to `false` in the persisted visibility map",
-        "Register the modal in `commands/palette_actions.py` as a new `PaletteAction` with `action_id='layout'`, group `Settings`, and shortcut `Ctrl+L`",
-        "Add `/layout` to the slash command map in `app.py` `_build_slash_command_map()` and to `local_router.py`",
-        "Add `Ctrl+L` key binding in `ui/bindings.py`",
-        "Add CSS in `ui/styles.py` for the modal and for the banner size variants (`.banner-hidden`, `.banner-compact`, `.banner-normal`, `.banner-large`)",
-        "Write tests in `tests/test_textual_tui.py` that open the modal, toggle widgets, apply, and assert the dashboard no longer mounts the deselected widgets"
-      ],
-      "acceptance_criteria": [
-        "`/layout` command and `Ctrl+L` binding open the Layout Customiser modal",
-        "The modal displays a checkbox for every available dashboard widget",
-        "The modal displays a dropdown for banner size with four options: hidden, compact, normal, large",
-        "Clicking 'Apply' persists the selections and immediately re-renders the dashboard with the new layout",
-        "Clicking 'Cancel' or pressing `Esc` closes the modal without making changes",
-        "Deselected widgets are not mounted in the dashboard — their panel space is reclaimed",
-        "Banner size changes are reflected immediately: `hidden` removes the banner entirely, `compact` shows a single-line title, `normal` shows the default ASCII art, `large` shows an extended version",
-        "Preferences survive a TUI restart — the layout is restored from the settings file on next launch",
-        "The command palette lists 'Customise Layout' with a `Ctrl+L` shortcut hint"
-      ],
-      "validation_commands": [
-        "uv run pytest tests/test_textual_tui.py"
-      ],
-      "passes": true
+      "passes": false
     }
   ]
 }

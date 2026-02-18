@@ -30,12 +30,40 @@ def get_all_cli_commands() -> list[str]:
         "all",
     ]
     for view in views:
+        commands.append(f"/view:{view}")
         commands.append(f"/view {view}")
+
+    # Add ralph commands
+    ralph_commands = [
+        "/ralph-enable",
+        "/ralph-disable",
+        "/ralph-status",
+        "/ralph-select",
+        "/ralph-run",
+        "/ralph-config",
+        "/ralph-hooks-install",
+        "/ralph-hooks-uninstall",
+        "/ralph-opencode-install",
+        "/ralph-opencode-uninstall",
+        "/ralph-watch",
+        "/watch",
+        "/ralph-view-diff",
+        "/diff",
+        "/ralph-notifications",
+        "/ralph-notify",
+        "/notify",
+        "/ralph-terminal",
+        "/terminal",
+    ]
+    commands.extend(ralph_commands)
 
     # Add additional common commands
     additional = [
         "/help",
         "/run",
+        "/run:select",
+        "/run-select",
+        "/select",
         "/sync",
         "/sync --no-compact",
         "/settings",

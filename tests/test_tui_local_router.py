@@ -10,12 +10,16 @@ class _DummyApp:
         self.actions: list[str] = []
         self.activity: list[str] = []
         self.refresh_count = 0
+        self.backend_commands: list[str] = []
 
     def _append_activity(self, text: str) -> None:
         self.activity.append(text)
 
     def _refresh_dashboard_panel(self) -> None:
         self.refresh_count += 1
+
+    def _run_backend_command(self, command: str) -> None:
+        self.backend_commands.append(command)
 
     def action_open_setup_modal(self) -> None:
         self.actions.append("setup")
@@ -105,6 +109,24 @@ def test_local_router_ralph_commands() -> None:
         "ralph_notify",
         "ralph_config",
         "terminal",
+    ]
+
+
+def test_local_router_ralph_hooks_and_watch_commands() -> None:
+    app = _DummyApp()
+
+    assert handle_local_command(app, "ralph watch") is True
+    assert handle_local_command(app, "ralph hooks install") is True
+    assert handle_local_command(app, "ralph hooks uninstall") is True
+    assert handle_local_command(app, "ralph plugin opencode-install") is True
+    assert handle_local_command(app, "ralph plugin opencode-uninstall") is True
+
+    assert app.backend_commands == [
+        "ralph watch",
+        "ralph hooks install",
+        "ralph hooks uninstall",
+        "ralph plugin opencode-install",
+        "ralph plugin opencode-uninstall",
     ]
 
 
