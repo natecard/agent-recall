@@ -91,8 +91,8 @@ class DiffScreen(Screen[None]):
         Binding("u", "set_mode_unified", "Unified"),
         Binding("left,h", "focus_tree", "Tree"),
         Binding("right,l", "focus_content", "Content"),
-        Binding("[", "prev_iteration", "Prev Iter", show=False),
-        Binding("]", "next_iteration", "Next Iter", show=False),
+        Binding("[", "prev_iteration", "Prev Iter"),
+        Binding("]", "next_iteration", "Next Iter"),
     ]
 
     def __init__(

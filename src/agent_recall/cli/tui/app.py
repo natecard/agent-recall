@@ -375,8 +375,6 @@ class AgentRecallTextualApp(
         elif self.current_view == "settings":
             if self._is_widget_visible("settings"):
                 dashboard.mount(Static(panels.settings, id="dashboard_settings"))
-        elif self.current_view == "diff":
-            dashboard.mount(Static(panels.diff_summary, id="dashboard_diff"))
         elif self.current_view == "console":
             pass
         elif self.current_view == "overview":
@@ -417,7 +415,6 @@ class AgentRecallTextualApp(
                 and self._update_static_widget("#dashboard_llm", panels.llm)
                 and self._update_static_widget("#dashboard_settings", panels.settings)
                 and self._update_static_widget("#dashboard_timeline", panels.timeline)
-                and self._update_static_widget("#dashboard_diff", panels.diff_summary)
             )
         if self.current_view == "knowledge":
             if not self._is_widget_visible("knowledge"):
@@ -463,8 +460,6 @@ class AgentRecallTextualApp(
             if not self._is_widget_visible("settings"):
                 return False
             return self._update_static_widget("#dashboard_settings", panels.settings)
-        if self.current_view == "diff":
-            return self._update_static_widget("#dashboard_diff", panels.diff_summary)
         if self.current_view == "console":
             return True
         if self.current_view == "overview":
@@ -547,8 +542,6 @@ class AgentRecallTextualApp(
         main_children: list[Static] = []
         if self._is_widget_visible("timeline"):
             main_children.append(Static(panels.timeline, id="dashboard_timeline"))
-        if self._is_widget_visible("diff"):
-            main_children.append(Static(panels.diff_summary, id="dashboard_diff"))
         main = Vertical(*main_children, id="dashboard_all_main")
         grid = Vertical(
             sidebar,
@@ -609,7 +602,6 @@ class AgentRecallTextualApp(
                 "ralph": True,
                 "llm": True,
                 "settings": True,
-                "diff": True,
             }
         if self.tui_banner_size not in {"hidden", "compact", "normal", "large"}:
             self.tui_banner_size = "normal"
@@ -668,7 +660,6 @@ class AgentRecallTextualApp(
             "view:settings": "view:settings",
             "view:timeline": "view:timeline",
             "view:ralph": "view:ralph",
-            "view:diff": "view:diff",
             "view:console": "view:console",
             "view:all": "view:all",
             "overview": "view:overview",
@@ -717,7 +708,6 @@ class AgentRecallTextualApp(
             self._append_activity("  /view:knowledge     - Knowledge base")
             self._append_activity("  /view:timeline      - Iteration timeline")
             self._append_activity("  /view:ralph         - Ralph loop status")
-            self._append_activity("  /view:diff          - Last iteration diff summary")
             self._append_activity("  /view:console       - Console output")
             self._append_activity("  /view:all           - All panels")
             self._append_activity("")
@@ -733,7 +723,7 @@ class AgentRecallTextualApp(
             self._append_activity("  /ralph-opencode-install - Install OpenCode plugin")
             self._append_activity("  /ralph-opencode-uninstall - Uninstall OpenCode plugin")
             self._append_activity("  /ralph-watch, /watch    - Watch Claude logs")
-            self._append_activity("  /ralph-view-diff, /diff - View last iteration diff")
+            self._append_activity("  /ralph-view-diff, /diff - Browse iteration history (diffs)")
             self._append_activity("  /ralph-notifications    - Toggle notifications")
             self._append_activity("  /ralph-terminal         - Toggle terminal panel")
             self._append_activity("")

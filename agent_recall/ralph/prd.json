@@ -37,18 +37,18 @@
       "priority": 2,
       "description": "Currently, there are disparate views for diffs ('Diff View', 'View Last Diff'). These should be consolidated into a single 'History' or 'Iterations' view that allows navigating through past Ralph iterations and viewing their respective diffs.",
       "requirements": [
-        "Combine 'Diff View' and 'View Last Diff' functionality.",
-        "Implement navigation controls (Previous/Next Iteration) to browse history.",
-        "Display the diff summary and file details for the selected iteration.",
-        "Ensure the view state persists or resets logically when switching views."
+        "[DONE] Combine 'Diff View' and 'View Last Diff' functionality.",
+        "[DONE] Implement navigation controls (Previous/Next Iteration) to browse history.",
+        "[DONE] Display the diff summary and file details for the selected iteration.",
+        "[DONE] Ensure the view state persists or resets logically when switching views."
       ],
       "acceptance_criteria": [
-        "User can view a history of Ralph iterations.",
-        "User can navigate backwards and forwards through the commit/iteration list.",
-        "Selecting an iteration shows its diff and details.",
-        "Redundant diff views are removed from the Command Palette and UI."
+        "[DONE] User can view a history of Ralph iterations.",
+        "[DONE] User can navigate backwards and forwards through the commit/iteration list.",
+        "[DONE] Selecting an iteration shows its diff and details.",
+        "[DONE] Redundant diff views are removed from the Command Palette and UI."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-106",

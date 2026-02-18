@@ -279,13 +279,6 @@ def get_palette_actions() -> list[PaletteAction]:
             keywords="view ralph status loop",
         ),
         PaletteAction(
-            "view:diff",
-            "Diff View",
-            "Latest Ralph iteration diff summary",
-            "Views",
-            keywords="diff changes files added deleted",
-        ),
-        PaletteAction(
             "view:console",
             "Console View",
             "Recent command output and activity history",
@@ -375,11 +368,11 @@ def get_palette_actions() -> list[PaletteAction]:
         ),
         PaletteAction(
             "ralph-view-diff",
-            "View Last Diff",
-            "Review the most recent Ralph iteration diff with side-by-side viewer",
-            "Settings",
+            "Iteration History",
+            "Browse Ralph iteration diffs with side-by-side viewer and navigation",
+            "Core",
             shortcut="ralph view-diff",
-            keywords="ralph diff viewer iteration changes side-by-side",
+            keywords="ralph diff history iteration changes side-by-side navigate",
         ),
         PaletteAction(
             "ralph-notifications",

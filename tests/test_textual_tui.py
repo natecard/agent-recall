@@ -508,7 +508,6 @@ def test_dashboard_mount_skips_hidden_widgets() -> None:
         settings=Panel("settings"),
         timeline=Panel("timeline"),
         ralph=Panel("ralph"),
-        diff_summary=Panel("diff"),
         slash_console=None,
         source_names=[],
     )
@@ -558,7 +557,6 @@ def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) ->
         settings=Panel("settings"),
         timeline=Panel("timeline"),
         ralph=Panel("ralph"),
-        diff_summary=Panel("diff"),
         slash_console=None,
         source_names=["cursor"],
     )
@@ -1695,8 +1693,8 @@ def test_diff_summary_widget_renders_placeholder_when_no_diff(tmp_path) -> None:
     assert "No diff available" in str(panel.renderable)
 
 
-def test_diff_view_registered_in_local_router() -> None:
-    """Test that 'diff' is a valid view in local_router."""
+def test_diff_view_not_in_local_router_valid_views() -> None:
+    """Test that 'diff' is NOT a valid view (consolidated into ralph-view-diff)."""
 
     valid_views = {
         "overview",
@@ -1706,22 +1704,22 @@ def test_diff_view_registered_in_local_router() -> None:
         "settings",
         "timeline",
         "ralph",
-        "diff",
         "console",
         "all",
     }
 
-    assert "diff" in valid_views
+    assert "diff" not in valid_views
 
 
-def test_view_diff_palette_action_exists() -> None:
-    """Test that view:diff palette action is defined."""
+def test_iteration_history_palette_action_exists() -> None:
+    """Test that ralph-view-diff palette action is defined (renamed to Iteration History)."""
     from agent_recall.cli.tui.commands.palette_actions import get_palette_actions
 
     actions = get_palette_actions()
     action_ids = [a.action_id for a in actions]
 
-    assert "view:diff" in action_ids
+    assert "ralph-view-diff" in action_ids
+    assert "view:diff" not in action_ids
 
 
 def test_palette_recents_load_returns_empty_for_missing_file(tmp_path: Path) -> None:

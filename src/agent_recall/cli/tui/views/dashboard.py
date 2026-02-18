@@ -15,7 +15,6 @@ from rich.text import Text
 from agent_recall.cli.banner import BannerRenderer
 from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
 from agent_recall.cli.tui.widgets import (
-    DiffSummaryWidget,
     KnowledgeWidget,
     LLMConfigWidget,
     RalphStatusWidget,
@@ -39,7 +38,6 @@ class DashboardPanels:
     settings: Panel
     timeline: Panel
     ralph: Panel
-    diff_summary: Panel
     slash_console: Panel | None
     source_names: list[str]
 
@@ -222,7 +220,6 @@ def build_dashboard_panels(
         detail_title=None,
         detail_body=None,
     )
-    diff_widget = DiffSummaryWidget(agent_dir=context.agent_dir)
 
     now_text = datetime.now().strftime("%H:%M:%S")
 
@@ -253,7 +250,6 @@ def build_dashboard_panels(
     settings_panel = settings_widget.render()
     timeline_panel = timeline_widget.render(detail=view == "timeline")
     ralph_panel = ralph_widget.render()
-    diff_summary_panel = diff_widget.render()
 
     slash_panel = None
     if show_slash_console:
@@ -278,7 +274,6 @@ def build_dashboard_panels(
         settings=settings_panel,
         timeline=timeline_panel,
         ralph=ralph_panel,
-        diff_summary=diff_summary_panel,
         slash_console=slash_panel,
         source_names=source_names,
     )
