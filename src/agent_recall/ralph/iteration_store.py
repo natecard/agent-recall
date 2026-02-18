@@ -114,8 +114,9 @@ class IterationReportStore:
         item_id: str,
         item_title: str,
     ) -> IterationReport:
+        resolved_iteration = self._allocate_iteration_number(iteration)
         report = IterationReport(
-            iteration=iteration,
+            iteration=resolved_iteration,
             item_id=item_id,
             item_title=item_title,
             started_at=datetime.now(UTC),
@@ -183,8 +184,47 @@ class IterationReportStore:
 
     def _archive_report(self, report: IterationReport) -> None:
         self.iterations_dir.mkdir(parents=True, exist_ok=True)
-        archive_path = self.iterations_dir / f"{report.iteration:03d}.json"
+        archive_iteration = report.iteration if report.iteration > 0 else 1
+        archive_path = self.iterations_dir / f"{archive_iteration:03d}.json"
+        if archive_path.exists():
+            archive_iteration = self._allocate_iteration_number(archive_iteration)
+            archive_path = self.iterations_dir / f"{archive_iteration:03d}.json"
+        report.iteration = archive_iteration
         archive_path.write_text(json.dumps(report.to_dict(), indent=2), encoding="utf-8")
+
+    def _allocate_iteration_number(self, requested: int) -> int:
+        preferred = requested if requested > 0 else 1
+        used = self._used_iteration_numbers(include_current=True)
+        if preferred not in used:
+            return preferred
+
+        candidate = max(used) if used else preferred
+        if candidate < preferred:
+            candidate = preferred
+        while candidate in used:
+            candidate += 1
+        return candidate
+
+    def _used_iteration_numbers(self, *, include_current: bool) -> set[int]:
+        used: set[int] = set()
+        for path in self._iter_archive_paths():
+            parsed = self._parse_archive_iteration(path)
+            if parsed is not None:
+                used.add(parsed)
+
+        if include_current:
+            current = self.load_current()
+            if current is not None and current.iteration > 0:
+                used.add(current.iteration)
+
+        return used
+
+    def _parse_archive_iteration(self, path: Path) -> int | None:
+        stem = path.stem
+        if not stem.isdigit():
+            return None
+        value = int(stem)
+        return value if value > 0 else None
 
     def save_current_diff(self, report: IterationReport, diff_text: str) -> None:
         if not diff_text:

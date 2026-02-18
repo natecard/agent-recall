@@ -458,6 +458,7 @@ def test_dashboard_mount_skips_hidden_widgets() -> None:
         settings=Panel("settings"),
         timeline=Panel("timeline"),
         ralph=Panel("ralph"),
+        diff_summary=Panel("diff"),
         slash_console=None,
         source_names=[],
     )
@@ -507,6 +508,7 @@ def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) ->
         settings=Panel("settings"),
         timeline=Panel("timeline"),
         ralph=Panel("ralph"),
+        diff_summary=Panel("diff"),
         slash_console=None,
         source_names=["cursor"],
     )
@@ -1561,3 +1563,107 @@ def test_get_all_cli_commands_includes_ralph_slash_commands() -> None:
     assert "/ralph-notifications" in commands
     assert "/ralph-terminal" in commands
     assert "/run:select" in commands
+
+
+def test_parse_diff_stats_counts_correctly() -> None:
+    """Test that parse_diff_stats correctly counts added/deleted lines."""
+    from agent_recall.cli.tui.widgets.diff_summary import parse_diff_stats
+
+    diff_text = """diff --git a/file1.py b/file1.py
+--- a/file1.py
++++ b/file1.py
+@@ -1,3 +1,4 @@
+ line1
++line2
+-line3
+"""
+    total_added, total_deleted, per_file = parse_diff_stats(diff_text)
+    assert total_added == 1
+    assert total_deleted == 1
+    assert per_file == [("file1.py", 1, 1)]
+
+
+def test_parse_diff_stats_multiple_files() -> None:
+    """Test that parse_diff_stats handles multiple files."""
+    from agent_recall.cli.tui.widgets.diff_summary import parse_diff_stats
+
+    diff_text = """diff --git a/src/main.py b/src/main.py
+--- a/src/main.py
++++ b/src/main.py
+@@ -1,2 +1,3 @@
+ existing
++new line
+-another
+diff --git a/tests/test_main.py b/tests/test_main.py
+--- a/tests/test_main.py
++++ b/tests/test_main.py
+@@ -1,1 +1,2 @@
+ test1
++test2
+"""
+    total_added, total_deleted, per_file = parse_diff_stats(diff_text)
+    assert total_added == 2
+    assert total_deleted == 1
+    assert len(per_file) == 2
+
+
+def test_parse_diff_stats_empty_returns_zeros() -> None:
+    """Test that empty diff returns zeros."""
+    from agent_recall.cli.tui.widgets.diff_summary import parse_diff_stats
+
+    total_added, total_deleted, per_file = parse_diff_stats("")
+    assert total_added == 0
+    assert total_deleted == 0
+    assert per_file == []
+
+
+def test_parse_diff_stats_ignores_headers() -> None:
+    """Test that +++ and --- headers are not counted as changes."""
+    from agent_recall.cli.tui.widgets.diff_summary import parse_diff_stats
+
+    diff_text = """diff --git a/file.py b/file.py
+--- a/file.py
++++ b/file.py
+"""
+    total_added, total_deleted, per_file = parse_diff_stats(diff_text)
+    assert total_added == 0
+    assert total_deleted == 0
+
+
+def test_diff_summary_widget_renders_placeholder_when_no_diff(tmp_path) -> None:
+    """Test that DiffSummaryWidget renders placeholder when no diff available."""
+    from agent_recall.cli.tui.widgets import DiffSummaryWidget
+
+    widget = DiffSummaryWidget(agent_dir=tmp_path)
+    panel = widget.render()
+
+    assert "No diff available" in str(panel.renderable)
+
+
+def test_diff_view_registered_in_local_router() -> None:
+    """Test that 'diff' is a valid view in local_router."""
+
+    valid_views = {
+        "overview",
+        "sources",
+        "llm",
+        "knowledge",
+        "settings",
+        "timeline",
+        "ralph",
+        "diff",
+        "console",
+        "all",
+    }
+
+    assert "diff" in valid_views
+
+
+def test_view_diff_palette_action_exists() -> None:
+    """Test that view:diff palette action is defined."""
+    from agent_recall.cli.tui.commands.palette_actions import get_palette_actions
+
+    actions = get_palette_actions()
+    action_ids = [a.action_id for a in actions]
+
+    assert "view:diff" in action_ids

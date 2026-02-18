@@ -190,6 +190,27 @@ def test_ralph_loop_prd_ids_filters_items(tmp_path: Path) -> None:
     assert "001" in recent
 
 
+def test_ralph_loop_preserves_archived_reports_across_runs(tmp_path: Path) -> None:
+    _write_default_repo_layout(tmp_path)
+
+    first = _run_loop(tmp_path)
+    assert first.returncode == 2
+
+    second = _run_loop(tmp_path)
+    assert second.returncode == 2
+
+    iterations_dir = tmp_path / ".agent" / "ralph" / "iterations"
+    first_report = iterations_dir / "001.json"
+    second_report = iterations_dir / "002.json"
+    assert first_report.exists()
+    assert second_report.exists()
+
+    first_payload = json.loads(first_report.read_text(encoding="utf-8"))
+    second_payload = json.loads(second_report.read_text(encoding="utf-8"))
+    assert int(first_payload.get("iteration", 0)) == 1
+    assert int(second_payload.get("iteration", 0)) == 2
+
+
 def test_ralph_loop_supports_external_repo_layout_with_custom_paths(tmp_path: Path) -> None:
     spec_dir = tmp_path / "spec"
     logs_dir = tmp_path / "logs"

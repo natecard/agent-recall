@@ -279,6 +279,13 @@ def get_palette_actions() -> list[PaletteAction]:
             keywords="view ralph status loop",
         ),
         PaletteAction(
+            "view:diff",
+            "Diff View",
+            "Latest Ralph iteration diff summary",
+            "Views",
+            keywords="diff changes files added deleted",
+        ),
+        PaletteAction(
             "view:console",
             "Console View",
             "Recent command output and activity history",

@@ -72,6 +72,7 @@ def handle_local_command(app, raw: str) -> bool:
             "settings",
             "timeline",
             "ralph",
+            "diff",
             "console",
             "all",
         }

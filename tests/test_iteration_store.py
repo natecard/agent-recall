@@ -120,3 +120,26 @@ def test_iteration_report_store_load_recent_orders_newest_first(tmp_path: Path) 
 
     recent = store.load_recent(count=2)
     assert [report.iteration for report in recent] == [3, 2]
+
+
+def test_iteration_report_store_create_avoids_archive_collision(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "agent_recall" / "ralph"
+    store = IterationReportStore(ralph_dir)
+    store.iterations_dir.mkdir(parents=True, exist_ok=True)
+
+    existing = IterationReport(
+        iteration=1,
+        item_id="WM-001",
+        item_title="Existing",
+        started_at=datetime(2026, 2, 13, 12, 0, 0, tzinfo=UTC),
+        outcome=IterationOutcome.COMPLETED,
+    )
+    (store.iterations_dir / "001.json").write_text(
+        json.dumps(existing.to_dict(), indent=2),
+        encoding="utf-8",
+    )
+
+    created = store.create_for_iteration(1, "WM-002", "New Iteration")
+    assert created.iteration == 2
+    store.finalize_current(0, "")
+    assert (store.iterations_dir / "002.json").exists()
