@@ -53,17 +53,18 @@
       "priority": "high",
       "description": "The current diff summary is insufficient for reviewing changes. We need a robust diff viewer that allows traversing the diff tree and viewing detailed changes per file.",
       "requirements": [
-        "Implement a file tree view for changed files in the diff.",
-        "Create a detail view to show the actual diff content for the selected file.",
-        "Support syntax highlighting for diffs (e.g., using `rich.syntax.Syntax`).",
-        "Evaluate external Python packages for TUI diffs if they offer better functionality than building from scratch (e.g., `textual-diff` or similar if available, otherwise custom builds with `difflib`)."
+        "[DONE] Implement a file tree view for changed files in the diff.",
+        "[DONE] Create a detail view to show the actual diff content for the selected file.",
+        "[DONE] Support syntax highlighting for diffs (e.g., using `rich.syntax.Syntax`).",
+        "[DONE] Evaluate external Python packages for TUI diffs if they offer better functionality than building from scratch (e.g., `textual-diff` or similar if available, otherwise custom builds with `difflib`)."
       ],
       "acceptance_criteria": [
-        "User can see a list of changed files.",
-        "User can select a file to view its specific diff.",
-        "Diff view handles scrolling for large files/diffs.",
-        "Syntax highlighting is applied to the diff output."
-      ]
+        "[DONE] User can see a list of changed files.",
+        "[DONE] User can select a file to view its specific diff.",
+        "[DONE] Diff view handles scrolling for large files/diffs.",
+        "[DONE] Syntax highlighting is applied to the diff output."
+      ],
+      "passes": true
     }
   ]
 }
