@@ -28,9 +28,9 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
 
         with Container(id="modal_overlay"):
             with Vertical(id="modal_card"):
-                yield Static("Repository Setup (1/2)", classes="modal_title")
+                yield Static("Repository Setup", classes="modal_title")
                 yield Static(
-                    "Step 1 of 2 · Repository and session sources",
+                    "Step 1 of 3 · Repository and session sources",
                     classes="modal_subtitle",
                 )
                 yield Static(repo_path, id="setup_repo_path")

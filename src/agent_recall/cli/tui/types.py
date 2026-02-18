@@ -6,6 +6,7 @@ from typing import Any
 from rich.theme import Theme
 
 DiscoverModelsFn = Callable[[str, str | None, str | None], tuple[list[str], str | None]]
+DiscoverCodingModelsFn = Callable[[str], tuple[list[str], str | None]]
 ThemeDefaultsFn = Callable[[], tuple[list[str], str]]
 ThemeRuntimeFn = Callable[[], tuple[str, Theme]]
 ExecuteCommandFn = Callable[[str, int, int], tuple[bool, list[str]]]

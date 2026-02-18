@@ -132,6 +132,7 @@ def test_cli_init_creates_agent_dir() -> None:
     with runner.isolated_filesystem():
         result = runner.invoke(cli_main.app, ["init"])
         assert result.exit_code == 0
+        assert Path(".agent").exists()
 
 
 def test_cli_smoke_fresh_repo_init_onboarding_sync_context(monkeypatch) -> None:
@@ -164,6 +165,9 @@ def test_cli_smoke_fresh_repo_init_onboarding_sync_context(monkeypatch) -> None:
 
         setup = runner.invoke(cli_main.app, ["config", "setup", "--quick", "--force"])
         assert setup.exit_code == 0
+        assert Path(".agent/ralph/prd.json").exists()
+        assert Path(".agent/ralph/agent-prompt.md").exists()
+        assert Path(".agent/ralph/progress.txt").exists()
 
         sync = runner.invoke(cli_main.app, ["sync", "--no-compact"])
         assert sync.exit_code == 0
@@ -171,6 +175,67 @@ def test_cli_smoke_fresh_repo_init_onboarding_sync_context(monkeypatch) -> None:
         context = runner.invoke(cli_main.app, ["context"])
         assert context.exit_code == 0
         assert "## Guardrails" in context.output
+
+
+def test_cli_setup_scaffolds_rules_and_ralph_when_missing(monkeypatch) -> None:
+    monkeypatch.setattr(
+        cli_main,
+        "ensure_provider_dependency",
+        lambda *_args, **_kwargs: (True, None),
+    )
+    monkeypatch.setattr(cli_main, "get_default_ingesters", lambda **_kwargs: [])
+
+    with runner.isolated_filesystem():
+        Path(".git").mkdir()
+        Path(".agent").mkdir()
+        Path(".agent/config.yaml").write_text(
+            "llm:\n  provider: anthropic\n  model: claude-sonnet-4-20250514\n",
+            encoding="utf-8",
+        )
+
+        setup = runner.invoke(cli_main.app, ["config", "setup", "--quick", "--force"])
+        assert setup.exit_code == 0
+        assert Path(".agent/RULES.md").exists()
+        assert Path(".agent/ralph/prd.json").exists()
+        assert Path(".agent/ralph/agent-prompt.md").exists()
+        assert Path(".agent/ralph/progress.txt").exists()
+
+
+def test_run_setup_payload_persists_coding_agent_config(monkeypatch) -> None:
+    monkeypatch.setattr(
+        cli_main,
+        "ensure_provider_dependency",
+        lambda *_args, **_kwargs: (True, None),
+    )
+    monkeypatch.setattr(cli_main, "get_default_ingesters", lambda **_kwargs: [])
+
+    with runner.isolated_filesystem():
+        Path(".git").mkdir()
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+
+        changed, _lines = cli_main._run_setup_from_payload(
+            {
+                "force": True,
+                "repository_verified": True,
+                "selected_agents": ["cursor"],
+                "provider": "ollama",
+                "model": "qwen3:4b",
+                "base_url": "http://localhost:11434/v1",
+                "temperature": 0.3,
+                "max_tokens": 4096,
+                "validate": False,
+                "configure_coding_agent": True,
+                "coding_cli": "codex",
+                "cli_model": "gpt-5.3-codex",
+                "ralph_enabled": True,
+            }
+        )
+
+        assert changed is True
+        config = FileStorage(Path(".agent")).read_config()
+        assert config["ralph"]["coding_cli"] == "codex"
+        assert config["ralph"]["cli_model"] == "gpt-5.3-codex"
+        assert config["ralph"]["enabled"] is True
 
 
 def test_cli_session_flow() -> None:

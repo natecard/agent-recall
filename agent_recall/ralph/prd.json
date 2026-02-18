@@ -13,75 +13,6 @@
   },
   "items": [
     {
-      "id": "AR-707",
-      "priority": 1,
-      "title": "OpenCode Plugin Integration",
-      "description": "Implement Ralph as an OpenCode plugin that subscribes to session lifecycle events (session start, idle, tool use). This enables the same hook-based workflow that Claude Code provides, but for the OpenCode ecosystem.",
-      "user_story": "As a developer using OpenCode, I want Ralph to react to my coding sessions just like it does with Claude Code hooks.",
-      "steps": [
-        "Research OpenCode plugin API and subscription model",
-        "Implement plugin that subscribes to session events",
-        "Forward events to Ralph iteration store",
-        "Add `ralph plugin opencode install` command",
-        "Add TUI action for OpenCode plugin management"
-      ],
-      "acceptance_criteria": [
-        "OpenCode plugin receives session lifecycle events",
-        "Events are forwarded to Ralph's iteration store",
-        "Plugin installation and removal are idempotent",
-        "Tests cover event subscription and forwarding"
-      ],
-      "validation_commands": [
-        "uv run pytest tests/ -k opencode_plugin -x --tb=short"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-1001",
-      "priority": 2,
-      "title": "Refactor Dashboard to Component Architecture",
-      "description": "Refactor the monolithic `build_tui_dashboard` function into separate, reusable Textual `Widget` classes for each logical section (Knowledge, LLM, Sources, Settings, Timeline). This moves away from the current method of rendering static Rich groups on every tick to a component-based model where widgets manage their own state and updates. This is a prerequisite for adding interactivity and fixing the 'All' view.",
-      "user_story": "As a developer extending the TUI, I want clear separation of concerns in the dashboard code so that I can add features to the Timeline or Settings views without navigating a single 300-line function.",
-      "steps": [
-        "Create `src/agent_recall/cli/tui/widgets/` package",
-        "Implement `KnowledgeWidget`, `LLMConfigWidget`, `SourcesWidget`, `SettingsWidget`, `TimelineWidget` inheriting from `Static` or `Widget`",
-        "Move rendering logic from `dashboard.py` into `render()` or `compose()` methods of these widgets",
-        "Update `AgentRecallTextualApp` to compose these widgets instead of calling `build_tui_dashboard`",
-        "Implement a `DashboardController` or update `app.py` to coordinate data refreshes to these widgets"
-      ],
-      "acceptance_criteria": [
-        "Dashboard views render identically to the current implementation but use Widget classes",
-        "`build_tui_dashboard` function is deprecated or removed",
-        "Code is split into multiple files in `widgets/`",
-        "Individual widgets can be refreshed independently",
-        "Tests pass with new component structure"
-      ],
-      "validation_commands": ["uv run pytest tests/test_textual_tui.py"],
-      "passes": true
-    },
-    {
-      "id": "AR-1002",
-      "priority": 1,
-      "title": "Refactor 'All View' to Responsive Grid Layout",
-      "description": "Replace the static vertical stacking in the 'All' view with a proper CSS Grid layout. The current implementation forces a rigid 2-column row structure. A grid layout should adapt to the terminal window size, allowing for a more information-dense and readable dashboard. The 'All' view should effectively become a high-level cockpit.",
-      "user_story": "As a user with a large terminal window, I want the 'All' view to utilize the available space efficiently, showing me the timeline, status, and config side-by-side rather than in a long scrolling list.",
-      "steps": [
-        "Define a CSS Grid layout in `APP_CSS` for the 'All' view",
-        "Update `AgentRecallTextualApp` to switch classes/layouts when 'All' view is active",
-        "Place `TimelineWidget` in a primary column (e.g., center or right) taking up vertically available space",
-        "Place `Status`, `Sources`, and `Config` widgets in a sidebar or secondary column",
-        "Ensure layout degrades gracefully on smaller screens"
-      ],
-      "acceptance_criteria": [
-        "All View uses CSS Grid instead of `_two_panel_row` helper",
-        "Layout adapts to terminal width (e.g., switches to storage stack on narrow screens)",
-        "Timeline is visible without scrolling the entire dashboard",
-        "All key information is visible at a glance on standard 1080p terminal sizes"
-      ],
-      "validation_commands": ["uv run pytest tests/test_textual_tui.py"],
-      "passes": true
-    },
-    {
       "id": "AR-1003",
       "priority": 2,
       "title": "Interactive Configuration & Sources Views",
@@ -99,7 +30,9 @@
         "Sources view shows real-time status of sync operations",
         "Settings view allows toggling boolean flags (e.g., refresh rate, theme)"
       ],
-      "validation_commands": ["uv run pytest tests/test_textual_tui.py"],
+      "validation_commands": [
+        "uv run pytest tests/test_textual_tui.py"
+      ],
       "passes": false
     },
     {
@@ -121,7 +54,9 @@
         "Detail view shows iteration summary, result, and git diff",
         "Users can escape back to the main view easily"
       ],
-      "validation_commands": ["uv run pytest tests/test_textual_tui.py"],
+      "validation_commands": [
+        "uv run pytest tests/test_textual_tui.py"
+      ],
       "passes": false
     },
     {
@@ -146,7 +81,9 @@
         "The view updates automatically as the loop progresses (via dashboard refresh)",
         "The UI clearly distinguishes between 'Running' and 'Idle' states"
       ],
-      "validation_commands": ["uv run pytest tests/test_textual_tui.py"],
+      "validation_commands": [
+        "uv run pytest tests/test_textual_tui.py"
+      ],
       "passes": false
     }
   ]

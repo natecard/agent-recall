@@ -53,6 +53,7 @@ from agent_recall.core.ingest import TranscriptIngestor
 from agent_recall.core.log import LogWriter
 from agent_recall.core.onboarding import (
     apply_repo_setup,
+    discover_coding_cli_models,
     discover_provider_models,
     ensure_repo_onboarding,
     get_onboarding_defaults,
@@ -2251,6 +2252,24 @@ def _run_setup_from_payload(payload: dict[str, object]) -> tuple[bool, list[str]
     else:
         max_tokens = 4096
 
+    configure_coding_agent = bool(payload.get("configure_coding_agent", False))
+    coding_cli_value = payload.get("coding_cli")
+    coding_cli = (
+        str(coding_cli_value).strip()
+        if isinstance(coding_cli_value, str) and str(coding_cli_value).strip()
+        else None
+    )
+    cli_model_value = payload.get("cli_model")
+    cli_model = (
+        str(cli_model_value).strip()
+        if isinstance(cli_model_value, str) and str(cli_model_value).strip()
+        else None
+    )
+    ralph_enabled_raw = payload.get("ralph_enabled")
+    ralph_enabled = bool(ralph_enabled_raw) if isinstance(ralph_enabled_raw, bool) else None
+    if configure_coding_agent and ralph_enabled is None:
+        ralph_enabled = bool(coding_cli)
+
     changed = apply_repo_setup(
         files,
         capture_console,
@@ -2272,6 +2291,10 @@ def _run_setup_from_payload(payload: dict[str, object]) -> tuple[bool, list[str]
             if isinstance(payload.get("api_key"), str)
             else None
         ),
+        configure_coding_agent=configure_coding_agent,
+        coding_cli=coding_cli,
+        cli_model=cli_model,
+        ralph_enabled=ralph_enabled,
     )
 
     lines = [line.strip() for line in temp_output.getvalue().splitlines() if line.strip()]
@@ -2650,6 +2673,7 @@ def tui(
                 api_key_env=api_key_env,
                 timeout_seconds=4.0,
             ),
+            discover_coding_models=lambda cli: discover_coding_cli_models(cli, timeout_seconds=8.0),
             providers=get_available_providers(),
             cli_commands=_collect_cli_commands_for_palette(),
             rich_theme=_theme_manager.get_theme(),

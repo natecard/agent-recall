@@ -23,21 +23,6 @@ _RALPH_CLI_OPTIONS = [
     ("opencode", "opencode"),
 ]
 
-_RALPH_CLI_DEFAULT_MODELS: dict[str, list[str]] = {
-    "claude-code": [
-        "claude-sonnet-4-20250514",
-        "claude-opus-4-6",
-        "claude-haiku-4-5-20251001",
-    ],
-    "codex": [
-        "o4-mini",
-        "gpt-4o",
-        "gpt-5.3-codex",
-        "gpt-5-codex",
-    ],
-    "opencode": [],
-}
-
 _COMPACT_MODE_OPTIONS: list[tuple[str, str]] = [
     ("always", "always"),
     ("on-failure", "on-failure"),

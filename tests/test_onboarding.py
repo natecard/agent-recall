@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 from rich.console import Console
 
@@ -10,6 +11,7 @@ from agent_recall.core.onboarding import (
     LocalSecretsStore,
     LocalSettingsStore,
     apply_repo_setup,
+    discover_coding_cli_models,
     discover_provider_models,
     get_onboarding_defaults,
     get_repo_preferred_sources,
@@ -184,6 +186,74 @@ def test_discover_provider_models_ollama_falls_back_to_tags(monkeypatch) -> None
     assert models == ["llama3.2", "qwen2.5-coder"]
 
 
+def test_discover_coding_cli_models_opencode(monkeypatch) -> None:
+    def fake_subprocess_run(cmd, *, capture_output, text, timeout):
+        assert cmd == ["opencode", "models"]
+        assert capture_output is True
+        assert text is True
+        return SimpleNamespace(
+            returncode=0,
+            stdout="opencode/gpt-5.1-codex\nopencode/claude-sonnet-4-5\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(onboarding.subprocess, "run", fake_subprocess_run)
+
+    models, error = discover_coding_cli_models("opencode")
+
+    assert error is None
+    assert models == ["opencode/gpt-5.1-codex", "opencode/claude-sonnet-4-5"]
+
+
+def test_discover_coding_cli_models_opencode_not_found(monkeypatch) -> None:
+    def fake_subprocess_run(*_args, **_kwargs):
+        raise FileNotFoundError("opencode")
+
+    monkeypatch.setattr(onboarding.subprocess, "run", fake_subprocess_run)
+
+    models, error = discover_coding_cli_models("opencode")
+
+    assert models == []
+    assert error is not None and "opencode not found" in error
+
+
+def test_discover_coding_cli_models_claude_code(monkeypatch) -> None:
+    def fake_discover_provider_models(
+        provider, *, base_url=None, api_key_env=None, timeout_seconds=15.0
+    ):
+        assert provider == "anthropic"
+        return ["claude-sonnet-4-20250514", "claude-opus-4-6"], None
+
+    monkeypatch.setattr(onboarding, "discover_provider_models", fake_discover_provider_models)
+
+    models, error = discover_coding_cli_models("claude-code")
+
+    assert error is None
+    assert models == ["claude-sonnet-4-20250514", "claude-opus-4-6"]
+
+
+def test_discover_coding_cli_models_codex(monkeypatch) -> None:
+    def fake_discover_provider_models(
+        provider, *, base_url=None, api_key_env=None, timeout_seconds=15.0
+    ):
+        assert provider == "openai"
+        return ["gpt-5.3-codex", "gpt-4o"], None
+
+    monkeypatch.setattr(onboarding, "discover_provider_models", fake_discover_provider_models)
+
+    models, error = discover_coding_cli_models("codex")
+
+    assert error is None
+    assert models == ["gpt-5.3-codex", "gpt-4o"]
+
+
+def test_discover_coding_cli_models_unknown_cli() -> None:
+    models, error = discover_coding_cli_models("unknown-cli")
+
+    assert models == []
+    assert error is not None and "unknown" in error.lower()
+
+
 def test_discover_provider_models_reports_tls_certificate_hint(monkeypatch) -> None:
     def fake_http_get_json(url: str, *, headers=None, timeout_seconds=8.0):
         _ = (url, headers, timeout_seconds)
@@ -251,11 +321,63 @@ def test_apply_repo_setup_persists_modal_values(monkeypatch, tmp_path: Path) -> 
     assert config["onboarding"]["repository_verified"] is True
     assert config["onboarding"]["selected_agents"] == ["cursor"]
     assert config["onboarding"]["source_discovery"]["cursor"] == 2
+    assert (agent_dir / "RULES.md").exists()
+    assert (agent_dir / "ralph").exists()
+    assert (agent_dir / "ralph" / ".runtime").exists()
+    assert (agent_dir / "ralph" / "iterations").exists()
+    assert (agent_dir / "ralph" / "prd.json").exists()
+    assert (agent_dir / "ralph" / "agent-prompt.md").exists()
+    assert (agent_dir / "ralph" / "progress.txt").exists()
 
     settings = LocalSettingsStore().load()
     assert settings["defaults"]["provider"] == "ollama"
     assert settings["defaults"]["model"] == "qwen3:4b"
     assert settings["defaults"]["selected_agents"] == ["cursor"]
+
+
+def test_apply_repo_setup_persists_coding_agent_settings(monkeypatch, tmp_path: Path) -> None:
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    (repo_path / ".git").mkdir()
+    monkeypatch.chdir(repo_path)
+
+    agent_dir = _make_agent_dir(repo_path / ".agent")
+    files = FileStorage(agent_dir)
+
+    monkeypatch.setattr(
+        onboarding,
+        "ensure_provider_dependency",
+        lambda *_args, **_kwargs: (True, None),
+    )
+    monkeypatch.setattr(
+        onboarding,
+        "_discover_source_counts",
+        lambda selected: {source: 0 for source in selected},
+    )
+
+    changed = apply_repo_setup(
+        files,
+        Console(record=True),
+        force=True,
+        repository_verified=True,
+        selected_agents=["cursor"],
+        provider="ollama",
+        model="qwen3:4b",
+        base_url="http://localhost:11434/v1",
+        temperature=0.4,
+        max_tokens=8192,
+        validate=False,
+        configure_coding_agent=True,
+        coding_cli="codex",
+        cli_model="gpt-5.3-codex",
+        ralph_enabled=True,
+    )
+
+    assert changed is True
+    config = files.read_config()
+    assert config["ralph"]["coding_cli"] == "codex"
+    assert config["ralph"]["cli_model"] == "gpt-5.3-codex"
+    assert config["ralph"]["enabled"] is True
 
 
 def test_apply_repo_setup_requires_repository_verification(tmp_path: Path) -> None:

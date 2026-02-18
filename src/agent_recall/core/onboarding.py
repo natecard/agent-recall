@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -58,6 +59,125 @@ DEFAULT_BASE_URLS = {
     "lmstudio": "http://localhost:1234/v1",
     "openai-compatible": "http://localhost:8080/v1",
 }
+
+VALID_CODING_CLIS = ("claude-code", "codex", "opencode")
+
+INITIAL_RULES = """# Rules
+
+- Add repository-specific constraints and preferences for coding agents.
+"""
+
+INITIAL_RALPH_PRD = """{
+  "project": "Repository Ralph Backlog",
+  "version": 1,
+  "selection_policy": {
+    "agent_decides_priority": true,
+    "priority_scale": "1 = highest priority",
+    "order_of_operations": [
+      "critical bugfixes",
+      "tracer-bullet feature slices",
+      "polish and quick wins",
+      "refactors"
+    ]
+  },
+  "items": [
+    {
+      "id": "AR-001",
+      "priority": 1,
+      "title": "Initial tracer bullet",
+      "description": "Ship a small end-to-end slice so Ralph can validate workflow in this repo.",
+      "steps": [
+        "Identify one small high-impact task",
+        "Implement minimal safe change",
+        "Run project validation",
+        "Summarize outcome in iteration report"
+      ],
+      "acceptance_criteria": [
+        "One scoped change is merged safely",
+        "Validation command is green",
+        "Iteration report fields are filled"
+      ],
+      "validation_commands": [
+        "uv run pytest -q"
+      ],
+      "passes": false
+    }
+  ]
+}
+"""
+
+INITIAL_RALPH_PROMPT = """# Agent Recall Ralph Task
+
+You are running an autonomous Ralph loop for this repository.
+
+Prioritize one small, safe, high-impact task at a time. Keep scope tight and validation green.
+
+## Context
+
+- User-authored rules: `.agent/RULES.md`
+- Read-only generated tiers: `.agent/GUARDRAILS.md`, `.agent/STYLE.md`, `.agent/RECENT.md`
+- Iteration report path: `{current_report_path}`
+- Selected task: `{item_id} - {item_title}`
+- Task description: `{description}`
+- Validation command: `{validation_command}`
+
+Do not edit generated tier files directly. They are maintained by Agent Recall.
+
+## Required Output
+
+Update `{current_report_path}` with:
+
+```json
+{
+  "outcome": "COMPLETED|VALIDATION_FAILED|SCOPE_REDUCED|BLOCKED|TIMEOUT",
+  "summary": "string",
+  "failure_reason": "string|null",
+  "gotcha_discovered": "string|null",
+  "pattern_that_worked": "string|null",
+  "scope_change": "string|null"
+}
+```
+
+If blocked and unable to proceed safely, emit the configured abort marker.
+"""
+
+INITIAL_RALPH_PROGRESS = """# Ralph Progress Log
+
+Append-only iteration summaries are written here by loop tooling.
+"""
+
+
+def ensure_rules_file(agent_dir: Path) -> list[Path]:
+    """Ensure RULES.md exists for repository-local agent guidance."""
+    rules_path = agent_dir / "RULES.md"
+    if rules_path.exists():
+        return []
+    rules_path.write_text(INITIAL_RULES, encoding="utf-8")
+    return [rules_path]
+
+
+def ensure_ralph_scaffold(agent_dir: Path) -> list[Path]:
+    """Ensure repository-local Ralph workspace files exist."""
+    created: list[Path] = []
+    ralph_dir = agent_dir / "ralph"
+    runtime_dir = ralph_dir / ".runtime"
+    iterations_dir = ralph_dir / "iterations"
+    for directory in (ralph_dir, runtime_dir, iterations_dir):
+        if not directory.exists():
+            directory.mkdir(parents=True, exist_ok=True)
+            created.append(directory)
+
+    starter_files = (
+        (ralph_dir / "prd.json", INITIAL_RALPH_PRD),
+        (ralph_dir / "agent-prompt.md", INITIAL_RALPH_PROMPT),
+        (ralph_dir / "progress.txt", INITIAL_RALPH_PROGRESS),
+    )
+    for path, content in starter_files:
+        if path.exists():
+            continue
+        path.write_text(content, encoding="utf-8")
+        created.append(path)
+    return created
 
 
 def default_agent_recall_home() -> Path:
@@ -512,6 +632,60 @@ def discover_provider_models(
     return [], f"model discovery not implemented for provider: {normalized}"
 
 
+def discover_coding_cli_models(
+    coding_cli: str,
+    *,
+    timeout_seconds: float = 15.0,
+) -> tuple[list[str], str | None]:
+    """Discover models for a coding CLI (opencode, claude-code, codex).
+
+    Returns (models, error_message). On success error_message is None.
+    """
+    normalized = (coding_cli or "").strip().lower()
+    if normalized not in VALID_CODING_CLIS:
+        return [], f"unknown coding CLI: {coding_cli}"
+
+    if normalized == "opencode":
+        try:
+            result = subprocess.run(
+                ["opencode", "models"],
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+        except FileNotFoundError:
+            return [], "opencode not found on PATH"
+        except subprocess.TimeoutExpired:
+            return [], "opencode models timed out"
+        except OSError as exc:
+            return [], str(exc)
+
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            return [], stderr or f"opencode models exited {result.returncode}"
+
+        models = [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
+        return _dedupe_models(models), None
+
+    if normalized == "claude-code":
+        models, err = discover_provider_models(
+            "anthropic",
+            api_key_env=API_KEY_ENV_BY_PROVIDER.get("anthropic"),
+            timeout_seconds=timeout_seconds,
+        )
+        return models, err
+
+    if normalized == "codex":
+        models, err = discover_provider_models(
+            "openai",
+            api_key_env=API_KEY_ENV_BY_PROVIDER.get("openai"),
+            timeout_seconds=timeout_seconds,
+        )
+        return models, err
+
+    return [], f"model discovery not implemented for CLI: {normalized}"
+
+
 def _prompt_model_with_picker(
     console: Console,
     *,
@@ -628,6 +802,87 @@ def _prompt_provider(console: Console, defaults: str) -> str:
         )
 
 
+def _prompt_coding_cli(console: Console, default_cli: str | None) -> str | None:
+    table = Table(title="Coding Agent (Ralph Loop)")
+    table.add_column("#", justify="right")
+    table.add_column("CLI")
+    table.add_column("Default Model")
+    for index, cli_name in enumerate(VALID_CODING_CLIS, start=1):
+        table.add_row(str(index), cli_name, _default_coding_model_for_cli(cli_name) or "manual")
+    table.add_row("0", "Skip", "n/a")
+    console.print(table)
+
+    default_choice = "0"
+    if default_cli in VALID_CODING_CLIS:
+        default_choice = str(VALID_CODING_CLIS.index(default_cli) + 1)
+
+    while True:
+        value = typer.prompt("Coding agent selection", default=default_choice).strip().lower()
+        if value == "0" or value in {"skip", "none"}:
+            return None
+        if value.isdigit():
+            index = int(value)
+            if 1 <= index <= len(VALID_CODING_CLIS):
+                return VALID_CODING_CLIS[index - 1]
+        normalized = _normalize_coding_cli_value(value)
+        if normalized:
+            return normalized
+        console.print(
+            f"[warning]Invalid choice. Use 0-{len(VALID_CODING_CLIS)} or a CLI name.[/warning]"
+        )
+
+
+def _prompt_coding_model(
+    console: Console,
+    *,
+    coding_cli: str,
+    default_model: str | None,
+) -> str | None:
+    models, error_message = discover_coding_cli_models(coding_cli)
+    if error_message:
+        console.print(f"[warning]Live model discovery unavailable: {error_message}[/warning]")
+    if not models:
+        entered = typer.prompt(
+            "Coding model (optional)",
+            default=default_model or "",
+            show_default=bool(default_model),
+        ).strip()
+        return entered or None
+
+    table = Table(title=f"Coding Models ({coding_cli})")
+    table.add_column("#", justify="right")
+    table.add_column("Model")
+    for index, model_name in enumerate(models, start=1):
+        table.add_row(str(index), model_name)
+    table.add_row("0", "Manual entry")
+    console.print(table)
+
+    default_choice = "0"
+    if default_model in models:
+        default_choice = str(models.index(default_model) + 1)
+
+    while True:
+        selection = typer.prompt("Coding model selection", default=default_choice).strip()
+        if selection.isdigit():
+            index = int(selection)
+            if 1 <= index <= len(models):
+                return models[index - 1]
+            if index == 0:
+                break
+        if selection in models:
+            return selection
+        console.print(
+            "[warning]Invalid model selection. Choose a number or listed model.[/warning]"
+        )
+
+    entered = typer.prompt(
+        "Coding model (optional)",
+        default=default_model or "",
+        show_default=bool(default_model),
+    ).strip()
+    return entered or None
+
+
 def _maybe_capture_api_key(
     provider: str,
     secrets_store: LocalSecretsStore,
@@ -687,9 +942,28 @@ def _normalize_defaults(defaults: Any) -> dict[str, Any]:
     return defaults if isinstance(defaults, dict) else {}
 
 
+def _normalize_coding_cli_value(raw: Any) -> str | None:
+    value = str(raw).strip().lower() if isinstance(raw, str) else ""
+    if not value:
+        return None
+    return value if value in VALID_CODING_CLIS else None
+
+
+def _default_coding_model_for_cli(coding_cli: str | None) -> str | None:
+    if coding_cli is None:
+        return None
+    models, _ = discover_coding_cli_models(coding_cli)
+    if not models:
+        return None
+    return models[0]
+
+
 def get_onboarding_defaults(files: FileStorage) -> dict[str, Any]:
     config_dict = files.read_config()
     llm_config = dict(config_dict.get("llm", {}))
+    ralph_config = config_dict.get("ralph", {}) if isinstance(config_dict, dict) else {}
+    if not isinstance(ralph_config, dict):
+        ralph_config = {}
     settings = LocalSettingsStore().load()
     defaults = _normalize_defaults(settings.get("defaults"))
 
@@ -715,6 +989,13 @@ def get_onboarding_defaults(files: FileStorage) -> dict[str, Any]:
         or ""
     ).strip()
 
+    coding_cli = _normalize_coding_cli_value(ralph_config.get("coding_cli"))
+    cli_model = str(ralph_config.get("cli_model") or "").strip() or None
+    if coding_cli is None:
+        cli_model = None
+    elif cli_model is None:
+        cli_model = _default_coding_model_for_cli(coding_cli)
+
     return {
         "repository_path": str(_resolve_repository_root()),
         "repository_verified": True,
@@ -737,6 +1018,10 @@ def get_onboarding_defaults(files: FileStorage) -> dict[str, Any]:
         "selected_agents": selected_agents,
         "validate": False,
         "api_key_env": API_KEY_ENV_BY_PROVIDER.get(provider),
+        "configure_coding_agent": True,
+        "coding_cli": coding_cli,
+        "cli_model": cli_model,
+        "ralph_enabled": bool(ralph_config.get("enabled", False)),
     }
 
 
@@ -758,6 +1043,10 @@ def apply_repo_setup(
     max_tokens: int,
     validate: bool = False,
     api_key: str | None = None,
+    configure_coding_agent: bool = False,
+    coding_cli: str | None = None,
+    cli_model: str | None = None,
+    ralph_enabled: bool | None = None,
 ) -> bool:
     repo_path = _resolve_repository_root()
     if not repository_verified:
@@ -787,6 +1076,22 @@ def apply_repo_setup(
         raise ValueError("Temperature must be between 0.0 and 2.0.")
     if max_tokens <= 0:
         raise ValueError("Max tokens must be greater than 0.")
+
+    raw_coding_cli = str(coding_cli).strip().lower() if isinstance(coding_cli, str) else ""
+    normalized_coding_cli = _normalize_coding_cli_value(coding_cli)
+    if configure_coding_agent and raw_coding_cli and normalized_coding_cli is None:
+        raise ValueError(
+            f"Unknown coding CLI '{raw_coding_cli}'. "
+            f"Expected one of: {', '.join(VALID_CODING_CLIS)}"
+        )
+    cleaned_cli_model = (cli_model or "").strip() or None
+    if normalized_coding_cli is None:
+        cleaned_cli_model = None
+    effective_ralph_enabled: bool | None = None
+    if configure_coding_agent:
+        effective_ralph_enabled = bool(ralph_enabled) if ralph_enabled is not None else False
+        if effective_ralph_enabled and normalized_coding_cli is None:
+            raise ValueError("Coding CLI is required when enabling Ralph loop.")
 
     secrets_store = LocalSecretsStore()
     inject_stored_api_keys(secrets_store)
@@ -848,6 +1153,14 @@ def apply_repo_setup(
 
     now_iso = _now_iso()
     config_dict["llm"] = llm_payload
+    if configure_coding_agent:
+        ralph_config = config_dict.get("ralph")
+        if not isinstance(ralph_config, dict):
+            ralph_config = {}
+        ralph_config["coding_cli"] = normalized_coding_cli
+        ralph_config["cli_model"] = cleaned_cli_model
+        ralph_config["enabled"] = bool(effective_ralph_enabled)
+        config_dict["ralph"] = ralph_config
     config_dict["onboarding"] = {
         "version": 1,
         "completed_at": now_iso,
@@ -857,6 +1170,8 @@ def apply_repo_setup(
         "source_discovery": discovery,
     }
     files.write_config(config_dict)
+    created_rules_paths = ensure_rules_file(files.agent_dir)
+    created_ralph_paths = ensure_ralph_scaffold(files.agent_dir)
 
     settings_store = LocalSettingsStore()
     settings = settings_store.load()
@@ -914,6 +1229,21 @@ def apply_repo_setup(
         f"Secrets path: {secrets_store.path}\n\n"
         "Source discovery:\n" + "\n".join(discovered_rows)
     )
+    if configure_coding_agent:
+        panel_body += (
+            "\n\nCoding agent setup:\n"
+            f"  CLI: {normalized_coding_cli or 'not configured'}\n"
+            f"  Model: {cleaned_cli_model or 'not set'}\n"
+            f"  Ralph enabled: {'yes' if bool(effective_ralph_enabled) else 'no'}"
+        )
+    if created_rules_paths:
+        panel_body += "\n\nRules scaffold created:\n" + "\n".join(
+            f"  {path}" for path in created_rules_paths
+        )
+    if created_ralph_paths:
+        panel_body += "\n\nRalph scaffold created:\n" + "\n".join(
+            f"  {path}" for path in created_ralph_paths
+        )
     console.print(Panel.fit(panel_body, title="Onboarding Summary"))
 
     return True
@@ -1039,6 +1369,32 @@ def ensure_repo_onboarding(
         temperature = temperature_default
         max_tokens = max_tokens_default
 
+    ralph_config = config_dict.get("ralph")
+    if not isinstance(ralph_config, dict):
+        ralph_config = {}
+    default_coding_cli = _normalize_coding_cli_value(ralph_config.get("coding_cli"))
+    default_cli_model = str(ralph_config.get("cli_model") or "").strip() or None
+    if default_coding_cli and default_cli_model is None:
+        default_cli_model = _default_coding_model_for_cli(default_coding_cli)
+    default_ralph_enabled = bool(ralph_config.get("enabled", False))
+
+    if interactive:
+        coding_cli = _prompt_coding_cli(console, default_coding_cli)
+        cli_model = (
+            _prompt_coding_model(console, coding_cli=coding_cli, default_model=default_cli_model)
+            if coding_cli
+            else None
+        )
+        if coding_cli is None:
+            ralph_enabled = False
+        else:
+            enable_default = default_ralph_enabled if default_coding_cli is not None else True
+            ralph_enabled = typer.confirm("Enable Ralph loop now?", default=enable_default)
+    else:
+        coding_cli = default_coding_cli
+        cli_model = default_cli_model if coding_cli else None
+        ralph_enabled = default_ralph_enabled
+
     should_validate = interactive and typer.confirm(
         "Validate provider connection now?", default=False
     )
@@ -1055,6 +1411,10 @@ def ensure_repo_onboarding(
             temperature=temperature,
             max_tokens=max_tokens,
             validate=should_validate,
+            configure_coding_agent=True,
+            coding_cli=coding_cli,
+            cli_model=cli_model,
+            ralph_enabled=ralph_enabled,
         )
     except ValueError as exc:
         console.print(f"[error]{exc}[/error]")

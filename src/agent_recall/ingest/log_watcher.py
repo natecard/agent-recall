@@ -108,9 +108,10 @@ class LogWatcher:
         if stat.st_size == state.offset:
             return []
 
+        read_offset = state.offset
         try:
             with path.open("rb") as handle:
-                handle.seek(state.offset)
+                handle.seek(read_offset)
                 chunk = handle.read()
                 state.offset = handle.tell()
         except OSError:
@@ -140,4 +141,13 @@ class LogWatcher:
             message = self._ingester.parse_event(payload)
             if message is not None:
                 messages.append(message)
+
+        # On ext4 (Ubuntu), inodes are reused when a file is deleted and recreated.
+        # If we read from a non-zero offset and got 0 valid messages, we may be
+        # in the middle of a rotated file—retry from the beginning.
+        if not messages and read_offset > 0:
+            state.offset = 0
+            state.buffer = b""
+            return self._read_new_events(path)
+
         return messages

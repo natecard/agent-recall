@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from typing import Any
@@ -74,13 +75,6 @@ class RalphMixin:
                 )
                 return {"total_iterations": 0, "passed": 0, "failed": 0}
 
-            script_path = get_default_script_path()
-            if not script_path.exists():
-                self.call_from_thread(
-                    self._append_activity, f"Ralph loop script not found: {script_path}"
-                )
-                return {"total_iterations": 0, "passed": 0, "failed": 0}
-
             max_iter_value = ralph_cfg.get("max_iterations")
             max_iterations = int(max_iter_value) if isinstance(max_iter_value, int | float) else 10
             sleep_value = ralph_cfg.get("sleep_seconds")
@@ -102,6 +96,96 @@ class RalphMixin:
 
             self.call_from_thread(setattr, self, "status", "Ralph loop running")
             self.call_from_thread(self._append_activity, f"Agent command: {agent_cmd}")
+
+            script_path = get_default_script_path()
+            if not script_path.exists():
+                self.call_from_thread(
+                    self._append_activity,
+                    (
+                        f"Ralph loop script not found: {script_path}. "
+                        "Falling back to built-in loop mode."
+                    ),
+                )
+                from agent_recall.cli.ralph import get_ralph_components
+                from agent_recall.ralph.loop import RalphLoop
+
+                coding_cli_value = ralph_cfg.get("coding_cli")
+                coding_cli = (
+                    str(coding_cli_value).strip()
+                    if isinstance(coding_cli_value, str) and str(coding_cli_value).strip()
+                    else ""
+                )
+                if not coding_cli:
+                    self.call_from_thread(
+                        self._append_activity,
+                        "Ralph coding CLI is not configured. Set it in Ralph Configuration first.",
+                    )
+                    return {"total_iterations": 0, "passed": 0, "failed": 0}
+
+                cli_model_value = ralph_cfg.get("cli_model")
+                cli_model = (
+                    str(cli_model_value).strip()
+                    if isinstance(cli_model_value, str) and str(cli_model_value).strip()
+                    else None
+                )
+
+                def _on_python_loop_event(event: dict[str, Any]) -> None:
+                    event_type = str(event.get("event") or "")
+                    if event_type == "output_line":
+                        line = str(event.get("line") or "")
+                        if line:
+                            self.call_from_thread(self._append_activity, line)
+                        return
+                    if event_type == "iteration_started":
+                        iteration = event.get("iteration")
+                        item_id = event.get("item_id")
+                        self.call_from_thread(
+                            self._append_activity,
+                            f"Iteration {iteration}: {item_id} started",
+                        )
+                        return
+                    if event_type == "validation_complete" and not bool(event.get("success")):
+                        hint = str(event.get("hint") or "Validation failed")
+                        self.call_from_thread(self._append_activity, hint)
+                        return
+                    if event_type == "iteration_complete":
+                        iteration = event.get("iteration")
+                        outcome = event.get("outcome")
+                        self.call_from_thread(
+                            self._append_activity,
+                            f"Iteration {iteration} complete ({outcome})",
+                        )
+                        return
+                    if event_type == "budget_exceeded":
+                        self.call_from_thread(
+                            self._append_activity,
+                            "Ralph loop stopped: configured cost budget exceeded.",
+                        )
+
+                try:
+                    agent_dir_runtime, storage, loop_files = get_ralph_components()
+                    loop = RalphLoop(agent_dir_runtime, storage, loop_files)
+                    summary = asyncio.run(
+                        loop.run_loop(
+                            max_iterations=max_iterations,
+                            selected_prd_ids=selected_ids,
+                            progress_callback=_on_python_loop_event,
+                            coding_cli=coding_cli,
+                            cli_model=cli_model,
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    self.call_from_thread(self._append_activity, f"Ralph loop failed: {exc}")
+                    return {"total_iterations": 0, "passed": 0, "failed": 0}
+                if notify_enabled:
+                    dispatch_notification(
+                        RalphNotificationEvent.LOOP_FINISHED,
+                        enabled=notify_enabled,
+                        enabled_events=notify_events,
+                    )
+                failed = int(summary.get("failed", 0))
+                summary["exit_code"] = 0 if failed == 0 else 1
+                return summary
 
             cmd = [
                 str(script_path),

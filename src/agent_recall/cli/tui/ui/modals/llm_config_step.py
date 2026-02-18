@@ -1,5 +1,4 @@
-"""Model configuration modal for settings (LLM only).
-Onboarding uses LLMConfigStepModal + CodingAgentStepModal."""
+"""Compact LLM configuration modal for onboarding step 2a."""
 
 from __future__ import annotations
 
@@ -12,14 +11,16 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Select, Static
 
-from agent_recall.cli.tui.constants import _PROVIDER_BASE_URL_DEFAULTS
+from agent_recall.cli.tui.constants import (
+    _PROVIDER_BASE_URL_DEFAULTS,
+)
 from agent_recall.cli.tui.logic.text_sanitizers import _clean_optional_text
 from agent_recall.cli.tui.types import DiscoverModelsFn
 from agent_recall.core.onboarding import API_KEY_ENV_BY_PROVIDER
 
 
-class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
-    """Compact LLM config for settings. No coding agent (use Ralph config for that)."""
+class LLMConfigStepModal(ModalScreen[dict[str, Any] | None]):
+    """Focused LLM config: provider, model, temperature, max tokens. No scroll."""
 
     BINDINGS = [Binding("escape", "dismiss(None)", "Close")]
 
@@ -28,15 +29,11 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
         providers: list[str],
         defaults: dict[str, Any],
         discover_models: DiscoverModelsFn,
-        discover_coding_models: Any = None,
-        *,
-        onboarding_step: bool = False,
     ):
         super().__init__()
         self.providers = providers
         self.defaults = defaults
         self.discover_models = discover_models
-        self.onboarding_step = onboarding_step
 
     def compose(self) -> ComposeResult:
         default_provider = _clean_optional_text(self.defaults.get("provider", self.providers[0]))
@@ -45,12 +42,12 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
         base_url = _clean_optional_text(self.defaults.get("base_url", ""))
         if not base_url:
             base_url = _PROVIDER_BASE_URL_DEFAULTS.get(default_provider, "")
-        validate_default = bool(self.defaults.get("validate", True))
+        validate_default = bool(self.defaults.get("validate", False))
 
         with Container(id="modal_overlay"):
             with Vertical(id="modal_card", classes="modal_compact"):
-                yield Static("Model Configuration", classes="modal_title")
-                yield Static("Provider and generation defaults", classes="modal_subtitle")
+                yield Static("LLM Configuration", classes="modal_title")
+                yield Static("Step 2 of 3 · Compaction model", classes="modal_subtitle")
                 with Horizontal(classes="field_row field_row_compact"):
                     yield Static("Provider", classes="field_label")
                     yield Select(
@@ -110,12 +107,13 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
                         classes="field_input",
                     )
                 yield Static("", id="model_api_hint")
-                yield Checkbox("Validate after apply", value=validate_default, id="model_validate")
+                yield Checkbox("Validate connection", value=validate_default, id="model_validate")
                 yield Static("", id="model_discovery_status")
                 yield Static("", id="model_error")
                 with Horizontal(classes="modal_actions"):
                     yield Button("Refresh", id="model_refresh")
-                    yield Button("Apply", variant="primary", id="model_apply")
+                    yield Button("Back", id="model_back")
+                    yield Button("Next", variant="primary", id="model_next")
                     yield Button("Cancel", id="model_cancel")
 
     def on_mount(self) -> None:
@@ -146,7 +144,10 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
         if event.button.id == "model_refresh":
             self._refresh_models()
             return
-        if event.button.id != "model_apply":
+        if event.button.id == "model_back":
+            self.dismiss({"_action": "back"})
+            return
+        if event.button.id != "model_next":
             return
 
         err = self.query_one("#model_error", Static)
@@ -173,6 +174,7 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
 
         self.dismiss(
             {
+                "_action": "next",
                 "provider": str(provider),
                 "model": _clean_optional_text(self.query_one("#model_name", Input).value) or None,
                 "base_url": _clean_optional_text(self.query_one("#model_base_url", Input).value)

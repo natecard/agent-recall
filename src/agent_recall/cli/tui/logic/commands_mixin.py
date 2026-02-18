@@ -13,7 +13,9 @@ from agent_recall.cli.tui.commands.palette_actions import (
     get_palette_actions,
 )
 from agent_recall.cli.tui.commands.palette_router import handle_palette_action
+from agent_recall.cli.tui.ui.modals.coding_agent_step import CodingAgentStepModal
 from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
+from agent_recall.cli.tui.ui.modals.llm_config_step import LLMConfigStepModal
 from agent_recall.cli.tui.ui.modals.model_config import ModelConfigModal
 from agent_recall.cli.tui.ui.modals.ralph_config import RalphConfigModal
 from agent_recall.cli.tui.ui.modals.settings import SettingsModal
@@ -66,6 +68,7 @@ class CommandsMixin:
                 self._providers,
                 self._model_defaults_provider(),
                 self._discover_models,
+                self._discover_coding_models,
             ),
             self._apply_model_modal_result,
         )
@@ -78,13 +81,21 @@ class CommandsMixin:
 
     def _open_setup_step_two_modal(self: Any, defaults: dict[str, Any]) -> None:
         self.push_screen(
-            ModelConfigModal(
+            LLMConfigStepModal(
                 self._providers,
                 defaults,
                 self._discover_models,
-                onboarding_step=True,
             ),
-            self._apply_setup_model_modal_result,
+            self._apply_setup_llm_modal_result,
+        )
+
+    def _open_setup_step_three_modal(self: Any, defaults: dict[str, Any]) -> None:
+        self.push_screen(
+            CodingAgentStepModal(
+                defaults,
+                self._discover_coding_models,
+            ),
+            self._apply_setup_coding_agent_modal_result,
         )
 
     def action_close_inline_picker(self: Any) -> None:
@@ -213,7 +224,9 @@ class CommandsMixin:
         except Exception:  # noqa: BLE001
             pass
         self.push_screen(
-            RalphConfigModal(defaults=defaults),
+            RalphConfigModal(
+                defaults=defaults, discover_coding_models=self._discover_coding_models
+            ),
             self._apply_ralph_config_modal_result,
         )
 
@@ -282,11 +295,11 @@ class CommandsMixin:
             return
         self._pending_setup_payload = dict(result)
         model_defaults = dict(self._setup_defaults_provider())
-        self.status = "Setup (step 2/2)"
-        self._append_activity("Step 1 complete. Configure provider and model settings.")
+        self.status = "Setup (step 2/3)"
+        self._append_activity("Step 1 complete. Configure LLM.")
         self._open_setup_step_two_modal(model_defaults)
 
-    def _apply_setup_model_modal_result(self: Any, result: dict[str, Any] | None) -> None:
+    def _apply_setup_llm_modal_result(self: Any, result: dict[str, Any] | None) -> None:
         if result is None:
             self._pending_setup_payload = None
             self.status = "Setup cancelled"
@@ -298,19 +311,50 @@ class CommandsMixin:
             setup_defaults = dict(self._setup_defaults_provider())
             if isinstance(self._pending_setup_payload, dict):
                 setup_defaults.update(self._pending_setup_payload)
-            self.status = "Setup (step 1/2)"
-            self._append_activity("Returned to setup step 1.")
+            self.status = "Setup (step 1/3)"
+            self._append_activity("Returned to step 1.")
             self._open_setup_step_one_modal(setup_defaults)
+            return
+
+        if action != "next":
+            return
+
+        merged: dict[str, Any] = {}
+        if isinstance(self._pending_setup_payload, dict):
+            merged.update(self._pending_setup_payload)
+        merged.update(result)
+        del merged["_action"]
+        self._pending_setup_payload = merged
+
+        self.status = "Setup (step 3/3)"
+        self._append_activity("Configure coding agent.")
+        self._open_setup_step_three_modal(merged)
+
+    def _apply_setup_coding_agent_modal_result(self: Any, result: dict[str, Any] | None) -> None:
+        if result is None:
+            self._pending_setup_payload = None
+            self.status = "Setup cancelled"
+            self._append_activity("Setup cancelled.")
+            return
+
+        action = str(result.get("_action") or "").strip().lower()
+        if action == "back":
+            self.status = "Setup (step 2/3)"
+            self._append_activity("Returned to LLM config.")
+            self._open_setup_step_two_modal(
+                dict(self._pending_setup_payload) if self._pending_setup_payload else {}
+            )
             return
 
         payload: dict[str, Any] = {}
         if isinstance(self._pending_setup_payload, dict):
             payload.update(self._pending_setup_payload)
         payload.update(result)
+        del payload["_action"]
         self._pending_setup_payload = None
 
         self.status = "Applying setup"
-        self._append_activity("Applying setup from wizard...")
+        self._append_activity("Applying setup...")
         worker = self.run_worker(
             lambda: self._run_setup_payload(payload),
             thread=True,

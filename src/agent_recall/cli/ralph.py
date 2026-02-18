@@ -81,21 +81,6 @@ CODING_CLIS: dict[str, dict[str, str]] = {
     "opencode": {"binary": "opencode", "model_flag": "--model"},
 }
 
-CLI_DEFAULT_MODELS: dict[str, list[str]] = {
-    "claude-code": [
-        "claude-sonnet-4-20250514",
-        "claude-opus-4-6",
-        "claude-haiku-4-5-20251001",
-    ],
-    "codex": [
-        "o4-mini",
-        "gpt-4o",
-        "gpt-5.3-codex",
-        "gpt-5-codex",
-    ],
-    "opencode": [],
-}
-
 _theme_manager = ThemeManager(DEFAULT_THEME)
 console = Console(theme=_theme_manager.get_theme())
 

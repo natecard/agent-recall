@@ -8,16 +8,18 @@ from rich.theme import Theme
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Header, Log, OptionList, Static
+from textual.widgets import Footer, Header, Input, Log, OptionList, Static
 from textual.widgets.option_list import Option
 
 from agent_recall.cli.tui.commands.palette_actions import _build_command_suggestions
+from agent_recall.cli.tui.commands.palette_router import handle_palette_action
 from agent_recall.cli.tui.logic.activity_mixin import ActivityMixin
 from agent_recall.cli.tui.logic.commands_mixin import CommandsMixin
 from agent_recall.cli.tui.logic.ralph_mixin import RalphMixin
 from agent_recall.cli.tui.logic.theme_mixin import ThemeMixin
 from agent_recall.cli.tui.logic.worker_mixin import WorkerMixin
 from agent_recall.cli.tui.types import (
+    DiscoverCodingModelsFn,
     DiscoverModelsFn,
     ExecuteCommandFn,
     ListPrdItemsForPickerFn,
@@ -62,6 +64,7 @@ class AgentRecallTextualApp(
         model_defaults_provider: Callable[[], dict[str, Any]],
         setup_defaults_provider: Callable[[], dict[str, Any]],
         discover_models: DiscoverModelsFn,
+        discover_coding_models: DiscoverCodingModelsFn,
         providers: list[str],
         cli_commands: list[str] | None = None,
         rich_theme: Theme | None = None,
@@ -86,6 +89,7 @@ class AgentRecallTextualApp(
         self._model_defaults_provider = model_defaults_provider
         self._setup_defaults_provider = setup_defaults_provider
         self._discover_models = discover_models
+        self._discover_coding_models = discover_coding_models
         self._providers = providers
         self._cli_commands = [
             command.strip() for command in (cli_commands or []) if command.strip()
@@ -121,6 +125,8 @@ class AgentRecallTextualApp(
         with Vertical(id="root"):
             with Vertical(id="app_shell"):
                 yield Vertical(id="dashboard")
+                with Vertical(id="cli_input_container"):
+                    yield Input(id="cli_input", placeholder="Type /help for commands...")
                 with Vertical(id="activity"):
                     yield Static(id="terminal_panel")
                     yield Log(id="activity_log", highlight=False, auto_scroll=False)
@@ -395,3 +401,98 @@ class AgentRecallTextualApp(
             id="dashboard_all_grid",
         )
         dashboard.mount(grid)
+
+    def _build_slash_command_map(self) -> dict[str, str]:
+        return {
+            "quit": "quit",
+            "q": "quit",
+            "exit": "quit",
+            "refresh": "status",
+            "r": "status",
+            "sync": "sync",
+            "s": "sync",
+            "run": "knowledge-run",
+            "k": "knowledge-run",
+            "compact": "knowledge-run",
+            "help": "help",
+            "h": "help",
+            "?": "help",
+            "status": "status",
+            "sources": "sources",
+            "sessions": "sessions",
+            "setup": "setup",
+            "model": "model",
+            "settings": "settings",
+            "preferences": "settings",
+            "theme": "theme",
+            "view:overview": "view:overview",
+            "view:sources": "view:sources",
+            "view:llm": "view:llm",
+            "view:knowledge": "view:knowledge",
+            "view:settings": "view:settings",
+            "view:timeline": "view:timeline",
+            "view:ralph": "view:ralph",
+            "view:console": "view:console",
+            "view:all": "view:all",
+            "overview": "view:overview",
+            "ralph": "ralph-status",
+            "ralph-enable": "ralph-enable",
+            "ralph-disable": "ralph-disable",
+            "ralph-status": "ralph-status",
+            "ralph-select": "ralph-select",
+            "ralph-run": "ralph-run",
+            "ralph-config": "ralph-config",
+        }
+
+    def _handle_slash_command(self, command: str) -> None:
+        if command == "help":
+            self._append_activity("Available slash commands:")
+            self._append_activity("  /quit, /q      - Exit the TUI")
+            self._append_activity("  /refresh, /r   - Refresh dashboard")
+            self._append_activity("  /sync, /s      - Sync conversations")
+            self._append_activity("  /run, /k       - Run knowledge update")
+            self._append_activity("  /sources       - Check source health")
+            self._append_activity("  /sessions      - Browse conversations")
+            self._append_activity("  /setup         - Open setup wizard")
+            self._append_activity("  /model         - Model preferences")
+            self._append_activity("  /settings      - Workspace preferences")
+            self._append_activity("  /theme         - Switch theme")
+            self._append_activity("  /view:<name>   - Switch view (overview, sources, llm, etc.)")
+            self._append_activity("  /ralph-*       - Ralph loop controls")
+            self._append_activity("Press Ctrl+P for full command palette.")
+            self.status = "Type a slash command and press Enter"
+            return
+
+        command_map = self._build_slash_command_map()
+        action_id = command_map.get(command)
+
+        if action_id:
+            self._append_activity(f"> /{command}")
+            handle_palette_action(self, action_id)
+        else:
+            self._append_activity(f"Unknown command: /{command}")
+            self._append_activity("Type /help for available commands.")
+            self.status = f"Unknown command: /{command}"
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        input_widget = self.query_one("#cli_input", Input)
+        value = event.value.strip()
+        input_widget.value = ""
+
+        if not value:
+            return
+
+        if value.startswith("/"):
+            command = value[1:].strip().lower()
+            if command:
+                self._handle_slash_command(command)
+        else:
+            self._append_activity(f"> {value}")
+            self._append_activity("Commands must start with /. Type /help for available commands.")
+            self.status = "Commands must start with /"
+
+    def action_focus_cli_input(self) -> None:
+        input_widget = self.query_one("#cli_input", Input)
+        input_widget.focus()
+        input_widget.value = "/"
+        input_widget.cursor_position = 1

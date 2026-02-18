@@ -130,6 +130,29 @@ APP_CSS = """
         border: round $accent;
         overflow: auto;
     }
+    .modal_compact {
+        width: 52%;
+        max-width: 58;
+        padding: 1 2;
+    }
+    .field_row_compact {
+        margin: 0 0 0 0;
+    }
+    #model_config_columns {
+        layout: horizontal;
+        width: 100%;
+        height: auto;
+        min-height: 0;
+    }
+    .modal_column {
+        width: 1fr;
+        min-width: 0;
+        height: auto;
+        padding: 0 1 0 0;
+    }
+    .modal_column:last-child {
+        padding: 0 0 0 1;
+    }
     #diff_content {
         height: 1fr;
         overflow: auto;
@@ -177,6 +200,18 @@ APP_CSS = """
     }
     #palette_hint {
         margin-top: 1;
+    }
+    #cli_input_container {
+        height: auto;
+        margin: 0 0 1 0;
+    }
+    #cli_input {
+        border: round $accent;
+        background: $panel;
+        padding: 0 1;
+    }
+    #cli_input:focus {
+        border: round $accent;
     }
     .field_row {
         height: auto;

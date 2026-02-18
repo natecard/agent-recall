@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -96,6 +97,7 @@ def _build_test_app() -> AgentRecallTextualApp:
         model_defaults_provider=lambda: {},
         setup_defaults_provider=lambda: {},
         discover_models=discover_models,
+        discover_coding_models=lambda _cli: ([], None),
         providers=[],
         list_prd_items_for_picker=None,
         cli_commands=[],
@@ -459,3 +461,199 @@ def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) ->
     assert len(sources.updates) == 2
     assert isinstance(sources.updates[0], Panel)
     assert sources.updates[0].renderable == "sources_compact"
+
+
+def test_tui_ralph_run_falls_back_to_python_loop_when_script_missing(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    agent_dir = tmp_path / ".agent"
+    (agent_dir / "ralph").mkdir(parents=True)
+
+    config = {
+        "ralph": {
+            "enabled": True,
+            "coding_cli": "codex",
+            "cli_model": "gpt-5.3-codex",
+            "max_iterations": 2,
+            "sleep_seconds": 0,
+            "compact_mode": "off",
+            "selected_prd_ids": ["AR-1"],
+        }
+    }
+    (agent_dir / "config.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
+    (agent_dir / "ralph" / "prd.json").write_text(
+        '{"items":[{"id":"AR-1","title":"One","passes":false}]}', encoding="utf-8"
+    )
+
+    app = _build_test_app()
+    captured_activity: list[str] = []
+    worker_result: dict[str, object] = {}
+
+    class _DummyWidget:
+        display = False
+        value = ""
+        cursor_position = 0
+
+        def focus(self) -> None:
+            pass
+
+    class _FakeLoop:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def run_loop(self, **kwargs: object) -> dict[str, int]:
+            progress_callback = kwargs.get("progress_callback")
+            if callable(progress_callback):
+                cast(Callable[[dict[str, str]], None], progress_callback)(
+                    {"event": "output_line", "line": "fallback line"}
+                )
+            return {"total_iterations": 1, "passed": 1, "failed": 0}
+
+    monkeypatch.setattr(app, "_append_activity", lambda line: captured_activity.append(line))
+    monkeypatch.setattr(app, "call_from_thread", lambda fn, *args: fn(*args))
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: _DummyWidget())
+    monkeypatch.setattr(
+        "agent_recall.cli.ralph.get_default_script_path",
+        lambda: tmp_path / "missing-script.sh",
+    )
+    monkeypatch.setattr(
+        "agent_recall.cli.ralph.get_ralph_components",
+        lambda: (agent_dir, object(), object()),
+    )
+    monkeypatch.setattr("agent_recall.ralph.loop.RalphLoop", _FakeLoop)
+
+    def _run_worker_inline(fn, **_kwargs):  # noqa: ANN001
+        worker_result.update(fn())
+
+        class _Worker:
+            pass
+
+        return _Worker()
+
+    monkeypatch.setattr(app, "run_worker", _run_worker_inline)
+
+    app.action_run_ralph_loop()
+
+    assert any("Falling back to built-in loop mode." in line for line in captured_activity)
+    assert any("fallback line" in line for line in captured_activity)
+    assert worker_result["exit_code"] == 0
+
+
+def test_cli_input_handles_slash_command_refresh(monkeypatch) -> None:
+    app = _build_test_app()
+    captured_activity: list[str] = []
+    captured_command: list[str] = []
+    monkeypatch.setattr(app, "_append_activity", lambda line: captured_activity.append(line))
+    monkeypatch.setattr(app, "_refresh_dashboard_panel", lambda: None)
+    monkeypatch.setattr(app, "_run_backend_command", lambda cmd: captured_command.append(cmd))
+
+    class _FakeInput:
+        id = "cli_input"
+        value = ""
+        cursor_position = 0
+
+        def focus(self) -> None:
+            pass
+
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: _FakeInput())
+
+    class _Submitted:
+        value = "/refresh"
+
+    app.on_input_submitted(cast(Any, _Submitted()))
+
+    assert any("> /refresh" in line for line in captured_activity)
+    assert captured_command == ["status"]
+
+
+def test_cli_input_handles_help_command(monkeypatch) -> None:
+    app = _build_test_app()
+    captured_activity: list[str] = []
+    monkeypatch.setattr(app, "_append_activity", lambda line: captured_activity.append(line))
+
+    class _FakeInput:
+        id = "cli_input"
+        value = ""
+        cursor_position = 0
+
+        def focus(self) -> None:
+            pass
+
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: _FakeInput())
+
+    class _Submitted:
+        value = "/help"
+
+    app.on_input_submitted(cast(Any, _Submitted()))
+
+    assert any("Available slash commands:" in line for line in captured_activity)
+    assert any("/quit" in line for line in captured_activity)
+    assert any("/refresh" in line for line in captured_activity)
+
+
+def test_cli_input_handles_unknown_command(monkeypatch) -> None:
+    app = _build_test_app()
+    captured_activity: list[str] = []
+    monkeypatch.setattr(app, "_append_activity", lambda line: captured_activity.append(line))
+
+    class _FakeInput:
+        id = "cli_input"
+        value = ""
+        cursor_position = 0
+
+        def focus(self) -> None:
+            pass
+
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: _FakeInput())
+
+    class _Submitted:
+        value = "/unknowncmd"
+
+    app.on_input_submitted(cast(Any, _Submitted()))
+
+    assert any("Unknown command: /unknowncmd" in line for line in captured_activity)
+
+
+def test_cli_input_requires_slash_prefix(monkeypatch) -> None:
+    app = _build_test_app()
+    captured_activity: list[str] = []
+    monkeypatch.setattr(app, "_append_activity", lambda line: captured_activity.append(line))
+
+    class _FakeInput:
+        id = "cli_input"
+        value = ""
+        cursor_position = 0
+
+        def focus(self) -> None:
+            pass
+
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: _FakeInput())
+
+    class _Submitted:
+        value = "status"
+
+    app.on_input_submitted(cast(Any, _Submitted()))
+
+    assert any("> status" in line for line in captured_activity)
+    assert any("Commands must start with /" in line for line in captured_activity)
+
+
+def test_cli_input_focus_action(monkeypatch) -> None:
+    app = _build_test_app()
+
+    class _FakeInput:
+        def __init__(self) -> None:
+            self.value = ""
+            self.cursor_position = 0
+            self.focused = False
+
+        def focus(self) -> None:
+            self.focused = True
+
+    fake_input = _FakeInput()
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: fake_input)
+
+    app.action_focus_cli_input()
+
+    assert fake_input.focused is True
+    assert fake_input.value == "/"
+    assert fake_input.cursor_position == 1

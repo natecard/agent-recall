@@ -10,18 +10,19 @@ from textual.widgets import Button, Checkbox, Input, Select, Static
 
 from agent_recall.cli.tui.constants import (
     _COMPACT_MODE_OPTIONS,
-    _RALPH_CLI_DEFAULT_MODELS,
     _RALPH_CLI_OPTIONS,
 )
 from agent_recall.cli.tui.logic.text_sanitizers import _clean_optional_text
+from agent_recall.cli.tui.types import DiscoverCodingModelsFn
 
 
 class RalphConfigModal(ModalScreen[dict[str, Any] | None]):
     BINDINGS = [Binding("escape", "dismiss(None)", "Close")]
 
-    def __init__(self, defaults: dict[str, Any]):
+    def __init__(self, defaults: dict[str, Any], discover_coding_models: DiscoverCodingModelsFn):
         super().__init__()
         self.defaults = defaults
+        self.discover_coding_models = discover_coding_models
 
     def compose(self) -> ComposeResult:
         current_cli = _clean_optional_text(self.defaults.get("coding_cli", ""))
@@ -174,7 +175,9 @@ class RalphConfigModal(ModalScreen[dict[str, Any] | None]):
         cli_value = cli_widget.value
         cli_name = "" if cli_value == Select.BLANK else str(cli_value)
 
-        models = _RALPH_CLI_DEFAULT_MODELS.get(cli_name, [])
+        models: list[str] = []
+        if cli_name:
+            models, _ = self.discover_coding_models(cli_name)
         picker = self.query_one("#ralph_model_picker", Select)
         options: list[tuple[str, str]] = [("Manual entry", "__manual__")]
         options.extend((name, name) for name in models)

@@ -12,4 +12,6 @@ TUI_BINDINGS = [
     Binding("escape", "close_inline_picker", "Close picker", show=False),
     Binding("ctrl+q", "request_quit", "Quit", priority=True),
     Binding("ctrl+`", "toggle_terminal_panel", "Terminal", show=False),
+    Binding("/", "focus_cli_input", "CLI", show=False),
+    Binding("enter", "focus_cli_input", "CLI", show=False),
 ]
