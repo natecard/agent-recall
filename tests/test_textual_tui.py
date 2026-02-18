@@ -544,7 +544,6 @@ def test_cli_input_handles_slash_command_refresh(monkeypatch) -> None:
     captured_command: list[str] = []
     monkeypatch.setattr(app, "_append_activity", lambda line: captured_activity.append(line))
     monkeypatch.setattr(app, "_refresh_dashboard_panel", lambda: None)
-    monkeypatch.setattr(app, "_run_backend_command", lambda cmd: captured_command.append(cmd))
 
     class _FakeInput:
         id = "cli_input"
@@ -554,7 +553,22 @@ def test_cli_input_handles_slash_command_refresh(monkeypatch) -> None:
         def focus(self) -> None:
             pass
 
-    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: _FakeInput())
+    class _FakeSuggestions:
+        id = "cli_suggestions"
+        display = False
+
+        def clear_options(self) -> None:
+            pass
+
+    def _mock_query_one(selector: str, *args: Any, **kwargs: Any) -> Any:
+        if "cli_input" in selector:
+            return _FakeInput()
+        return _FakeSuggestions()
+
+    monkeypatch.setattr(app, "query_one", _mock_query_one)
+
+    # Mock the backend command runner to capture what command would be run
+    monkeypatch.setattr(app, "_run_backend_command", lambda cmd: captured_command.append(cmd))
 
     class _Submitted:
         value = "/refresh"
@@ -578,7 +592,19 @@ def test_cli_input_handles_help_command(monkeypatch) -> None:
         def focus(self) -> None:
             pass
 
-    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: _FakeInput())
+    class _FakeSuggestions:
+        id = "cli_suggestions"
+        display = False
+
+        def clear_options(self) -> None:
+            pass
+
+    def _mock_query_one(selector: str, *args: Any, **kwargs: Any) -> Any:
+        if "cli_input" in selector:
+            return _FakeInput()
+        return _FakeSuggestions()
+
+    monkeypatch.setattr(app, "query_one", _mock_query_one)
 
     class _Submitted:
         value = "/help"
@@ -603,7 +629,19 @@ def test_cli_input_handles_unknown_command(monkeypatch) -> None:
         def focus(self) -> None:
             pass
 
-    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: _FakeInput())
+    class _FakeSuggestions:
+        id = "cli_suggestions"
+        display = False
+
+        def clear_options(self) -> None:
+            pass
+
+    def _mock_query_one(selector: str, *args: Any, **kwargs: Any) -> Any:
+        if "cli_input" in selector:
+            return _FakeInput()
+        return _FakeSuggestions()
+
+    monkeypatch.setattr(app, "query_one", _mock_query_one)
 
     class _Submitted:
         value = "/unknowncmd"
@@ -626,7 +664,19 @@ def test_cli_input_requires_slash_prefix(monkeypatch) -> None:
         def focus(self) -> None:
             pass
 
-    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: _FakeInput())
+    class _FakeSuggestions:
+        id = "cli_suggestions"
+        display = False
+
+        def clear_options(self) -> None:
+            pass
+
+    def _mock_query_one(selector: str, *args: Any, **kwargs: Any) -> Any:
+        if "cli_input" in selector:
+            return _FakeInput()
+        return _FakeSuggestions()
+
+    monkeypatch.setattr(app, "query_one", _mock_query_one)
 
     class _Submitted:
         value = "status"
@@ -925,3 +975,188 @@ def test_context_aware_dashboard_header_badge_ralph_enabled() -> None:
     assert panels_idle.header is not None
     header_title_idle = str(panels_idle.header.title)
     assert "Ralph" in header_title_idle
+
+
+def test_filter_command_suggestions_prefix_match() -> None:
+    """Test that prefix matches are prioritized over substring matches."""
+    from agent_recall.cli.tui.commands.help_text import filter_command_suggestions
+
+    commands = ["/refresh", "/ralph-run", "/ralph-enable", "/run", "/help"]
+    suggestions = filter_command_suggestions("/r", commands, max_results=8)
+
+    # Should include /refresh, /ralph-run, /ralph-enable, /run
+    assert "/refresh" in suggestions
+    assert "/run" in suggestions
+    # Prefix matches should come before substring matches
+    assert (
+        suggestions.index("/refresh") < suggestions.index("/help")
+        if "/help" in suggestions
+        else True
+    )
+
+
+def test_filter_command_suggestions_max_results() -> None:
+    """Test that suggestions are limited to max_results."""
+    from agent_recall.cli.tui.commands.help_text import filter_command_suggestions
+
+    commands = [
+        "/cmd1",
+        "/cmd2",
+        "/cmd3",
+        "/cmd4",
+        "/cmd5",
+        "/cmd6",
+        "/cmd7",
+        "/cmd8",
+        "/cmd9",
+        "/cmd10",
+    ]
+    suggestions = filter_command_suggestions("/cmd", commands, max_results=8)
+
+    assert len(suggestions) <= 8
+
+
+def test_filter_command_suggestions_no_slash_prefix() -> None:
+    """Test that non-slash input returns empty suggestions."""
+    from agent_recall.cli.tui.commands.help_text import filter_command_suggestions
+
+    commands = ["/refresh", "/help"]
+    suggestions = filter_command_suggestions("refresh", commands)
+
+    assert suggestions == []
+
+
+def test_filter_command_suggestions_empty_input() -> None:
+    """Test that empty input returns empty suggestions."""
+    from agent_recall.cli.tui.commands.help_text import filter_command_suggestions
+
+    commands = ["/refresh", "/help"]
+    suggestions = filter_command_suggestions("", commands)
+
+    assert suggestions == []
+
+
+def test_cli_autocomplete_shows_suggestions_on_input(monkeypatch) -> None:
+    """Test that typing /r shows matching suggestions."""
+    app = _build_test_app()
+
+    class _FakeInput:
+        id = "cli_input"
+        value = "/r"
+        cursor_position = 2
+
+        def focus(self) -> None:
+            pass
+
+    class _FakeSuggestions:
+        id = "cli_suggestions"
+        display = False
+        options: list[Any] = []
+
+        def clear_options(self) -> None:
+            self.options = []
+
+        def add_option(self, option: Any) -> None:
+            self.options.append(option)
+
+    fake_input = _FakeInput()
+    fake_suggestions = _FakeSuggestions()
+
+    def _mock_query_one(selector: str, *args: Any, **kwargs: Any) -> Any:
+        if "cli_input" in selector:
+            return fake_input
+        return fake_suggestions
+
+    monkeypatch.setattr(app, "query_one", _mock_query_one)
+
+    class _Changed:
+        value = "/r"
+
+    app.on_input_changed(cast(Any, _Changed()))
+
+    # Suggestions should be visible and have matching commands
+    assert fake_suggestions.display is True
+    assert len(fake_suggestions.options) > 0
+
+
+def test_cli_autocomplete_esc_dismisses_suggestions(monkeypatch) -> None:
+    """Test that pressing Esc dismisses suggestions without submitting."""
+    app = _build_test_app()
+
+    class _FakeSuggestions:
+        id = "cli_suggestions"
+        display = True
+
+        def clear_options(self) -> None:
+            pass
+
+    fake_suggestions = _FakeSuggestions()
+
+    def _mock_query_one(selector: str, *args: Any, **kwargs: Any) -> Any:
+        return fake_suggestions
+
+    monkeypatch.setattr(app, "query_one", _mock_query_one)
+
+    app._suggestions_visible = True
+
+    # Test _hide_suggestions directly
+    app._hide_suggestions()
+
+    assert fake_suggestions.display is False
+    assert app._suggestions_visible is False
+
+
+def test_cli_autocomplete_tab_completes_suggestion(monkeypatch) -> None:
+    """Test that _apply_suggestion completes the highlighted suggestion."""
+    app = _build_test_app()
+
+    class _FakeInput:
+        id = "cli_input"
+        value = "/ref"
+        cursor_position = 4
+
+        def focus(self) -> None:
+            pass
+
+    class _FakeOption:
+        prompt = "/refresh"
+
+    class _FakeSuggestions:
+        id = "cli_suggestions"
+        display = True
+        option_count = 1
+        _highlighted = 0
+
+        @property
+        def highlighted(self) -> int:
+            return self._highlighted
+
+        @highlighted.setter
+        def highlighted(self, value: int) -> None:
+            self._highlighted = value
+
+        def clear_options(self) -> None:
+            pass
+
+        def get_option_at_index(self, index: int) -> Any:
+            return _FakeOption()
+
+    fake_input = _FakeInput()
+    fake_suggestions = _FakeSuggestions()
+
+    def _mock_query_one(selector: str, *args: Any, **kwargs: Any) -> Any:
+        if "cli_input" in selector:
+            return fake_input
+        return fake_suggestions
+
+    monkeypatch.setattr(app, "query_one", _mock_query_one)
+
+    app._suggestions_visible = True
+    app._highlighted_suggestion_index = 0
+
+    # Test _apply_suggestion directly
+    app._apply_suggestion()
+
+    assert fake_input.value == "/refresh"
+    assert fake_input.cursor_position == len("/refresh")
+    assert app._suggestions_visible is False

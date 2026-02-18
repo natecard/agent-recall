@@ -11,6 +11,10 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Input, Log, OptionList, Static
 from textual.widgets.option_list import Option
 
+from agent_recall.cli.tui.commands.help_text import (
+    filter_command_suggestions,
+    get_all_cli_commands,
+)
 from agent_recall.cli.tui.commands.palette_actions import _build_command_suggestions
 from agent_recall.cli.tui.commands.palette_router import handle_palette_action
 from agent_recall.cli.tui.logic.activity_mixin import ActivityMixin
@@ -119,6 +123,9 @@ class AgentRecallTextualApp(
         self._activity_follow_tail = True
         self._dashboard_refresh_generation = 0
         self._dashboard_layout_view: str | None = None
+        self._cli_commands_cache: list[str] = get_all_cli_commands()
+        self._suggestions_visible = False
+        self._highlighted_suggestion_index: int | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -126,6 +133,7 @@ class AgentRecallTextualApp(
             with Vertical(id="app_shell"):
                 yield Vertical(id="dashboard")
                 with Vertical(id="cli_input_container"):
+                    yield OptionList(id="cli_suggestions")
                     yield Input(id="cli_input", placeholder="Type /help for commands...")
                 with Vertical(id="activity"):
                     yield Static(id="terminal_panel")
@@ -153,6 +161,7 @@ class AgentRecallTextualApp(
         self._teardown_runtime()
 
     def action_command_palette(self) -> None:
+        self._hide_suggestions()
         self.action_open_command_palette()
 
     def action_request_quit(self) -> None:
@@ -474,7 +483,134 @@ class AgentRecallTextualApp(
             self._append_activity("Type /help for available commands.")
             self.status = f"Unknown command: /{command}"
 
+    def action_focus_cli_input(self) -> None:
+        input_widget = self.query_one("#cli_input", Input)
+        input_widget.focus()
+        input_widget.value = "/"
+        input_widget.cursor_position = 1
+
+    def _hide_suggestions(self) -> None:
+        """Hide the suggestions dropdown."""
+        suggestions_widget = self.query_one("#cli_suggestions", OptionList)
+        suggestions_widget.display = False
+        self._suggestions_visible = False
+        self._highlighted_suggestion_index = None
+        suggestions_widget.clear_options()
+
+    def _show_suggestions(self, suggestions: list[str]) -> None:
+        """Show the suggestions dropdown with the given suggestions."""
+        if not suggestions:
+            self._hide_suggestions()
+            return
+
+        suggestions_widget = self.query_one("#cli_suggestions", OptionList)
+        suggestions_widget.clear_options()
+        for suggestion in suggestions:
+            suggestions_widget.add_option(Option(suggestion))
+        suggestions_widget.display = True
+        self._suggestions_visible = True
+        self._highlighted_suggestion_index = None
+
+    def _update_suggestion_highlight(self, direction: int) -> None:
+        """Update the highlighted suggestion index."""
+        if not self._suggestions_visible:
+            return
+
+        suggestions_widget = self.query_one("#cli_suggestions", OptionList)
+        option_count = suggestions_widget.option_count
+
+        if option_count == 0:
+            return
+
+        if self._highlighted_suggestion_index is None:
+            self._highlighted_suggestion_index = 0 if direction > 0 else option_count - 1
+        else:
+            self._highlighted_suggestion_index += direction
+            self._highlighted_suggestion_index = max(
+                0, min(self._highlighted_suggestion_index, option_count - 1)
+            )
+
+        suggestions_widget.highlighted = self._highlighted_suggestion_index
+
+    def _apply_suggestion(self) -> None:
+        """Apply the currently highlighted suggestion to the input."""
+        if not self._suggestions_visible or self._highlighted_suggestion_index is None:
+            return
+
+        suggestions_widget = self.query_one("#cli_suggestions", OptionList)
+        highlighted = suggestions_widget.get_option_at_index(self._highlighted_suggestion_index)
+        if highlighted:
+            input_widget = self.query_one("#cli_input", Input)
+            input_widget.value = str(highlighted.prompt)
+            input_widget.cursor_position = len(input_widget.value)
+            self._hide_suggestions()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Handle input changes to show command suggestions."""
+        value = event.value
+
+        # Don't show suggestions for non-slash input or empty input
+        if not value or not value.startswith("/"):
+            self._hide_suggestions()
+            return
+
+        # Filter commands based on input
+        suggestions = filter_command_suggestions(value, self._cli_commands_cache, max_results=8)
+
+        if suggestions:
+            self._show_suggestions(suggestions)
+        else:
+            self._hide_suggestions()
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle keyboard navigation for suggestions."""
+        if not self._suggestions_visible:
+            # Let parent mixins handle the key
+            super().on_key(event)
+            return
+
+        # Only intercept keys when suggestions are visible and input is focused
+        try:
+            focused_widget = self.focused
+            if focused_widget is None or focused_widget.id != "cli_input":
+                # Let parent mixins handle the key
+                super().on_key(event)
+                return
+        except Exception:
+            # Let parent mixins handle the key
+            super().on_key(event)
+            return
+
+        if event.key == "up":
+            self._update_suggestion_highlight(-1)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "down":
+            self._update_suggestion_highlight(1)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "tab":
+            if self._highlighted_suggestion_index is not None:
+                self._apply_suggestion()
+                event.prevent_default()
+                event.stop()
+        elif event.key == "escape":
+            self._hide_suggestions()
+            event.prevent_default()
+            event.stop()
+        else:
+            # Let parent mixins handle other keys
+            super().on_key(event)
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle input submission - apply suggestion if one is highlighted."""
+        if self._suggestions_visible and self._highlighted_suggestion_index is not None:
+            self._apply_suggestion()
+            event.prevent_default()
+            event.stop()
+            return
+
+        self._hide_suggestions()
         input_widget = self.query_one("#cli_input", Input)
         value = event.value.strip()
         input_widget.value = ""
@@ -491,8 +627,14 @@ class AgentRecallTextualApp(
             self._append_activity("Commands must start with /. Type /help for available commands.")
             self.status = "Commands must start with /"
 
-    def action_focus_cli_input(self) -> None:
-        input_widget = self.query_one("#cli_input", Input)
-        input_widget.focus()
-        input_widget.value = "/"
-        input_widget.cursor_position = 1
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Handle suggestion selection via mouse/Enter."""
+        if event.option_list.id == "cli_suggestions":
+            input_widget = self.query_one("#cli_input", Input)
+            input_widget.value = str(event.option.prompt)
+            input_widget.cursor_position = len(input_widget.value)
+            self._hide_suggestions()
+            input_widget.focus()
+        else:
+            # Let parent mixins handle other option lists
+            super().on_option_list_option_selected(event)

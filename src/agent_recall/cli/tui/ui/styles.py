@@ -213,6 +213,28 @@ APP_CSS = """
     #cli_input:focus {
         border: round $accent;
     }
+    #cli_suggestions {
+        dock: top;
+        display: none;
+        height: auto;
+        max-height: 10;
+        overflow: auto;
+        border: round $accent;
+        background: $panel;
+        padding: 0;
+        margin-bottom: 1;
+    }
+    #cli_suggestions:focus {
+        display: none;
+    }
+    #cli_suggestions > .option-list--option {
+        padding: 0 1;
+    }
+    #cli_suggestions > .option-list--option-highlighted {
+        background: $accent;
+        color: $text;
+        text-style: bold;
+    }
     .field_row {
         height: auto;
         margin: 0 0 1 0;
