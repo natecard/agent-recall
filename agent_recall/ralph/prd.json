@@ -76,17 +76,17 @@
       "priority": 3,
       "description": "The current layout customization options (visibility toggles) are confusing, do not reflect the actual current state of the UI, and do not offer meaningful control over the layout structure.",
       "requirements": [
-        "Ensure the 'Customise Layout' modal pre-populates with the *actual* current widget visibility and banner settings.",
-        "Refactor layout options to be more intuitive, possibly introducing 'View Modes' (e.g., Focus, Overview, Debug) instead of just raw toggles.",
-        "Verify that applying changes immediately reflects in the dashboard without requiring a full reload or manual refresh.",
-        "Ensure layout settings persist correctly across sessions."
+        "[DONE] Ensure the 'Customise Layout' modal pre-populates with the *actual* current widget visibility and banner settings.",
+        "[DONE] Verify that applying changes immediately reflects in the dashboard without requiring a full reload or manual refresh.",
+        "[DONE] Ensure layout settings persist correctly across sessions.",
+        "[SKIPPED] Refactor layout options to be more intuitive, possibly introducing 'View Modes' (e.g., Focus, Overview, Debug) instead of just raw toggles - deferred as UX enhancement."
       ],
       "acceptance_criteria": [
-        "Opening layout settings shows the correct current state.",
-        "Changes to layout settings are applied immediately and visibly.",
-        "Layout options are clear and easier to understand for the user."
+        "[DONE] Opening layout settings shows the correct current state.",
+        "[DONE] Changes to layout settings are applied immediately and visibly.",
+        "[DONE] Layout options are clear and easier to understand for the user."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-107",

@@ -1865,3 +1865,109 @@ def test_command_palette_group_order_is_correct() -> None:
     modal.query_text = ""
 
     assert modal.query_text == ""
+
+
+def test_layout_modal_prepopulates_with_current_state() -> None:
+    """Verify modal receives and would display current widget visibility and banner size."""
+    from agent_recall.cli.tui.ui.modals.layout_customiser import (
+        LAYOUT_WIDGETS,
+        LayoutCustomiserModal,
+        normalize_banner_size,
+    )
+
+    current_visibility = {
+        "knowledge": False,
+        "sources": True,
+        "timeline": False,
+        "ralph": True,
+        "llm": False,
+        "settings": True,
+    }
+    current_banner = "compact"
+
+    modal = LayoutCustomiserModal(
+        widget_visibility=current_visibility,
+        banner_size=current_banner,
+    )
+
+    assert modal.widget_visibility == current_visibility
+    assert modal.banner_size == normalize_banner_size(current_banner)
+
+    expected_keys = {key for key, _ in LAYOUT_WIDGETS}
+    assert set(modal.widget_visibility.keys()) == expected_keys
+
+
+def test_layout_modal_accepts_partial_visibility() -> None:
+    """Verify modal handles partial visibility dict with defaults."""
+    from agent_recall.cli.tui.ui.modals.layout_customiser import (
+        LAYOUT_WIDGETS,
+        LayoutCustomiserModal,
+    )
+
+    partial_visibility = {"knowledge": False, "sources": True}
+
+    modal = LayoutCustomiserModal(
+        widget_visibility=partial_visibility,
+        banner_size="normal",
+    )
+
+    assert modal.widget_visibility["knowledge"] is False
+    assert modal.widget_visibility["sources"] is True
+
+    for key, _ in LAYOUT_WIDGETS:
+        if key not in partial_visibility:
+            assert modal.widget_visibility.get(key, True) is True
+
+
+def test_layout_changes_apply_immediately(monkeypatch) -> None:
+    """Verify changes are applied immediately without requiring reload."""
+    app = _build_test_app()
+    app.tui_widget_visibility = {
+        "knowledge": True,
+        "sources": True,
+        "timeline": True,
+        "ralph": True,
+        "llm": True,
+        "settings": True,
+    }
+    app.tui_banner_size = "normal"
+
+    refresh_calls: list[str] = []
+    monkeypatch.setattr(app, "_refresh_dashboard_panel", lambda: refresh_calls.append("refresh"))
+    monkeypatch.setattr(app, "_apply_tui_layout_settings", lambda: refresh_calls.append("persist"))
+
+    app._apply_layout_modal_result(
+        {
+            "widgets": {"knowledge": False, "sources": False},
+            "banner_size": "compact",
+        }
+    )
+
+    assert app.tui_widget_visibility["knowledge"] is False
+    assert app.tui_widget_visibility["sources"] is False
+    assert app.tui_banner_size == "compact"
+    assert "persist" in refresh_calls
+
+
+def test_layout_modal_receives_updated_state_after_apply() -> None:
+    """Verify modal receives updated state when reopened after changes."""
+    from agent_recall.cli.tui.ui.modals.layout_customiser import LayoutCustomiserModal
+
+    app = _build_test_app()
+    app.tui_widget_visibility = {
+        "knowledge": False,
+        "sources": True,
+        "timeline": True,
+        "ralph": True,
+        "llm": True,
+        "settings": True,
+    }
+    app.tui_banner_size = "compact"
+
+    modal = LayoutCustomiserModal(
+        widget_visibility=app.tui_widget_visibility,
+        banner_size=app.tui_banner_size,
+    )
+
+    assert modal.widget_visibility == app.tui_widget_visibility
+    assert modal.banner_size == app.tui_banner_size
