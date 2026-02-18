@@ -6,7 +6,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Select, Static
+from textual.widgets import Button, Checkbox, Select, Static
 
 from agent_recall.cli.tui.constants import _RALPH_AGENT_TRANSPORT_OPTIONS
 
@@ -17,13 +17,11 @@ class SettingsModal(ModalScreen[dict[str, Any] | None]):
     def __init__(
         self,
         current_view: str,
-        refresh_seconds: float,
         all_cursor_workspaces: bool,
         ralph_agent_transport: str = "pipe",
     ):
         super().__init__()
         self.current_view = current_view
-        self.refresh_seconds = refresh_seconds
         self.all_cursor_workspaces = all_cursor_workspaces
         normalized_transport = str(ralph_agent_transport).strip().lower()
         self.ralph_agent_transport = (
@@ -53,14 +51,6 @@ class SettingsModal(ModalScreen[dict[str, Any] | None]):
                         value=default_view,
                         allow_blank=False,
                         id="settings_view",
-                        classes="field_input",
-                    )
-                with Horizontal(classes="field_row"):
-                    yield Static("Refresh", classes="field_label")
-                    yield Input(
-                        value=str(self.refresh_seconds),
-                        placeholder="seconds (>=0.2)",
-                        id="settings_refresh",
                         classes="field_input",
                     )
                 with Horizontal(classes="field_row"):
@@ -102,15 +92,6 @@ class SettingsModal(ModalScreen[dict[str, Any] | None]):
             error_widget.update("[red]View selection is required[/red]")
             return
 
-        try:
-            refresh_seconds = float(self.query_one("#settings_refresh", Input).value)
-        except ValueError:
-            error_widget.update("[red]Refresh must be a number[/red]")
-            return
-        if refresh_seconds < 0.2:
-            error_widget.update("[red]Refresh must be >= 0.2[/red]")
-            return
-
         transport_widget = self.query_one("#settings_ralph_transport", Select)
         transport_value = transport_widget.value
         if transport_value == Select.BLANK:
@@ -124,7 +105,6 @@ class SettingsModal(ModalScreen[dict[str, Any] | None]):
         self.dismiss(
             {
                 "view": selected_view,
-                "refresh_seconds": refresh_seconds,
                 "ralph_agent_transport": ralph_agent_transport,
                 "all_cursor_workspaces": bool(
                     self.query_one("#settings_all_cursor", Checkbox).value

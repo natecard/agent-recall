@@ -9,3 +9,4 @@
 - [GOTCHA] Timeline detail depends on existing iteration reports; handle empty stores with a friendly placeholder.
 - [GOTCHA] Widget already existed from prior work, only needed wiring into dashboard views
 - [GOTCHA] Implementation was complete but PRD not updated - similar to AR-1005 and AR-1013 cases
+- [GOTCHA] Rich Panel titles cannot be updated in-place without replacing the entire Panel; moving dynamic content into the Panel body enables smoother updates

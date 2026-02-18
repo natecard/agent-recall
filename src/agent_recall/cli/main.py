@@ -2233,7 +2233,6 @@ def _build_tui_dashboard(
     slash_status: str | None = None,
     slash_output: list[str] | None = None,
     view: str = "overview",
-    refresh_seconds: float = 2.0,
     ralph_agent_transport: str = "pipe",
     show_slash_console: bool = True,
 ) -> Group:
@@ -2255,7 +2254,6 @@ def _build_tui_dashboard(
         slash_status=slash_status,
         slash_output=slash_output,
         view=view,
-        refresh_seconds=refresh_seconds,
         ralph_agent_transport=ralph_agent_transport,
         show_slash_console=show_slash_console,
         widget_visibility=tui_config.get("widget_visibility")
@@ -2593,13 +2591,6 @@ def onboard(
 
 @app.command()
 def tui(
-    refresh_seconds: float = typer.Option(
-        2.0,
-        "--refresh-seconds",
-        "-r",
-        min=0.2,
-        help="Refresh interval for live dashboard updates.",
-    ),
     all_cursor_workspaces: bool = typer.Option(
         False,
         "--all-cursor-workspaces",
@@ -2687,12 +2678,11 @@ def tui(
                     all_cursor_workspaces=all_cursor_workspaces,
                     include_banner_header=True,
                     view="overview",
-                    refresh_seconds=refresh_seconds,
                     show_slash_console=False,
                 )
             )
             if index < iterations - 1:
-                time.sleep(refresh_seconds)
+                time.sleep(0.5)
         return
 
     if not interactive_shell:
@@ -2757,7 +2747,6 @@ def tui(
             cli_commands=_collect_cli_commands_for_palette(),
             rich_theme=_theme_manager.get_theme(),
             initial_view=str(tui_config.get("default_view", "overview")),
-            refresh_seconds=float(tui_config.get("refresh_seconds", refresh_seconds)),
             all_cursor_workspaces=bool(
                 tui_config.get("all_cursor_workspaces", all_cursor_workspaces)
             ),
@@ -2774,13 +2763,6 @@ def tui(
 
 @app.command("open")
 def open_dashboard(
-    refresh_seconds: float = typer.Option(
-        2.0,
-        "--refresh-seconds",
-        "-r",
-        min=0.2,
-        help="Refresh interval for live dashboard updates.",
-    ),
     all_cursor_workspaces: bool = typer.Option(
         False,
         "--all-cursor-workspaces",
@@ -2817,7 +2799,6 @@ def open_dashboard(
 ):
     """Open the TUI dashboard (recommended entrypoint)."""
     tui(
-        refresh_seconds=refresh_seconds,
         all_cursor_workspaces=all_cursor_workspaces,
         iterations=iterations,
         no_splash=no_splash,

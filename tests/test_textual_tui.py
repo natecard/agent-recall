@@ -613,8 +613,8 @@ def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) ->
 
     assert app._last_layout_signature is not None
 
-    # Verify we got Panel objects with the expected content
-    assert len(header.updates) == 2
+    # Header updates only when Ralph status changes; with stable context we get 1 update
+    assert len(header.updates) == 1
     assert isinstance(header.updates[0], Panel)
     assert header.updates[0].renderable == "header"
 

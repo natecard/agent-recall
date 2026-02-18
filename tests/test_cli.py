@@ -1290,7 +1290,7 @@ def test_cli_tui_single_iteration(monkeypatch) -> None:
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
         result = runner.invoke(
             cli_main.app,
-            ["tui", "--iterations", "1", "--refresh-seconds", "0.2"],
+            ["tui", "--iterations", "1"],
         )
         assert result.exit_code == 0
 
@@ -1313,7 +1313,7 @@ def test_cli_open_single_iteration(monkeypatch) -> None:
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
         result = runner.invoke(
             cli_main.app,
-            ["open", "--iterations", "1", "--refresh-seconds", "0.2"],
+            ["open", "--iterations", "1"],
         )
         assert result.exit_code == 0
 

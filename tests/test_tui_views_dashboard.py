@@ -103,7 +103,6 @@ def test_build_dashboard_view_panel_counts() -> None:
             all_cursor_workspaces=False,
             include_banner_header=True,
             view=view,
-            refresh_seconds=2.0,
             show_slash_console=True,
         )
         assert isinstance(group, Group)
@@ -116,7 +115,6 @@ def test_build_dashboard_panels_for_all_view() -> None:
         all_cursor_workspaces=False,
         include_banner_header=True,
         view="all",
-        refresh_seconds=2.0,
         show_slash_console=False,
     )
     assert panels.header is not None

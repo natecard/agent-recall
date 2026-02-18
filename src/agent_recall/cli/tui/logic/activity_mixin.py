@@ -14,7 +14,7 @@ from agent_recall.cli.tui.logic.text_sanitizers import _sanitize_activity_fragme
 
 class ActivityMixin:
     def _refresh_activity_panel(self: Any) -> None:
-        subtitle = f"{self.current_view} · {self.refresh_seconds:.1f}s · Ctrl+P commands"
+        subtitle = f"{self.current_view} · event-driven · Ctrl+P commands"
         title = self.status
         if self._knowledge_run_workers:
             frame_index = int(time.time() * 6) % len(_LOADING_FRAMES)

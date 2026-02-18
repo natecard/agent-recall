@@ -77,7 +77,6 @@ class AgentRecallTextualApp(
         cli_commands: list[str] | None = None,
         rich_theme: Theme | None = None,
         initial_view: str = "overview",
-        refresh_seconds: float = 2.0,
         all_cursor_workspaces: bool = False,
         ralph_agent_transport: str = "pipe",
         onboarding_required: bool = False,
@@ -108,7 +107,6 @@ class AgentRecallTextualApp(
         self._rich_theme = rich_theme
         self._active_theme_name: str | None = None
         self.current_view = initial_view
-        self.refresh_seconds = refresh_seconds
         self.all_cursor_workspaces = all_cursor_workspaces
         normalized_transport = str(ralph_agent_transport).strip().lower()
         self.ralph_agent_transport = (
@@ -124,7 +122,6 @@ class AgentRecallTextualApp(
         self._theme_commit_inflight = False
         self._theme_preview_origin: str | None = None
         self._result_list_open = False
-        self._refresh_timer = None
         self._resize_refresh_timer = None
         self._worker_context: dict[int, str] = {}
         self._knowledge_run_workers: set[int] = set()
@@ -143,6 +140,7 @@ class AgentRecallTextualApp(
         self.tui_banner_size: str = "normal"
         self._last_layout_signature: tuple[str, tuple[tuple[str, bool], ...]] | None = None
         self._last_banner_classes: str | None = None
+        self._last_header_signature: tuple[bool, bool] | None = None
         self._layout_module: object | None = None
 
     def compose(self) -> ComposeResult:
@@ -171,7 +169,6 @@ class AgentRecallTextualApp(
         elif self._rich_theme is not None:
             self.console.push_theme(self._rich_theme)
             self._active_theme_name = "__initial__"
-        self._configure_refresh_timer(self.refresh_seconds)
         self._append_activity("TUI ready. Press Ctrl+P for commands.")
         self._refresh_dashboard_panel()
         self._update_terminal_panel_visibility(initial=True)
@@ -216,15 +213,7 @@ class AgentRecallTextualApp(
         except Exception:
             pass
 
-    def _configure_refresh_timer(self, refresh_seconds: float) -> None:
-        if self._refresh_timer is not None:
-            self._refresh_timer.stop()
-        self._refresh_timer = self.set_interval(refresh_seconds, self._refresh_dashboard_panel)
-
     def _teardown_runtime(self) -> None:
-        if self._refresh_timer is not None:
-            self._refresh_timer.stop()
-            self._refresh_timer = None
         if self._resize_refresh_timer is not None:
             self._resize_refresh_timer.stop()
             self._resize_refresh_timer = None
@@ -246,7 +235,6 @@ class AgentRecallTextualApp(
             include_banner_header=self.tui_banner_size != "hidden",
             banner_size=self.tui_banner_size,
             view=self.current_view,
-            refresh_seconds=self.refresh_seconds,
             ralph_agent_transport=self.ralph_agent_transport,
             show_slash_console=False,
             widget_visibility=self.tui_widget_visibility,
@@ -290,7 +278,6 @@ class AgentRecallTextualApp(
             include_banner_header=True,
             banner_size=self.tui_banner_size,
             view=view,
-            refresh_seconds=self.refresh_seconds,
             ralph_agent_transport=self.ralph_agent_transport,
             show_slash_console=False,
             widget_visibility=self.tui_widget_visibility,
@@ -345,6 +332,10 @@ class AgentRecallTextualApp(
             classes = f"banner-{self.tui_banner_size}"
             dashboard.mount(Static(panels.header, id="dashboard_header", classes=classes))
             self._last_banner_classes = classes
+            self._last_header_signature = (
+                self._dashboard_context.ralph_enabled,
+                self._dashboard_context.ralph_running,
+            )
         elif self.tui_banner_size == "compact":
             dashboard.mount(Static("AGENT RECALL", id="dashboard_header", classes="banner-compact"))
             self._last_banner_classes = "banner-compact"
@@ -401,7 +392,13 @@ class AgentRecallTextualApp(
         else:
             try:
                 header_widget = self.query_one("#dashboard_header", Static)
-                header_widget.update(panels.header)
+                header_signature = (
+                    self._dashboard_context.ralph_enabled,
+                    self._dashboard_context.ralph_running,
+                )
+                if self._last_header_signature != header_signature:
+                    header_widget.update(panels.header)
+                    self._last_header_signature = header_signature
                 new_classes = f"banner-{self.tui_banner_size}"
                 if self._last_banner_classes != new_classes:
                     header_widget.classes = new_classes

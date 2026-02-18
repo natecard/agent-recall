@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import textwrap
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC
 
 from rich import box
 from rich.console import Group
@@ -51,7 +51,6 @@ def build_dashboard_panels(
     slash_status: str | None = None,
     slash_output: list[str] | None = None,
     view: str = "overview",
-    refresh_seconds: float = 2.0,
     ralph_agent_transport: str = "pipe",
     show_slash_console: bool = True,
 ) -> DashboardPanels:
@@ -203,7 +202,6 @@ def build_dashboard_panels(
     )
     settings_widget = SettingsWidget(
         view=view,
-        refresh_seconds=refresh_seconds,
         ralph_agent_transport=ralph_agent_transport,
         theme_name=context.theme_manager.get_theme_name(),
         interactive_shell=context.is_interactive_terminal(),
@@ -221,18 +219,16 @@ def build_dashboard_panels(
         detail_body=None,
     )
 
-    now_text = datetime.now().strftime("%H:%M:%S")
-
     header_panel = None
     if include_banner_header and header_text:
-        status_line = f"[dim]{now_text}[/dim]  [dim]Ctrl+Q to exit[/dim]"
+        status_line = "[dim]Ctrl+Q to exit[/dim]"
         if context.ralph_enabled:
             badge = (
                 "[success]Ralph Active[/success]"
                 if context.ralph_running
                 else "[dim]Ralph Idle[/dim]"
             )
-            status_line = f"{badge}  [dim]{now_text}[/dim]  [dim]Ctrl+Q to exit[/dim]"
+            status_line = f"{badge}  [dim]Ctrl+Q to exit[/dim]"
         header_content = Group(
             Text(status_line),
             Text(),
@@ -401,7 +397,6 @@ def build_tui_dashboard(
     slash_status: str | None = None,
     slash_output: list[str] | None = None,
     view: str = "overview",
-    refresh_seconds: float = 2.0,
     ralph_agent_transport: str = "pipe",
     show_slash_console: bool = True,
     widget_visibility: dict[str, bool] | None = None,
@@ -415,7 +410,6 @@ def build_tui_dashboard(
         slash_status=slash_status,
         slash_output=slash_output,
         view=view,
-        refresh_seconds=refresh_seconds,
         ralph_agent_transport=ralph_agent_transport,
         show_slash_console=show_slash_console,
     )

@@ -10,7 +10,6 @@ from rich.table import Table
 @dataclass(frozen=True)
 class SettingsWidget:
     view: str
-    refresh_seconds: float
     ralph_agent_transport: str
     theme_name: str
     interactive_shell: bool
@@ -28,7 +27,6 @@ class SettingsWidget:
         table.add_column("Setting", style="table_header")
         table.add_column("Value", overflow="fold")
         table.add_row("Current view", self.view)
-        table.add_row("Refresh seconds", str(self.refresh_seconds))
         table.add_row("Ralph transport", self.ralph_agent_transport)
         table.add_row("Theme", self.theme_name)
         if self.view != "all":

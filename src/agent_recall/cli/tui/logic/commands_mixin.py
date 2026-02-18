@@ -70,7 +70,6 @@ class CommandsMixin:
         self.push_screen(
             SettingsModal(
                 current_view=self.current_view,
-                refresh_seconds=self.refresh_seconds,
                 all_cursor_workspaces=self.all_cursor_workspaces,
                 ralph_agent_transport=getattr(self, "ralph_agent_transport", "pipe"),
             ),
@@ -155,15 +154,7 @@ class CommandsMixin:
     def action_run_knowledge_update(self: Any) -> None:
         self._run_backend_command("run")
 
-    def _configure_refresh_timer(self: Any, refresh_seconds: float) -> None:
-        if self._refresh_timer is not None:
-            self._refresh_timer.stop()
-        self._refresh_timer = self.set_interval(refresh_seconds, self._refresh_dashboard_panel)
-
     def _teardown_runtime(self: Any) -> None:
-        if self._refresh_timer is not None:
-            self._refresh_timer.stop()
-            self._refresh_timer = None
         if self._resize_refresh_timer is not None:
             self._resize_refresh_timer.stop()
             self._resize_refresh_timer = None
@@ -177,7 +168,6 @@ class CommandsMixin:
             all_cursor_workspaces=self.all_cursor_workspaces,
             include_banner_header=True,
             view=self.current_view,
-            refresh_seconds=self.refresh_seconds,
             ralph_agent_transport=getattr(self, "ralph_agent_transport", "pipe"),
             show_slash_console=False,
         )
@@ -430,7 +420,6 @@ class CommandsMixin:
         if result is None:
             return
         self.current_view = str(result.get("view", self.current_view))
-        self.refresh_seconds = float(result.get("refresh_seconds", self.refresh_seconds))
         selected_transport = (
             str(result.get("ralph_agent_transport", getattr(self, "ralph_agent_transport", "pipe")))
             .strip()
@@ -442,7 +431,6 @@ class CommandsMixin:
         self.all_cursor_workspaces = bool(
             result.get("all_cursor_workspaces", self.all_cursor_workspaces)
         )
-        self._configure_refresh_timer(self.refresh_seconds)
         try:
             from agent_recall.cli.main import _write_tui_config
             from agent_recall.storage.files import FileStorage
@@ -454,7 +442,6 @@ class CommandsMixin:
                     files,
                     {
                         "default_view": self.current_view,
-                        "refresh_seconds": self.refresh_seconds,
                         "ralph_agent_transport": self.ralph_agent_transport,
                         "all_cursor_workspaces": self.all_cursor_workspaces,
                     },

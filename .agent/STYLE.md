@@ -15,3 +15,7 @@
 - [PATTERN] Small targeted CSS edits achieved full acceptance criteria coverage without breaking visual hierarchy.
 - [PATTERN] Small targeted edits to app.py and dashboard.py achieved full acceptance criteria coverage
 - [PATTERN] Small targeted edit to remove capping logic and truncation indicator block
+- [PATTERN] Separate dynamic content (time/status) from static Panel wrapper; only set CSS classes when they actually change
+- [PATTERN] Small targeted edit to remove CLI commands block and unused cli_commands parameter
+- [PATTERN] Small targeted edits across multiple files achieved full acceptance criteria coverage without breaking existing functionality.
+- [PATTERN] Verified existing implementation before assuming bugs - core functionality was already correct, only test coverage was missing.

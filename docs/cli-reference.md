@@ -3,7 +3,7 @@
 - `agent-recall --version` / `agent-recall -v`
 - `agent-recall init [--force]`
 - `agent-recall open` (recommended dashboard entrypoint, runs onboarding)
-- `agent-recall tui [--no-onboarding] [--refresh-seconds N] [--all-cursor-workspaces]`
+- `agent-recall tui [--no-onboarding] [--all-cursor-workspaces]`
 - `agent-recall config setup [--force] [--quick]`
 - `agent-recall status`
 - `agent-recall sync [--source S] [--since-days N] [--compact/--no-compact] [--verbose] [--cursor-db-path PATH]`
