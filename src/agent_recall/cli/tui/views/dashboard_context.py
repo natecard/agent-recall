@@ -25,3 +25,5 @@ class DashboardRenderContext:
     format_usd: Callable[[float], str]
     is_interactive_terminal: Callable[[], bool]
     help_lines_provider: Callable[[], list[str]]
+    ralph_enabled: bool = False
+    ralph_running: bool = False

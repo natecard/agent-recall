@@ -232,11 +232,19 @@ def build_dashboard_panels(
 
     now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    # Build header title with Ralph status badge if enabled
+    header_title = f"[dim]Updated {now_text}[/dim]"
+    if context.ralph_enabled:
+        badge = (
+            "[success]Ralph Active[/success]" if context.ralph_running else "[dim]Ralph Idle[/dim]"
+        )
+        header_title = f"{badge}  {header_title}"
+
     header_panel = None
     if include_banner_header:
         header_panel = Panel(
             header_text,
-            title=f"[dim]Updated {now_text}[/dim]",
+            title=header_title,
             subtitle="[dim]Press Ctrl+Q to exit[/dim]",
             border_style="banner.border",
         )
@@ -277,6 +285,32 @@ def build_dashboard_panels(
     )
 
 
+def _build_overview_layout(
+    panels: DashboardPanels,
+    ralph_enabled: bool,
+    ralph_running: bool,
+) -> list[Panel | Table]:
+    """Build context-aware overview layout based on Ralph state."""
+
+    def _two_panel_row(left: Panel, right: Panel) -> Table:
+        row = Table.grid(expand=True, padding=(0, 2))
+        row.add_column(ratio=1)
+        row.add_column(ratio=1)
+        row.add_row(left, right)
+        return row
+
+    if not ralph_enabled:
+        # Ralph disabled: show Knowledge + Sources side-by-side
+        return [_two_panel_row(panels.knowledge, panels.sources_compact)]
+
+    if ralph_running:
+        # Ralph enabled and running: full-width Ralph + Timeline
+        return [panels.ralph, panels.timeline]
+
+    # Ralph enabled but idle: Ralph (left) + Knowledge condensed (right)
+    return [_two_panel_row(panels.ralph, panels.knowledge)]
+
+
 def build_tui_dashboard(
     context: DashboardRenderContext,
     all_cursor_workspaces: bool = False,
@@ -305,7 +339,7 @@ def build_tui_dashboard(
         row.add_row(left, right)
         return row
 
-    renderables = []
+    renderables: list[Panel | Table] = []
     if panels.header is not None:
         renderables.append(panels.header)
 
@@ -332,7 +366,13 @@ def build_tui_dashboard(
             ]
         )
     else:
-        renderables.append(_two_panel_row(panels.knowledge, panels.sources_compact))
+        # Overview view with context-aware layout
+        overview_panels = _build_overview_layout(
+            panels,
+            context.ralph_enabled,
+            context.ralph_running,
+        )
+        renderables.extend(overview_panels)
 
     if panels.slash_console is not None:
         renderables.append(panels.slash_console)

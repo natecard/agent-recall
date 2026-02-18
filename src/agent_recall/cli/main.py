@@ -2149,6 +2149,20 @@ def _render_iteration_timeline(store: IterationReportStore, *, max_entries: int)
     return lines
 
 
+def _load_ralph_state_payload() -> dict:
+    """Load ralph_state.json and return parsed payload or empty dict."""
+    try:
+        state_path = AGENT_DIR / "ralph" / "ralph_state.json"
+        if not state_path.exists():
+            return {}
+        import json
+
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def _dashboard_render_context() -> DashboardRenderContext:
     ralph_max_iterations: int | None = None
     try:
@@ -2158,6 +2172,12 @@ def _dashboard_render_context() -> DashboardRenderContext:
             ralph_max_iterations = int(max_iter_value)
     except Exception:  # noqa: BLE001
         ralph_max_iterations = None
+
+    # Load Ralph state for context-aware dashboard
+    ralph_state = _load_ralph_state_payload()
+    ralph_enabled = ralph_state.get("enabled", False) is True
+    ralph_running = ralph_state.get("status", "").lower() == "running"
+
     return DashboardRenderContext(
         console=console,
         theme_manager=_theme_manager,
@@ -2174,6 +2194,8 @@ def _dashboard_render_context() -> DashboardRenderContext:
         format_usd=format_usd,
         is_interactive_terminal=is_interactive_terminal,
         help_lines_provider=_tui_help_lines,
+        ralph_enabled=ralph_enabled,
+        ralph_running=ralph_running,
     )
 
 

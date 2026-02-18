@@ -657,3 +657,271 @@ def test_cli_input_focus_action(monkeypatch) -> None:
     assert fake_input.focused is True
     assert fake_input.value == "/"
     assert fake_input.cursor_position == 1
+
+
+def test_context_aware_dashboard_ralph_disabled() -> None:
+    """When Ralph is disabled, overview shows Knowledge + Sources side-by-side."""
+    from agent_recall.cli.tui.views import build_dashboard_panels
+    from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
+
+    class _ThemeManager:
+        def get_theme_name(self) -> str:
+            return "dark+"
+
+    class _Storage:
+        def get_stats(self) -> dict[str, int]:
+            return {"processed_sessions": 5}
+
+        def get_last_processed_at(self) -> None:
+            return None
+
+    class _Files:
+        def read_tier(self, _tier: object) -> str:
+            return "test content"
+
+        def read_config(self) -> dict[str, object]:
+            return {"llm": {"provider": "openai", "model": "gpt-test", "temperature": 0.2}}
+
+    class _Ingester:
+        source_name = "cursor"
+
+        def discover_sessions(self) -> list[object]:
+            return []
+
+    class _CostSummary:
+        total_tokens: int = 0
+        total_cost_usd: float = 0.0
+
+    context = DashboardRenderContext(
+        console=Console(width=120, record=True),
+        theme_manager=_ThemeManager(),
+        agent_dir=Path("/tmp"),
+        ralph_max_iterations=10,
+        get_storage=lambda: _Storage(),
+        get_files=lambda: _Files(),
+        get_repo_selected_sources=lambda _files: None,
+        resolve_repo_root_for_display=lambda: Path("/tmp"),
+        filter_ingesters_by_sources=lambda ingesters, _selected: ingesters,
+        get_default_ingesters=lambda **_kwargs: [_Ingester()],
+        render_iteration_timeline=lambda _store, max_entries: ["line"] * max_entries,
+        summarize_costs=lambda _reports: _CostSummary(),
+        format_usd=lambda amount: f"${amount:.2f}",
+        is_interactive_terminal=lambda: False,
+        help_lines_provider=lambda: ["/help"],
+        ralph_enabled=False,
+        ralph_running=False,
+    )
+
+    panels = build_dashboard_panels(context, view="overview")
+    assert panels.knowledge is not None
+    assert panels.sources_compact is not None
+    # When Ralph disabled, we should have knowledge and sources panels
+    assert "Knowledge" in str(panels.knowledge.title)
+    assert "Sources" in str(panels.sources_compact.title)
+
+
+def test_context_aware_dashboard_ralph_enabled_running() -> None:
+    """When Ralph is enabled and running, overview shows Ralph + Timeline."""
+    from agent_recall.cli.tui.views import build_dashboard_panels
+    from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
+
+    class _ThemeManager:
+        def get_theme_name(self) -> str:
+            return "dark+"
+
+    class _Storage:
+        def get_stats(self) -> dict[str, int]:
+            return {"processed_sessions": 5}
+
+        def get_last_processed_at(self) -> None:
+            return None
+
+    class _Files:
+        def read_tier(self, _tier: object) -> str:
+            return "test content"
+
+        def read_config(self) -> dict[str, object]:
+            return {"llm": {"provider": "openai", "model": "gpt-test", "temperature": 0.2}}
+
+    class _Ingester:
+        source_name = "cursor"
+
+        def discover_sessions(self) -> list[object]:
+            return []
+
+    class _CostSummary:
+        total_tokens: int = 0
+        total_cost_usd: float = 0.0
+
+    context = DashboardRenderContext(
+        console=Console(width=120, record=True),
+        theme_manager=_ThemeManager(),
+        agent_dir=Path("/tmp"),
+        ralph_max_iterations=10,
+        get_storage=lambda: _Storage(),
+        get_files=lambda: _Files(),
+        get_repo_selected_sources=lambda _files: None,
+        resolve_repo_root_for_display=lambda: Path("/tmp"),
+        filter_ingesters_by_sources=lambda ingesters, _selected: ingesters,
+        get_default_ingesters=lambda **_kwargs: [_Ingester()],
+        render_iteration_timeline=lambda _store, max_entries: ["line"] * max_entries,
+        summarize_costs=lambda _reports: _CostSummary(),
+        format_usd=lambda amount: f"${amount:.2f}",
+        is_interactive_terminal=lambda: False,
+        help_lines_provider=lambda: ["/help"],
+        ralph_enabled=True,
+        ralph_running=True,
+    )
+
+    panels = build_dashboard_panels(context, view="overview")
+    assert panels.ralph is not None
+    assert panels.timeline is not None
+    assert "Ralph" in str(panels.ralph.title)
+    assert "Timeline" in str(panels.timeline.title)
+
+
+def test_context_aware_dashboard_ralph_enabled_idle() -> None:
+    """When Ralph is enabled but idle, overview shows Ralph + Knowledge."""
+    from agent_recall.cli.tui.views import build_dashboard_panels
+    from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
+
+    class _ThemeManager:
+        def get_theme_name(self) -> str:
+            return "dark+"
+
+    class _Storage:
+        def get_stats(self) -> dict[str, int]:
+            return {"processed_sessions": 5}
+
+        def get_last_processed_at(self) -> None:
+            return None
+
+    class _Files:
+        def read_tier(self, _tier: object) -> str:
+            return "test content"
+
+        def read_config(self) -> dict[str, object]:
+            return {"llm": {"provider": "openai", "model": "gpt-test", "temperature": 0.2}}
+
+    class _Ingester:
+        source_name = "cursor"
+
+        def discover_sessions(self) -> list[object]:
+            return []
+
+    class _CostSummary:
+        total_tokens: int = 0
+        total_cost_usd: float = 0.0
+
+    context = DashboardRenderContext(
+        console=Console(width=120, record=True),
+        theme_manager=_ThemeManager(),
+        agent_dir=Path("/tmp"),
+        ralph_max_iterations=10,
+        get_storage=lambda: _Storage(),
+        get_files=lambda: _Files(),
+        get_repo_selected_sources=lambda _files: None,
+        resolve_repo_root_for_display=lambda: Path("/tmp"),
+        filter_ingesters_by_sources=lambda ingesters, _selected: ingesters,
+        get_default_ingesters=lambda **_kwargs: [_Ingester()],
+        render_iteration_timeline=lambda _store, max_entries: ["line"] * max_entries,
+        summarize_costs=lambda _reports: _CostSummary(),
+        format_usd=lambda amount: f"${amount:.2f}",
+        is_interactive_terminal=lambda: False,
+        help_lines_provider=lambda: ["/help"],
+        ralph_enabled=True,
+        ralph_running=False,
+    )
+
+    panels = build_dashboard_panels(context, view="overview")
+    assert panels.ralph is not None
+    assert panels.knowledge is not None
+    assert "Ralph" in str(panels.ralph.title)
+    assert "Knowledge" in str(panels.knowledge.title)
+
+
+def test_context_aware_dashboard_header_badge_ralph_enabled() -> None:
+    """Header shows Ralph badge when Ralph is enabled."""
+    from agent_recall.cli.tui.views import build_dashboard_panels
+    from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
+
+    class _ThemeManager:
+        def get_theme_name(self) -> str:
+            return "dark+"
+
+    class _Storage:
+        def get_stats(self) -> dict[str, int]:
+            return {"processed_sessions": 5}
+
+        def get_last_processed_at(self) -> None:
+            return None
+
+    class _Files:
+        def read_tier(self, _tier: object) -> str:
+            return "test content"
+
+        def read_config(self) -> dict[str, object]:
+            return {"llm": {"provider": "openai", "model": "gpt-test", "temperature": 0.2}}
+
+    class _Ingester:
+        source_name = "cursor"
+
+        def discover_sessions(self) -> list[object]:
+            return []
+
+    class _CostSummary:
+        total_tokens: int = 0
+        total_cost_usd: float = 0.0
+
+    # Test with Ralph enabled and running
+    context_running = DashboardRenderContext(
+        console=Console(width=120, record=True),
+        theme_manager=_ThemeManager(),
+        agent_dir=Path("/tmp"),
+        ralph_max_iterations=10,
+        get_storage=lambda: _Storage(),
+        get_files=lambda: _Files(),
+        get_repo_selected_sources=lambda _files: None,
+        resolve_repo_root_for_display=lambda: Path("/tmp"),
+        filter_ingesters_by_sources=lambda ingesters, _selected: ingesters,
+        get_default_ingesters=lambda **_kwargs: [_Ingester()],
+        render_iteration_timeline=lambda _store, max_entries: ["line"] * max_entries,
+        summarize_costs=lambda _reports: _CostSummary(),
+        format_usd=lambda amount: f"${amount:.2f}",
+        is_interactive_terminal=lambda: False,
+        help_lines_provider=lambda: ["/help"],
+        ralph_enabled=True,
+        ralph_running=True,
+    )
+
+    panels_running = build_dashboard_panels(context_running, view="overview")
+    assert panels_running.header is not None
+    # Header title should contain "Ralph Active" badge
+    header_title = str(panels_running.header.title)
+    assert "Ralph" in header_title
+
+    # Test with Ralph enabled but idle
+    context_idle = DashboardRenderContext(
+        console=Console(width=120, record=True),
+        theme_manager=_ThemeManager(),
+        agent_dir=Path("/tmp"),
+        ralph_max_iterations=10,
+        get_storage=lambda: _Storage(),
+        get_files=lambda: _Files(),
+        get_repo_selected_sources=lambda _files: None,
+        resolve_repo_root_for_display=lambda: Path("/tmp"),
+        filter_ingesters_by_sources=lambda ingesters, _selected: ingesters,
+        get_default_ingesters=lambda **_kwargs: [_Ingester()],
+        render_iteration_timeline=lambda _store, max_entries: ["line"] * max_entries,
+        summarize_costs=lambda _reports: _CostSummary(),
+        format_usd=lambda amount: f"${amount:.2f}",
+        is_interactive_terminal=lambda: False,
+        help_lines_provider=lambda: ["/help"],
+        ralph_enabled=True,
+        ralph_running=False,
+    )
+
+    panels_idle = build_dashboard_panels(context_idle, view="overview")
+    assert panels_idle.header is not None
+    header_title_idle = str(panels_idle.header.title)
+    assert "Ralph" in header_title_idle
