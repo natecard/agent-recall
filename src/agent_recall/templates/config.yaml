@@ -3,6 +3,7 @@ llm:
   model: claude-sonnet-4-20250514
 
 compaction:
+  backend: llm
   max_recent_tokens: 1500
   max_tier_tokens: 10000
   max_sessions_before_compact: 5

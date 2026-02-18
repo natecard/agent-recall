@@ -19,11 +19,11 @@
       "description": "Add a compaction backend setting so users can run compaction summarization through the coding CLI agent instead of only the configured LLM provider.",
       "user_story": "As a user, I want to choose whether compaction summarization uses the configured LLM provider or my coding CLI agent so I can keep behavior consistent with my workflow.",
       "steps": [
-        "Add compaction backend config with values llm and coding_cli.",
-        "Keep llm as the default backend for backward compatibility.",
-        "Implement coding_cli backend execution for compact synthesis paths.",
-        "Validate coding_cli output shape before writing tier files.",
-        "Add tests for backend selection and fallback behavior."
+        "[DONE] Add compaction backend config with values llm and coding_cli.",
+        "[DONE] Keep llm as the default backend for backward compatibility.",
+        "[DONE] Implement coding_cli backend execution for compact synthesis paths.",
+        "[DONE] Validate coding_cli output shape before writing tier files.",
+        "[DONE] Add tests for backend selection and fallback behavior."
       ],
       "acceptance_criteria": [
         "Users can select compaction backend via config.",
@@ -34,7 +34,7 @@
       "validation_commands": [
         "uv run pytest tests/test_compact.py -q"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-1013",

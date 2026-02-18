@@ -9,3 +9,4 @@
 - [PATTERN] Reused the existing dashboard panel builder and view routing patterns to add a new view with minimal impact.
 - [PATTERN] Used _build_slash_command_map() as single source of truth for hyphenated commands, then routed to handle_palette_action() which dispatches correctly to palette_router
 - [PATTERN] Used Rich markup for heading styling instead of CSS rules since all headings share [bold accent] format
+- [PATTERN] Checked existing tests first before implementing - discovered functionality was already complete via bash script.

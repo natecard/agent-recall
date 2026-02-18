@@ -84,12 +84,14 @@ from agent_recall.ingest.sources import (
     resolve_source_location_hint,
 )
 from agent_recall.llm import (
+    LLMProvider,
     Message,
     create_llm_provider,
     ensure_provider_dependency,
     get_available_providers,
     validate_provider_config,
 )
+from agent_recall.llm.coding_cli import CodingCLIProvider
 from agent_recall.ralph.costs import format_usd, summarize_costs
 from agent_recall.ralph.iteration_store import IterationOutcome, IterationReportStore
 from agent_recall.storage import create_storage_backend
@@ -1282,12 +1284,37 @@ def compact(force: bool = typer.Option(False, "--force", "-f", help="Force compa
     storage = get_storage()
     files = get_files()
 
-    _get_theme_manager()  # Ensure theme is loaded
-    try:
-        llm = get_llm()
-    except Exception as exc:  # noqa: BLE001
-        console.print(f"[error]LLM configuration error: {exc}[/error]")
-        raise typer.Exit(1) from None
+    _get_theme_manager()
+
+    config_dict = files.read_config()
+    compaction_cfg = config_dict.get("compaction", {}) if isinstance(config_dict, dict) else {}
+    backend = compaction_cfg.get("backend", "llm") if isinstance(compaction_cfg, dict) else "llm"
+
+    llm: LLMProvider
+    if backend == "coding_cli":
+        ralph_cfg = config_dict.get("ralph", {}) if isinstance(config_dict, dict) else {}
+        coding_cli = ralph_cfg.get("coding_cli") if isinstance(ralph_cfg, dict) else None
+        cli_model = ralph_cfg.get("cli_model") if isinstance(ralph_cfg, dict) else None
+
+        if not coding_cli:
+            console.print(
+                "[error]compaction.backend is 'coding_cli' "
+                "but ralph.coding_cli is not configured[/error]"
+            )
+            raise typer.Exit(1)
+
+        try:
+            llm = CodingCLIProvider(coding_cli=str(coding_cli), model=cli_model)
+            console.print(f"[dim]Using coding CLI backend: {coding_cli}[/dim]")
+        except Exception as exc:
+            console.print(f"[error]Coding CLI provider error: {exc}[/error]")
+            raise typer.Exit(1) from None
+    else:
+        try:
+            llm = get_llm()
+        except Exception as exc:
+            console.print(f"[error]LLM configuration error: {exc}[/error]")
+            raise typer.Exit(1) from None
 
     engine = CompactionEngine(storage, files, llm)
     results = run_with_spinner(
@@ -1298,6 +1325,7 @@ def compact(force: bool = typer.Option(False, "--force", "-f", help="Force compa
     console.print(
         Panel.fit(
             f"[success]✓ Compaction complete[/success]\n\n"
+            f"Backend: {backend}\n"
             f"Guardrails updated: {results['guardrails_updated']}\n"
             f"Style updated: {results['style_updated']}\n"
             f"Recent updated: {results['recent_updated']}\n"

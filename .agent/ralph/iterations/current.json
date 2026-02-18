@@ -1,12 +1,27 @@
 {
-  "iteration": 13,
-  "item_id": "AR-1013",
-  "item_title": "Auto-Mark Completed PRD Steps as [DONE]",
-  "started_at": "2026-02-18T15:07:03.262029+00:00",
+  "iteration": 14,
+  "item_id": "AR-1012",
+  "item_title": "Compaction Backend Choice (LLM or Coding CLI)",
+  "started_at": "2026-02-18T15:23:53.524616+00:00",
   "outcome": "COMPLETED",
-  "summary": "Verified existing implementation: bash loop script has mark_done_steps_for_passed_items() function that prefixes completed steps with [DONE], avoids double-prefixing, and runs before context refresh. Regression test already passes.",
+  "summary": "Added compaction backend config option (llm/coding_cli) with CodingCLIProvider implementation, CLI wiring, and comprehensive tests.",
   "failure_reason": null,
   "gotcha_discovered": null,
-  "pattern_that_worked": "Checked existing tests first before implementing - discovered functionality was already complete via bash script.",
-  "scope_change": "No code changes needed - implementation was complete, only PRD update required."
+  "pattern_that_worked": "Reused existing LLMProvider interface for CodingCLIProvider to maintain consistent abstraction over backend selection.",
+  "scope_change": null,
+  "token_usage": null,
+  "token_model": null,
+  "validation_exit_code": 0,
+  "validation_hint": "uv run pytest tests/test_compact.py -q passed (21 tests)",
+  "files_changed": [
+    "src/agent_recall/storage/models.py",
+    "src/agent_recall/llm/coding_cli.py",
+    "src/agent_recall/cli/main.py",
+    "src/agent_recall/templates/config.yaml",
+    "tests/test_compact.py",
+    "agent_recall/ralph/prd.json"
+  ],
+  "commit_hash": null,
+  "completed_at": null,
+  "duration_seconds": null
 }

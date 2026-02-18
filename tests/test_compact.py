@@ -418,3 +418,121 @@ async def test_compaction_promotes_only_approved_entries(storage, files) -> None
 
     assert int(results["chunks_indexed"]) == 1
     assert storage.has_chunk("Curation gating", SemanticLabel.GOTCHA)
+
+
+class TestCodingCLIProvider:
+    """Tests for the coding_cli backend provider."""
+
+    def test_coding_cli_provider_rejects_unknown_cli(self) -> None:
+        from agent_recall.llm.base import LLMConfigError
+        from agent_recall.llm.coding_cli import CodingCLIProvider
+
+        with pytest.raises(LLMConfigError, match="Unknown coding CLI"):
+            CodingCLIProvider(coding_cli="unknown-cli")
+
+    def test_coding_cli_provider_rejects_missing_cli(self, monkeypatch) -> None:
+        from agent_recall.llm.base import LLMConfigError
+        from agent_recall.llm.coding_cli import CodingCLIProvider
+
+        monkeypatch.setattr("shutil.which", lambda _: None)
+
+        with pytest.raises(LLMConfigError, match="not found on PATH"):
+            CodingCLIProvider(coding_cli="opencode")
+
+    def test_strip_json_fences_removes_markdown(self) -> None:
+        from agent_recall.llm.coding_cli import strip_json_fences
+
+        fenced = '```json\n{"items": []}\n```'
+        assert strip_json_fences(fenced) == '{"items": []}'
+
+        bare = '{"items": []}'
+        assert strip_json_fences(bare) == '{"items": []}'
+
+    def test_validate_compaction_output_success(self) -> None:
+        from agent_recall.llm.coding_cli import validate_compaction_output
+
+        content = '{"items": [{"type": "GOTCHA", "rule": "test"}]}'
+        is_valid, result = validate_compaction_output(content, {"items"})
+
+        assert is_valid is True
+        assert "items" in result
+
+    def test_validate_compaction_output_missing_key(self) -> None:
+        from agent_recall.llm.coding_cli import validate_compaction_output
+
+        content = '{"other": []}'
+        is_valid, error = validate_compaction_output(content, {"items"})
+
+        assert is_valid is False
+        assert "Missing required keys" in error
+
+    def test_validate_compaction_output_invalid_json(self) -> None:
+        from agent_recall.llm.coding_cli import validate_compaction_output
+
+        content = "not valid json"
+        is_valid, error = validate_compaction_output(content, {"items"})
+
+        assert is_valid is False
+        assert "Invalid JSON" in error
+
+
+class TestCompactionBackendSelection:
+    """Tests for backend selection in compaction."""
+
+    def test_compaction_config_default_backend_is_llm(self) -> None:
+        from agent_recall.storage.models import CompactionConfig
+
+        config = CompactionConfig()
+        assert config.backend == "llm"
+
+    def test_compaction_config_accepts_coding_cli(self) -> None:
+        from agent_recall.storage.models import CompactionConfig
+
+        config = CompactionConfig(backend="coding_cli")
+        assert config.backend == "coding_cli"
+
+    @pytest.mark.asyncio
+    async def test_compaction_works_with_coding_cli_provider(
+        self, storage, files, monkeypatch
+    ) -> None:
+        from agent_recall.llm.base import LLMResponse
+        from agent_recall.llm.coding_cli import CodingCLIProvider
+
+        class MockedCLIProvider(CodingCLIProvider):
+            def __init__(self):
+                self._coding_cli = "opencode"
+                self._model = None
+                self._timeout = 120.0
+
+            async def generate(
+                self,
+                messages: list[Message],
+                temperature: float = 0.3,
+                max_tokens: int = 4096,
+            ) -> LLMResponse:
+                prompt = messages[-1].content if messages else ""
+                if "GUARDRAILS" in prompt:
+                    return LLMResponse(
+                        content=(
+                            '{"items": [{"type": "GOTCHA", '
+                            '"rule": "Test guardrail", "why": "test"}]}'
+                        ),
+                        model="opencode/test",
+                    )
+                if "STYLE" in prompt:
+                    return LLMResponse(
+                        content='{"items": [{"type": "PATTERN", "guideline": "Test style"}]}',
+                        model="opencode/test",
+                    )
+                return LLMResponse(
+                    content='{"items": [{"date": "2026-02-18", "summary": "Test activity"}]}',
+                    model="opencode/test",
+                )
+
+        log_writer = LogWriter(storage)
+        log_writer.log(content="Test entry for coding CLI", label=SemanticLabel.GOTCHA)
+
+        engine = CompactionEngine(storage=storage, files=files, llm=MockedCLIProvider())
+        results = await engine.compact(force=True)
+
+        assert results["guardrails_updated"] is True

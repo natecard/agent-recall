@@ -162,6 +162,11 @@ class LLMConfig(BaseModel):
 class CompactionConfig(BaseModel):
     """Compaction trigger thresholds."""
 
+    backend: Literal["llm", "coding_cli"] = Field(
+        default="llm",
+        description="Compaction backend: 'llm' uses configured LLM provider, "
+        "'coding_cli' uses coding CLI agent",
+    )
     max_recent_tokens: int = 1500
     max_tier_tokens: int = 10000
     max_sessions_before_compact: int = 5
