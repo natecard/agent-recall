@@ -11,11 +11,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from agent_recall.cli.tui.commands.palette_actions import (
-    PaletteAction,
-    _is_palette_cli_command_redundant,
-    _normalize_palette_command,
-)
+from agent_recall.cli.tui.commands.palette_actions import PaletteAction
 from agent_recall.cli.tui.commands.palette_recents import record_recent
 from agent_recall.cli.tui.logic.text_sanitizers import _strip_rich_markup
 
@@ -43,13 +39,11 @@ class CommandPaletteModal(ModalScreen[str | None]):
     def __init__(
         self,
         actions: list[PaletteAction],
-        cli_commands: list[str],
         recents: list[str] | None = None,
         config_dir: Path | None = None,
     ):
         super().__init__()
         self.actions = actions
-        self.cli_commands = cli_commands
         self.recents = recents or []
         self.config_dir = config_dir
         self.query_text = ""
@@ -61,7 +55,7 @@ class CommandPaletteModal(ModalScreen[str | None]):
                     yield Static("Commands", id="palette_title")
                     yield Static("esc", id="palette_close_hint")
                 yield Input(
-                    placeholder="Search actions, or type a CLI command and press Enter",
+                    placeholder="Search commands...",
                     id="palette_search",
                 )
                 yield OptionList(id="palette_options")
@@ -158,15 +152,6 @@ class CommandPaletteModal(ModalScreen[str | None]):
                 continue
             grouped[action.group].append(action)
 
-        cli_commands: list[str] = []
-        for command in self.cli_commands:
-            if _is_palette_cli_command_redundant(command):
-                continue
-            normalized = _normalize_palette_command(command)
-            if query and query not in normalized:
-                continue
-            cli_commands.append(command)
-
         option_list = self.query_one("#palette_options", OptionList)
         list_width = int(option_list.size.width) if int(option_list.size.width or 0) > 0 else 72
         options: list[Option] = []
@@ -253,26 +238,6 @@ class CommandPaletteModal(ModalScreen[str | None]):
                         id=f"action:{action.action_id}",
                     )
                 )
-
-        if cli_commands:
-            options.append(Option("", id="heading:spacer:cli", disabled=True))
-            options.append(
-                Option(
-                    "[bold accent]CLI Commands[/bold accent]",
-                    id="heading:cli",
-                    disabled=True,
-                )
-            )
-            seen_commands: set[str] = set()
-            for command in cli_commands:
-                command_text = _normalize_palette_command(command)
-                if command_text in seen_commands:
-                    continue
-                seen_commands.add(command_text)
-                line = command_text
-                if query:
-                    line = f"{line} [dim]- raw CLI command[/dim]"
-                options.append(Option(line, id=f"action:cmd:{command_text}"))
 
         options = _deduplicate_option_ids(options)
         option_list.set_options(options)

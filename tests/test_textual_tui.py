@@ -1813,7 +1813,7 @@ def test_command_palette_shows_recents_at_top() -> None:
     from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
 
     actions = get_palette_actions()
-    modal = CommandPaletteModal(actions, [], recents=["setup", "sync", "status"], config_dir=None)
+    modal = CommandPaletteModal(actions, recents=["setup", "sync", "status"], config_dir=None)
     modal.query_text = ""
 
     assert modal.recents == ["setup", "sync", "status"]
@@ -1824,7 +1824,7 @@ def test_command_palette_hides_recents_when_filtering() -> None:
     from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
 
     actions = get_palette_actions()
-    modal = CommandPaletteModal(actions, [], recents=["setup", "sync"], config_dir=None)
+    modal = CommandPaletteModal(actions, recents=["setup", "sync"], config_dir=None)
     modal.query_text = "sync"
 
     assert modal.recents == ["setup", "sync"]
@@ -1836,7 +1836,7 @@ def test_command_palette_caps_groups_at_five_when_unfiltered() -> None:
     from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
 
     actions = get_palette_actions()
-    modal = CommandPaletteModal(actions, [], recents=[], config_dir=None)
+    modal = CommandPaletteModal(actions, recents=[], config_dir=None)
     modal.query_text = ""
 
     assert modal.query_text == ""
@@ -1847,7 +1847,7 @@ def test_command_palette_removes_cap_when_filtering() -> None:
     from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
 
     actions = get_palette_actions()
-    modal = CommandPaletteModal(actions, [], recents=[], config_dir=None)
+    modal = CommandPaletteModal(actions, recents=[], config_dir=None)
     modal.query_text = "view"
 
     assert modal.query_text == "view"
@@ -1858,7 +1858,7 @@ def test_command_palette_group_order_is_correct() -> None:
     from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
 
     actions = get_palette_actions()
-    modal = CommandPaletteModal(actions, [], recents=[], config_dir=None)
+    modal = CommandPaletteModal(actions, recents=[], config_dir=None)
     modal.query_text = ""
 
     assert modal.query_text == ""

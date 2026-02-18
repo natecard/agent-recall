@@ -19,16 +19,16 @@
       "priority": 1,
       "description": "The Command Palette currently lists raw CLI commands. Selecting them or typing them often results in errors like 'Commands must start with /', which is confusing. These should be removed to streamline the experience.",
       "requirements": [
-        "Remove the 'CLI Commands' section from the Command Palette logic.",
-        "Ensure only valid TUI actions or slash commands are actionable from the palette.",
-        "Fix the issue where selecting a command triggers a validation error about missing slash prefix."
+        "[DONE] Remove the 'CLI Commands' section from the Command Palette logic.",
+        "[DONE] Ensure only valid TUI actions or slash commands are actionable from the palette.",
+        "[DONE] Fix the issue where selecting a command triggers a validation error about missing slash prefix."
       ],
       "acceptance_criteria": [
-        "Command Palette no longer shows a 'CLI Commands' group.",
-        "Selecting any remaining action works immediately.",
-        "Typing a slash command works as expected."
+        "[DONE] Command Palette no longer shows a 'CLI Commands' group.",
+        "[DONE] Selecting any remaining action works immediately.",
+        "[DONE] Typing a slash command works as expected."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-104",
@@ -54,7 +54,7 @@
       "id": "AR-106",
       "title": "TUI: Fix Banner Flashing",
       "type": "bugfix",
-      "priority": 3,
+      "priority": 1,
       "description": "The dashboard banner flashes every few seconds (likely on the refresh interval), indicating unnecessary full re-renders of the component or the entire dashboard.",
       "requirements": [
         "Investigate the `_refresh_dashboard_panel` and `_update_dashboard_widgets` logic.",
@@ -73,7 +73,7 @@
       "id": "AR-105",
       "title": "TUI: Fix Layout Customization",
       "type": "polish",
-      "priority": 4,
+      "priority": 3,
       "description": "The current layout customization options (visibility toggles) are confusing, do not reflect the actual current state of the UI, and do not offer meaningful control over the layout structure.",
       "requirements": [
         "Ensure the 'Customise Layout' modal pre-populates with the *actual* current widget visibility and banner settings.",
@@ -87,7 +87,7 @@
         "Layout options are clear and easier to understand for the user."
       ],
       "passes": false
-    }
+    },
     {
       "id": "AR-107",
       "title": "TUI: Fix Command Palette Truncation",
@@ -113,16 +113,16 @@
       "priority": "high",
       "description": "The Command Palette currently lists raw CLI commands. Selecting them or typing them often results in errors like 'Commands must start with /', which is confusing. These should be removed to streamline the experience.",
       "requirements": [
-        "Remove the 'CLI Commands' section from the Command Palette logic.",
-        "Ensure only valid TUI actions or slash commands are actionable from the palette.",
-        "Fix the issue where selecting a command triggers a validation error about missing slash prefix."
+        "[DONE] Remove the 'CLI Commands' section from the Command Palette logic.",
+        "[DONE] Ensure only valid TUI actions or slash commands are actionable from the palette.",
+        "[DONE] Fix the issue where selecting a command triggers a validation error about missing slash prefix."
       ],
       "acceptance_criteria": [
-        "Command Palette no longer shows a 'CLI Commands' group.",
-        "Selecting any remaining action works immediately.",
-        "Typing a slash command works as expected."
+        "[DONE] Command Palette no longer shows a 'CLI Commands' group.",
+        "[DONE] Selecting any remaining action works immediately.",
+        "[DONE] Typing a slash command works as expected."
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }

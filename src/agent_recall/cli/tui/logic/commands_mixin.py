@@ -60,7 +60,6 @@ class CommandsMixin:
         self.push_screen(
             CommandPaletteModal(
                 get_palette_actions(),
-                self._command_suggestions,
                 recents=recents,
                 config_dir=config_dir,
             ),
