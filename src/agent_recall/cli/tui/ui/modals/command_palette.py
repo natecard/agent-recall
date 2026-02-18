@@ -223,12 +223,6 @@ class CommandPaletteModal(ModalScreen[str | None]):
             if not items:
                 continue
 
-            total_count = len(items)
-            if not query:
-                capped_items = items[:5]
-            else:
-                capped_items = items
-
             if not query:
                 if index > 0 or self.recents:
                     options.append(Option("", id=f"heading:spacer:{group}", disabled=True))
@@ -239,7 +233,7 @@ class CommandPaletteModal(ModalScreen[str | None]):
                         disabled=True,
                     )
                 )
-            for action in capped_items:
+            for action in items:
                 if action.action_id in added_action_ids:
                     continue
                 added_action_ids.add(action.action_id)
@@ -257,15 +251,6 @@ class CommandPaletteModal(ModalScreen[str | None]):
                     Option(
                         line,
                         id=f"action:{action.action_id}",
-                    )
-                )
-            if not query and total_count > 5:
-                more_count = total_count - 5
-                options.append(
-                    Option(
-                        f"[dim]  … {more_count} more  ·  type to filter[/dim]",
-                        id=f"more:{group}",
-                        disabled=True,
                     )
                 )
 
