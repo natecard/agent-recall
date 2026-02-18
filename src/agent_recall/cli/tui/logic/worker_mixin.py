@@ -207,12 +207,14 @@ class WorkerMixin:
 
             iteration = iteration_meta.iteration if iteration_meta else None
             title = "Iteration Diff" if iteration is None else f"Iteration {iteration:03d} Diff"
+            agent_dir = getattr(getattr(self, "_dashboard_context", None), "agent_dir", None)
             self.status = "Viewing diff"
             self._append_activity("Opened iteration diff viewer.")
             self.push_screen(
                 DiffScreen(
                     diff_text=diff_text,
                     repo_dir=getattr(self, "_repo_dir", None),
+                    agent_dir=agent_dir,
                     title=title,
                     iteration_meta=iteration_meta,
                 ),

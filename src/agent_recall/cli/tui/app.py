@@ -773,8 +773,8 @@ class AgentRecallTextualApp(
 
         suggestions_widget = self.query_one("#cli_suggestions", OptionList)
         suggestions_widget.clear_options()
-        for suggestion in suggestions:
-            suggestions_widget.add_option(Option(suggestion))
+        for index, suggestion in enumerate(suggestions):
+            suggestions_widget.add_option(Option(suggestion, id=f"suggestion:{index}"))
         suggestions_widget.display = True
         self._suggestions_visible = True
         self._highlighted_suggestion_index = None

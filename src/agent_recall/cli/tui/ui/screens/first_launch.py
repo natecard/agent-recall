@@ -113,10 +113,8 @@ class FirstLaunchScreen(Screen[None]):
         progress_bar.display = True
         progress_bar.update(progress=0.0)
 
-        screen: FirstLaunchScreen = self
-
         def _progress_callback(progress: float, _msg: str) -> None:
-            cast(Any, screen).call_from_thread(lambda: progress_bar.update(progress=progress))
+            self.app.call_from_thread(lambda: progress_bar.update(progress=progress))
 
         def _download_worker() -> object:
             try:

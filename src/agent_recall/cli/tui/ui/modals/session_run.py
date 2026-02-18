@@ -111,10 +111,14 @@ class SessionRunModal(ModalScreen[dict[str, Any] | None]):
 
         option_list = self.query_one("#run_sessions_list", OptionList)
         options: list[Option] = []
+        seen_ids: set[str] = set()
         for session in visible_sessions:
             session_id = str(session.get("session_id") or "")
             if not session_id:
                 continue
+            if session_id in seen_ids:
+                continue
+            seen_ids.add(session_id)
             selected = session_id in self.selected_session_ids
             options.append(
                 Option(

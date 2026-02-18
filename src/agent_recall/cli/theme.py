@@ -230,6 +230,10 @@ class ThemeManager:
         """Get the current theme name."""
         return self.theme_name
 
+    def get_color(self, color_name: str) -> str:
+        """Fetch a color dynamically from the current theme."""
+        return THEMES[self.theme_name].get(color_name, "")
+
     def get_banner_styles(self) -> dict[str, str]:
         """Get banner-specific styles for current theme."""
         theme_colors = THEMES.get(self.theme_name, THEMES[DEFAULT_THEME])

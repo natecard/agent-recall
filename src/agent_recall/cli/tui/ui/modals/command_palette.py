@@ -20,6 +20,23 @@ from agent_recall.cli.tui.commands.palette_recents import record_recent
 from agent_recall.cli.tui.logic.text_sanitizers import _strip_rich_markup
 
 
+def _deduplicate_option_ids(options: list[Option]) -> list[Option]:
+    """Ensure all options have unique IDs to avoid Textual DuplicateID error."""
+    used: set[str] = set()
+    result: list[Option] = []
+    for opt in options:
+        opt_id = opt.id or ""
+        if opt_id in used:
+            suffix = 0
+            while f"{opt_id}:{suffix}" in used:
+                suffix += 1
+            opt_id = f"{opt_id}:{suffix}"
+            opt = Option(opt.prompt, id=opt_id, disabled=opt.disabled)
+        used.add(opt_id)
+        result.append(opt)
+    return result
+
+
 class CommandPaletteModal(ModalScreen[str | None]):
     BINDINGS = [Binding("escape", "dismiss(None)", "Close")]
 
@@ -153,6 +170,7 @@ class CommandPaletteModal(ModalScreen[str | None]):
         option_list = self.query_one("#palette_options", OptionList)
         list_width = int(option_list.size.width) if int(option_list.size.width or 0) > 0 else 72
         options: list[Option] = []
+        added_action_ids: set[str] = set()
         if query:
             options.append(Option("[dim]Run typed command[/dim]", id="heading:run", disabled=True))
             options.append(
@@ -184,6 +202,7 @@ class CommandPaletteModal(ModalScreen[str | None]):
                     )
                 )
                 for action in recent_actions:
+                    added_action_ids.add(action.action_id)
                     line = action.title
                     if action.shortcut:
                         line = f"{line} [dim]{action.shortcut}[/dim]"
@@ -221,6 +240,9 @@ class CommandPaletteModal(ModalScreen[str | None]):
                     )
                 )
             for action in capped_items:
+                if action.action_id in added_action_ids:
+                    continue
+                added_action_ids.add(action.action_id)
                 line = action.title
                 if action.shortcut:
                     line = f"{line} [dim]{action.shortcut}[/dim]"
@@ -256,13 +278,18 @@ class CommandPaletteModal(ModalScreen[str | None]):
                     disabled=True,
                 )
             )
+            seen_commands: set[str] = set()
             for command in cli_commands:
                 command_text = _normalize_palette_command(command)
+                if command_text in seen_commands:
+                    continue
+                seen_commands.add(command_text)
                 line = command_text
                 if query:
                     line = f"{line} [dim]- raw CLI command[/dim]"
                 options.append(Option(line, id=f"action:cmd:{command_text}"))
 
+        options = _deduplicate_option_ids(options)
         option_list.set_options(options)
 
         for index, option in enumerate(options):

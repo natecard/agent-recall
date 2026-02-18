@@ -2641,10 +2641,19 @@ def tui(
         "--no-delta-setup",
         help="Skip first-launch delta diff renderer setup prompt.",
     ),
+    force_delta_setup: bool = typer.Option(
+        False,
+        "--force-delta-setup",
+        help="Reset delta setup: clear cached binary and show the download prompt again.",
+    ),
 ):
     """Start a live terminal UI dashboard for agent-recall."""
     _get_theme_manager()
     ensure_initialized()
+    if force_delta_setup:
+        from agent_recall.cli.tui.delta import reset_delta_setup
+
+        reset_delta_setup()
     inject_stored_api_keys()
     files = get_files()
     interactive_shell = is_interactive_terminal()

@@ -92,6 +92,31 @@ def write_delta_setup_declined() -> None:
     _write_setup_status("declined")
 
 
+def reset_delta_setup() -> None:
+    """Clear delta setup status and cached binary so the first-launch prompt shows again."""
+    data_dir = get_delta_data_dir()
+    bin_dir = data_dir / "bin"
+    config_path = data_dir / "config.json"
+
+    # Remove cached binary
+    for name in ("delta", "delta.exe"):
+        path = bin_dir / name
+        if path.exists():
+            path.unlink()
+
+    # Clear delta_setup from config
+    if config_path.exists():
+        try:
+            data = json.loads(config_path.read_text())
+            data.pop("delta_setup", None)
+            if data:
+                config_path.write_text(json.dumps(data, indent=2))
+            else:
+                config_path.unlink()
+        except (json.JSONDecodeError, OSError):
+            config_path.unlink(missing_ok=True)
+
+
 def _platform_asset_suffix() -> str | None:
     """Map platform to delta release asset filename suffix. Returns None if unsupported."""
     system = platform.system()

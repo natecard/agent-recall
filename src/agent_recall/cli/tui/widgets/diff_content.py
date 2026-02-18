@@ -7,13 +7,15 @@ from pathlib import Path
 
 from rich.syntax import Syntax
 from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import Static
 
+from agent_recall.cli.theme import DEFAULT_THEME, ThemeManager
 from agent_recall.cli.tui.delta import get_delta_path
 from agent_recall.cli.tui.utils.diff_parser import DiffFile, get_hunk_diff_text
 
@@ -31,16 +33,14 @@ class DiffContentViewer(Vertical):
         overflow: hidden;
     }
     DiffContentViewer > Static#diff_header {
-        height: auto;
+        height: 1;
         padding: 0 1;
-        margin-bottom: 1;
         border-bottom: solid $accent;
     }
-    DiffContentViewer > Vertical#diff_scroll {
+    DiffContentViewer > VerticalScroll#diff_scroll {
         height: 1fr;
-        overflow: auto;
     }
-    DiffContentViewer > Vertical#diff_scroll > Static {
+    DiffContentViewer > VerticalScroll#diff_scroll > Static {
         height: auto;
         padding: 0 1;
     }
@@ -83,8 +83,12 @@ class DiffContentViewer(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Static("", id="diff_header")
-        with Vertical(id="diff_scroll"):
-            yield Static("", id="diff_content")
+        with VerticalScroll(id="diff_scroll"):
+            yield Static("", id="diff_body")
+
+    def on_resize(self, _event: events.Resize) -> None:
+        if self._diff_file and self.mode == DiffMode.SIDE_BY_SIDE:
+            self._render_diff()
 
     def watch_mode(self, old_mode: DiffMode, new_mode: DiffMode) -> None:
         if old_mode != new_mode:
@@ -138,26 +142,43 @@ class DiffContentViewer(Vertical):
 
     def _render_diff(self) -> None:
         header = self.query_one("#diff_header", Static)
-        content = self.query_one("#diff_content", Static)
+        body = self.query_one("#diff_body", Static)
 
         if not self._diff_file:
             header.update("[dim]Select a file to view diff[/dim]")
-            content.update("")
+            body.update("")
             return
 
-        header_text = self._render_header()
-        header.update(header_text)
+        header.update(self._render_header())
 
         if self.mode == DiffMode.SIDE_BY_SIDE and self._can_show_side_by_side():
-            content.update(self._render_side_by_side())
+            body.update(self._render_side_by_side())
         else:
-            content.update(self._render_unified())
+            body.update(self._render_unified())
+
+        # Scroll back to top when the file changes
+        try:
+            self.query_one("#diff_scroll", VerticalScroll).scroll_home(animate=False)
+        except Exception:
+            pass
 
     def _can_show_side_by_side(self) -> bool:
         return bool(self._old_content or self._new_content)
 
+    def _get_accent_style(self) -> str:
+        """Get 'bold {accent}' from the current theme."""
+        try:
+            theme_name = getattr(self.app, "_active_theme_name", None) or DEFAULT_THEME
+            if theme_name == "__initial__":
+                theme_name = DEFAULT_THEME
+            colors = ThemeManager.get_theme_colors(theme_name)
+            accent = colors.get("accent", "cyan")
+            return f"bold {accent}"
+        except Exception:
+            return "bold cyan"
+
     def _render_header(self) -> Text:
-        text = Text()
+        text = Text(overflow="fold", no_wrap=True)
         if self._diff_file:
             text.append(self._diff_file.display_name, style="bold")
             text.append("  ")
@@ -166,17 +187,17 @@ class DiffContentViewer(Vertical):
                 text.append(" ")
             if self._diff_file.deleted > 0:
                 text.append(f"-{self._diff_file.deleted}", style="red")
-            text.append("  ")
-            mode_style = "accent" if self.mode == DiffMode.SIDE_BY_SIDE else "dim"
+            text.append("   ")
+            accent_style = self._get_accent_style()
+            mode_style = accent_style if self.mode == DiffMode.SIDE_BY_SIDE else "dim"
             text.append("[S]", style=mode_style)
             text.append(" Side-by-side  ")
-            mode_style = "accent" if self.mode == DiffMode.UNIFIED else "dim"
+            mode_style = accent_style if self.mode == DiffMode.UNIFIED else "dim"
             text.append("[U]", style=mode_style)
             text.append(" Unified")
         return text
 
     def _render_with_delta(self, diff_text: str, side_by_side: bool = False) -> str | None:
-        """Render diff with delta binary. Returns None on failure."""
         delta_path = get_delta_path()
         if not delta_path or not diff_text:
             return None
@@ -197,59 +218,68 @@ class DiffContentViewer(Vertical):
             pass
         return None
 
-    def _render_unified(self) -> str | Syntax:
+    def _render_unified(self) -> Text | Syntax:
         diff_text = get_hunk_diff_text(self._diff_file) if self._diff_file else ""
         delta_output = self._render_with_delta(diff_text, side_by_side=False)
         if delta_output is not None:
-            return delta_output
-        return Syntax(
-            diff_text,
-            lexer="diff",
-            word_wrap=False,
-            theme="monokai",
-        )
+            return Text.from_ansi(delta_output)
+        return Syntax(diff_text, lexer="diff", word_wrap=False, theme="monokai")
 
-    def _render_side_by_side(self) -> str:
+    def _render_side_by_side(self) -> Text:
         diff_text = get_hunk_diff_text(self._diff_file) if self._diff_file else ""
         delta_output = self._render_with_delta(diff_text, side_by_side=True)
         if delta_output is not None:
-            return delta_output
+            return Text.from_ansi(delta_output)
         return self._render_stdlib_side_by_side()
 
-    def _render_stdlib_side_by_side(self) -> str:
+    def _render_stdlib_side_by_side(self) -> Text:
         old_lines = (self._old_content or "").splitlines()
         new_lines = (self._new_content or "").splitlines()
 
         if not old_lines and not new_lines:
-            return ""
+            return Text("(no content to diff)", style="dim")
 
-        col_width = 80
+        # Use half the widget width minus the separator; fall back to 80 before layout
+        available = self.size.width if self.size.width > 10 else 160
         sep = " │ "
-        output_lines: list[str] = []
+        col_width = max(30, (available - len(sep)) // 2)
 
+        result = Text()
         matcher = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False)
         groups = list(matcher.get_grouped_opcodes(3))
 
+        first_group = True
         for group in groups:
-            if output_lines:
-                output_lines.append("─" * (col_width + len(sep) + col_width // 2))
+            if not first_group:
+                result.append("─" * available + "\n", style="dim")
+            first_group = False
+
             for tag, i1, i2, j1, j2 in group:
                 old_chunk = old_lines[i1:i2]
                 new_chunk = new_lines[j1:j2]
                 n = max(len(old_chunk), len(new_chunk))
                 for k in range(n):
-                    left = old_chunk[k] if k < len(old_chunk) else ""
-                    right = new_chunk[k] if k < len(new_chunk) else ""
-                    if tag == "equal":
-                        marker_l = marker_r = " "
-                    elif tag == "replace":
-                        marker_l, marker_r = "-", "+"
-                    elif tag == "delete":
-                        marker_l, marker_r = "-", " "
-                    else:  # insert
-                        marker_l, marker_r = " ", "+"
-                    left_col = (marker_l + " " + left)[:col_width].ljust(col_width)
-                    right_col = marker_r + " " + right
-                    output_lines.append(left_col + sep + right_col)
+                    left_text = old_chunk[k] if k < len(old_chunk) else ""
+                    right_text = new_chunk[k] if k < len(new_chunk) else ""
 
-        return "\n".join(output_lines) if output_lines else "(no differences)"
+                    if tag == "equal":
+                        left_style = right_style = ""
+                        left_marker = right_marker = " "
+                    elif tag == "replace":
+                        left_style, right_style = "red", "green"
+                        left_marker, right_marker = "-", "+"
+                    elif tag == "delete":
+                        left_style, right_style = "red", "dim"
+                        left_marker, right_marker = "-", " "
+                    else:  # insert
+                        left_style, right_style = "dim", "green"
+                        left_marker, right_marker = " ", "+"
+
+                    left_col = (left_marker + " " + left_text)[:col_width].ljust(col_width)
+                    right_col = right_marker + " " + right_text
+
+                    result.append(left_col, style=left_style)
+                    result.append(sep, style="dim")
+                    result.append(right_col + "\n", style=right_style)
+
+        return result if result else Text("(no differences)", style="dim")

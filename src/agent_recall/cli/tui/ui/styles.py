@@ -156,14 +156,6 @@ APP_CSS = """
     .modal_column:last-child {
         padding: 0 0 0 1;
     }
-    #diff_content {
-        height: 1fr;
-        overflow: auto;
-        background: $panel;
-        border: round $accent;
-        padding: 1 2;
-        margin-top: 1;
-    }
     #iteration_detail_content {
         height: 1fr;
         overflow: auto;
