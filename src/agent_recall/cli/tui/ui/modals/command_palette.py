@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from pathlib import Path
 
 from textual import events
 from textual.app import ComposeResult
@@ -15,16 +16,25 @@ from agent_recall.cli.tui.commands.palette_actions import (
     _is_palette_cli_command_redundant,
     _normalize_palette_command,
 )
+from agent_recall.cli.tui.commands.palette_recents import record_recent
 from agent_recall.cli.tui.logic.text_sanitizers import _strip_rich_markup
 
 
 class CommandPaletteModal(ModalScreen[str | None]):
     BINDINGS = [Binding("escape", "dismiss(None)", "Close")]
 
-    def __init__(self, actions: list[PaletteAction], cli_commands: list[str]):
+    def __init__(
+        self,
+        actions: list[PaletteAction],
+        cli_commands: list[str],
+        recents: list[str] | None = None,
+        config_dir: Path | None = None,
+    ):
         super().__init__()
         self.actions = actions
         self.cli_commands = cli_commands
+        self.recents = recents or []
+        self.config_dir = config_dir
         self.query_text = ""
 
     def compose(self) -> ComposeResult:
@@ -100,7 +110,8 @@ class CommandPaletteModal(ModalScreen[str | None]):
                 self.dismiss(f"run:{query}")
             return
         if option_id.startswith("action:"):
-            self.dismiss(option_id.split(":", 1)[1])
+            action_id = option_id.split(":", 1)[1]
+            self._record_and_dismiss(action_id)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         option_id = event.option.id or ""
@@ -110,7 +121,13 @@ class CommandPaletteModal(ModalScreen[str | None]):
                 self.dismiss(f"run:{query}")
             return
         if option_id.startswith("action:"):
-            self.dismiss(option_id.split(":", 1)[1])
+            action_id = option_id.split(":", 1)[1]
+            self._record_and_dismiss(action_id)
+
+    def _record_and_dismiss(self, action_id: str) -> None:
+        if self.config_dir and action_id and not action_id.startswith("cmd:"):
+            record_recent(self.config_dir, action_id)
+        self.dismiss(action_id)
 
     def _rebuild_options(self) -> None:
         query = self.query_text.strip().lower()
@@ -146,18 +163,55 @@ class CommandPaletteModal(ModalScreen[str | None]):
             )
         grouped_order = [
             ("Core", "Suggested"),
-            ("Sessions", "Session"),
             ("Views", "Views"),
+            ("Sessions", "Session"),
             ("Settings", "Settings"),
             ("System", "System"),
         ]
+
+        if not query and self.recents:
+            actions_by_id = {a.action_id: a for a in self.actions}
+            recent_actions = []
+            for recent_id in self.recents:
+                if recent_id in actions_by_id:
+                    recent_actions.append(actions_by_id[recent_id])
+            if recent_actions:
+                options.append(
+                    Option(
+                        "[bold accent]Recent[/bold accent]",
+                        id="heading:Recent",
+                        disabled=True,
+                    )
+                )
+                for action in recent_actions:
+                    line = action.title
+                    if action.shortcut:
+                        line = f"{line} [dim]{action.shortcut}[/dim]"
+                    if action.binding:
+                        left_plain = _strip_rich_markup(line)
+                        binding_plain = _strip_rich_markup(action.binding)
+                        spacer_width = max(2, list_width - len(left_plain) - len(binding_plain) - 2)
+                        line = f"{line}{' ' * spacer_width}[dim]{action.binding}[/dim]"
+                    options.append(
+                        Option(
+                            line,
+                            id=f"action:{action.action_id}",
+                        )
+                    )
+
         for index, (group, label) in enumerate(grouped_order):
             items = grouped.get(group, [])
             if not items:
                 continue
 
+            total_count = len(items)
             if not query:
-                if index > 0:
+                capped_items = items[:5]
+            else:
+                capped_items = items
+
+            if not query:
+                if index > 0 or self.recents:
                     options.append(Option("", id=f"heading:spacer:{group}", disabled=True))
                 options.append(
                     Option(
@@ -166,7 +220,7 @@ class CommandPaletteModal(ModalScreen[str | None]):
                         disabled=True,
                     )
                 )
-            for action in items:
+            for action in capped_items:
                 line = action.title
                 if action.shortcut:
                     line = f"{line} [dim]{action.shortcut}[/dim]"
@@ -181,6 +235,15 @@ class CommandPaletteModal(ModalScreen[str | None]):
                     Option(
                         line,
                         id=f"action:{action.action_id}",
+                    )
+                )
+            if not query and total_count > 5:
+                more_count = total_count - 5
+                options.append(
+                    Option(
+                        f"[dim]  … {more_count} more  ·  type to filter[/dim]",
+                        id=f"more:{group}",
+                        disabled=True,
                     )
                 )
 

@@ -1,2 +1,10 @@
 # Style Guide
 
+- [PATTERN] Building build_sources_data() helper function to extract source data preparation logic from dashboard.py made it reusable for both the existing read-only widget and the new interactive widget. Using existing _run_source_sync infrastructure avoided duplicating sync logic.
+- [PATTERN] Followed existing widget pattern (RalphStatusWidget) for dataclass + render() method; tests needed DashboardPanels updates to include new field
+- [PATTERN] Reuse existing dashboard panel pipeline for new widget integration; leverage existing test patterns for context-aware dashboard testing.
+- [PATTERN] Reuse existing modal card styles and apply settings through FileStorage-backed TUI config updates.
+- [PATTERN] Reuse existing panel builders and Rich Syntax rendering to deliver a readable detail view without new Textual widgets.
+- [PATTERN] Reuse the activity result list to route sync actions through worker execution with existing command plumbing.
+- [PATTERN] Reused the existing dashboard panel builder and view routing patterns to add a new view with minimal impact.
+- [PATTERN] Used _build_slash_command_map() as single source of truth for hyphenated commands, then routed to handle_palette_action() which dispatches correctly to palette_router

@@ -13,6 +13,7 @@ from agent_recall.cli.tui.commands.palette_actions import (
     _is_knowledge_run_command,
     get_palette_actions,
 )
+from agent_recall.cli.tui.commands.palette_recents import load_recents
 from agent_recall.cli.tui.commands.palette_router import handle_palette_action
 from agent_recall.cli.tui.ui.modals import (
     LLMConfigStepModal,
@@ -46,8 +47,22 @@ class CommandsMixin:
             pass
 
     def action_open_command_palette(self: Any) -> None:
+        recents: list[str] = []
+        config_dir: Path | None = None
+        try:
+            agent_dir = Path(".agent")
+            if agent_dir.exists():
+                config_dir = agent_dir
+                recents = load_recents(config_dir)
+        except Exception:  # noqa: BLE001
+            pass
         self.push_screen(
-            CommandPaletteModal(get_palette_actions(), self._command_suggestions),
+            CommandPaletteModal(
+                get_palette_actions(),
+                self._command_suggestions,
+                recents=recents,
+                config_dir=config_dir,
+            ),
             self._handle_palette_action,
         )
 

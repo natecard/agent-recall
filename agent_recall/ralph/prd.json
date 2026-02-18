@@ -70,7 +70,7 @@
       "validation_commands": [
         "uv run pytest tests/test_textual_tui.py"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-1011",

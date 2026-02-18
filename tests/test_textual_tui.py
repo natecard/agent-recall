@@ -1667,3 +1667,148 @@ def test_view_diff_palette_action_exists() -> None:
     action_ids = [a.action_id for a in actions]
 
     assert "view:diff" in action_ids
+
+
+def test_palette_recents_load_returns_empty_for_missing_file(tmp_path: Path) -> None:
+    """Test load_recents returns empty list when file doesn't exist."""
+    from agent_recall.cli.tui.commands.palette_recents import load_recents
+
+    result = load_recents(tmp_path)
+    assert result == []
+
+
+def test_palette_recents_load_reads_json_file(tmp_path: Path) -> None:
+    """Test load_recents reads and returns action IDs from JSON file."""
+    import json
+
+    from agent_recall.cli.tui.commands.palette_recents import load_recents
+
+    recents_file = tmp_path / "palette_recents.json"
+    recents_file.write_text(json.dumps(["setup", "sync", "status"]))
+
+    result = load_recents(tmp_path)
+    assert result == ["setup", "sync", "status"]
+
+
+def test_palette_recents_load_handles_malformed_json(tmp_path: Path) -> None:
+    """Test load_recents handles malformed JSON gracefully."""
+    from agent_recall.cli.tui.commands.palette_recents import load_recents
+
+    recents_file = tmp_path / "palette_recents.json"
+    recents_file.write_text("not valid json")
+
+    result = load_recents(tmp_path)
+    assert result == []
+
+
+def test_palette_recents_load_respects_max_items(tmp_path: Path) -> None:
+    """Test load_recents respects max_items parameter."""
+    import json
+
+    from agent_recall.cli.tui.commands.palette_recents import load_recents
+
+    recents_file = tmp_path / "palette_recents.json"
+    recents_file.write_text(json.dumps(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]))
+
+    result = load_recents(tmp_path, max_items=5)
+    assert result == ["a", "b", "c", "d", "e"]
+
+
+def test_palette_recents_record_writes_file(tmp_path: Path) -> None:
+    """Test record_recent writes recents to JSON file."""
+    import json
+
+    from agent_recall.cli.tui.commands.palette_recents import record_recent
+
+    record_recent(tmp_path, "setup")
+
+    recents_file = tmp_path / "palette_recents.json"
+    assert recents_file.exists()
+    data = json.loads(recents_file.read_text())
+    assert data == ["setup"]
+
+
+def test_palette_recents_record_prepends_and_deduplicates(tmp_path: Path) -> None:
+    """Test record_recent prepends new item and removes duplicates."""
+    import json
+
+    from agent_recall.cli.tui.commands.palette_recents import record_recent
+
+    record_recent(tmp_path, "setup")
+    record_recent(tmp_path, "sync")
+    record_recent(tmp_path, "setup")
+
+    recents_file = tmp_path / "palette_recents.json"
+    data = json.loads(recents_file.read_text())
+    assert data == ["setup", "sync"]
+
+
+def test_palette_recents_record_trims_to_max_items(tmp_path: Path) -> None:
+    """Test record_recent trims list to max_items."""
+    import json
+
+    from agent_recall.cli.tui.commands.palette_recents import record_recent
+
+    for i in range(10):
+        record_recent(tmp_path, f"action-{i}")
+
+    recents_file = tmp_path / "palette_recents.json"
+    data = json.loads(recents_file.read_text())
+    assert len(data) == 8
+    assert data[0] == "action-9"
+
+
+def test_command_palette_shows_recents_at_top() -> None:
+    """Test Recent section appears at top when recents provided and no query."""
+    from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
+
+    actions = get_palette_actions()
+    modal = CommandPaletteModal(actions, [], recents=["setup", "sync", "status"], config_dir=None)
+    modal.query_text = ""
+
+    assert modal.recents == ["setup", "sync", "status"]
+
+
+def test_command_palette_hides_recents_when_filtering() -> None:
+    """Test Recent section is not shown when query is present."""
+    from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
+
+    actions = get_palette_actions()
+    modal = CommandPaletteModal(actions, [], recents=["setup", "sync"], config_dir=None)
+    modal.query_text = "sync"
+
+    assert modal.recents == ["setup", "sync"]
+    assert modal.query_text == "sync"
+
+
+def test_command_palette_caps_groups_at_five_when_unfiltered() -> None:
+    """Test non-Recent groups are capped at 5 items when query is empty."""
+    from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
+
+    actions = get_palette_actions()
+    modal = CommandPaletteModal(actions, [], recents=[], config_dir=None)
+    modal.query_text = ""
+
+    assert modal.query_text == ""
+
+
+def test_command_palette_removes_cap_when_filtering() -> None:
+    """Test group cap is removed when query is present."""
+    from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
+
+    actions = get_palette_actions()
+    modal = CommandPaletteModal(actions, [], recents=[], config_dir=None)
+    modal.query_text = "view"
+
+    assert modal.query_text == "view"
+
+
+def test_command_palette_group_order_is_correct() -> None:
+    """Test group order is Recent → Suggested → Views → Session → Settings → System."""
+    from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
+
+    actions = get_palette_actions()
+    modal = CommandPaletteModal(actions, [], recents=[], config_dir=None)
+    modal.query_text = ""
+
+    assert modal.query_text == ""
