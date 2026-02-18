@@ -57,17 +57,17 @@
       "priority": 1,
       "description": "The dashboard banner flashes every few seconds (likely on the refresh interval), indicating unnecessary full re-renders of the component or the entire dashboard.",
       "requirements": [
-        "Investigate the `_refresh_dashboard_panel` and `_update_dashboard_widgets` logic.",
-        "Ensure that simple time updates in the banner do not trigger a full dashboard tear-down and re-mount.",
-        "Optimize the Banner widget to update its content (text) in-place without replacing the widget itself.",
-        "Verify that `_update_dashboard_widgets` returns `True` for routine updates."
+        "[DONE] Investigate the `_refresh_dashboard_panel` and `_update_dashboard_widgets` logic.",
+        "[DONE] Ensure that simple time updates in the banner do not trigger a full dashboard tear-down and re-mount.",
+        "[DONE] Optimize the Banner widget to update its content (text) in-place without replacing the widget itself.",
+        "[DONE] Verify that `_update_dashboard_widgets` returns `True` for routine updates."
       ],
       "acceptance_criteria": [
-        "The banner time updates smoothly without flashing.",
-        "The rest of the dashboard remains stable during time updates.",
-        "CPU usage for TUI idle state is minimized."
+        "[DONE] The banner time updates smoothly without flashing.",
+        "[DONE] The rest of the dashboard remains stable during time updates.",
+        "[DONE] CPU usage for TUI idle state is minimized."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-105",

@@ -142,6 +142,7 @@ class AgentRecallTextualApp(
         self.tui_widget_visibility: dict[str, bool] = {}
         self.tui_banner_size: str = "normal"
         self._last_layout_signature: tuple[str, tuple[tuple[str, bool], ...]] | None = None
+        self._last_banner_classes: str | None = None
         self._layout_module: object | None = None
 
     def compose(self) -> ComposeResult:
@@ -343,8 +344,10 @@ class AgentRecallTextualApp(
         if panels.header is not None:
             classes = f"banner-{self.tui_banner_size}"
             dashboard.mount(Static(panels.header, id="dashboard_header", classes=classes))
+            self._last_banner_classes = classes
         elif self.tui_banner_size == "compact":
             dashboard.mount(Static("AGENT RECALL", id="dashboard_header", classes="banner-compact"))
+            self._last_banner_classes = "banner-compact"
         if self.current_view == "all":
             self._mount_all_view(dashboard, panels)
         elif self.current_view == "knowledge":
@@ -401,7 +404,10 @@ class AgentRecallTextualApp(
             try:
                 header_widget = self.query_one("#dashboard_header", Static)
                 header_widget.update(panels.header)
-                header_widget.classes = f"banner-{self.tui_banner_size}"
+                new_classes = f"banner-{self.tui_banner_size}"
+                if self._last_banner_classes != new_classes:
+                    header_widget.classes = new_classes
+                    self._last_banner_classes = new_classes
             except Exception:
                 return False
         if self.current_view == "all":

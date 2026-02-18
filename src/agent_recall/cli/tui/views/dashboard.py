@@ -10,6 +10,7 @@ from rich.console import Group
 from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from agent_recall.cli.banner import BannerRenderer
 from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
@@ -225,19 +226,23 @@ def build_dashboard_panels(
 
     now_text = datetime.now().strftime("%H:%M:%S")
 
-    header_title = f"[dim]{now_text}[/dim]"
-    if context.ralph_enabled:
-        badge = (
-            "[success]Ralph Active[/success]" if context.ralph_running else "[dim]Ralph Idle[/dim]"
-        )
-        header_title = f"{badge}  {header_title}"
-
     header_panel = None
     if include_banner_header and header_text:
-        header_panel = Panel(
+        status_line = f"[dim]{now_text}[/dim]  [dim]Ctrl+Q to exit[/dim]"
+        if context.ralph_enabled:
+            badge = (
+                "[success]Ralph Active[/success]"
+                if context.ralph_running
+                else "[dim]Ralph Idle[/dim]"
+            )
+            status_line = f"{badge}  [dim]{now_text}[/dim]  [dim]Ctrl+Q to exit[/dim]"
+        header_content = Group(
+            Text(status_line),
+            Text(),
             header_text,
-            title=header_title,
-            subtitle="[dim]Press Ctrl+Q to exit[/dim]",
+        )
+        header_panel = Panel(
+            header_content,
             border_style="banner.border",
         )
 

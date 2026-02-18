@@ -1058,6 +1058,8 @@ def test_context_aware_dashboard_ralph_enabled_idle() -> None:
 
 def test_context_aware_dashboard_header_badge_ralph_enabled() -> None:
     """Header shows Ralph badge when Ralph is enabled."""
+    from rich.console import Console, Group
+
     from agent_recall.cli.tui.views import build_dashboard_panels
     from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
 
@@ -1112,9 +1114,10 @@ def test_context_aware_dashboard_header_badge_ralph_enabled() -> None:
 
     panels_running = build_dashboard_panels(context_running, view="overview")
     assert panels_running.header is not None
-    # Header title should contain "Ralph Active" badge
-    header_title = str(panels_running.header.title)
-    assert "Ralph" in header_title
+    header_content = panels_running.header.renderable
+    assert isinstance(header_content, Group)
+    status_line_text = header_content.renderables[0]
+    assert "Ralph Active" in str(status_line_text)
 
     # Test with Ralph enabled but idle
     context_idle = DashboardRenderContext(
@@ -1139,8 +1142,10 @@ def test_context_aware_dashboard_header_badge_ralph_enabled() -> None:
 
     panels_idle = build_dashboard_panels(context_idle, view="overview")
     assert panels_idle.header is not None
-    header_title_idle = str(panels_idle.header.title)
-    assert "Ralph" in header_title_idle
+    header_content_idle = panels_idle.header.renderable
+    assert isinstance(header_content_idle, Group)
+    status_line_text_idle = header_content_idle.renderables[0]
+    assert "Ralph Idle" in str(status_line_text_idle)
 
 
 def test_filter_command_suggestions_prefix_match() -> None:
