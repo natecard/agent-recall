@@ -13,93 +13,49 @@
   },
   "items": [
     {
-      "id": "AR-1009",
+      "id": "AR-1012",
       "priority": 1,
-      "title": "Slash Command Parity & Completeness",
-      "description": "The slash command system in `app.py` and `local_router.py` has diverged from the Command Palette: several actions exposed in `palette_actions.py` — including Ralph sub-commands like `ralph-hooks-install`, `ralph-hooks-uninstall`, `ralph-opencode-install`, `ralph-opencode-uninstall`, `ralph-watch`, `ralph-view-diff`, `ralph-notifications`, and `ralph-terminal`, plus the `run:select` session-run action — have no corresponding slash command entry. Meanwhile `local_router.py` handles some of these only when written as two-word phrases (`ralph view-diff`, `ralph notifications`) but never maps them from the canonical hyphenated form a user would naturally type. The fix is to make `_build_slash_command_map()` a full reflection of every `PaletteAction.action_id`, add the missing routes to `local_router.py`, update the `/help` output to list every real command grouped by category, and update the `#cli_input` placeholder to give a more useful hint.",
-      "user_story": "As a user, I want every command shown in the Command Palette to also work as a slash command so that I never have to open the palette just to trigger something I already know the name of.",
+      "title": "Compaction Backend Choice (LLM or Coding CLI)",
+      "description": "Add a compaction backend setting so users can run compaction summarization through the coding CLI agent instead of only the configured LLM provider.",
+      "user_story": "As a user, I want to choose whether compaction summarization uses the configured LLM provider or my coding CLI agent so I can keep behavior consistent with my workflow.",
       "steps": [
-        "Audit `get_palette_actions()` in `commands/palette_actions.py` and collect every `action_id` not already in `_build_slash_command_map()` — currently missing: `ralph-hooks-install`, `ralph-hooks-uninstall`, `ralph-opencode-install`, `ralph-opencode-uninstall`, `ralph-watch`, `ralph-view-diff`, `ralph-notifications`, `ralph-terminal`, and `run:select`",
-        "Add all missing entries to `_build_slash_command_map()` in `app.py`, mapping each hyphenated slug directly to its `action_id` (e.g., `'ralph-view-diff': 'ralph-view-diff'`, `'ralph-watch': 'ralph-watch'`)",
-        "Add convenient short aliases where they make sense: `'diff': 'ralph-view-diff'`, `'watch': 'ralph-watch'`, `'run-select': 'run:select'`, `'select': 'run:select'`",
-        "Extend `local_router.py` to handle all hyphenated ralph sub-commands — add `second` value branches for `hooks-install`, `hooks-uninstall`, `opencode-install`, `opencode-uninstall`, `watch`, `view-diff`, `notify`/`notifications`, and `terminal`",
-        "Rewrite the `/help` output in `_handle_slash_command()` to group commands by category (Core, Views, Ralph, Settings, System) mirroring the Command Palette groups, listing each slug and one-line description with consistent column alignment",
-        "Update the `#cli_input` placeholder from `'Type /help for commands...'` to `'/ command  ·  Ctrl+P for palette'`",
-        "Add the missing slash entries to `commands/help_text.py` so the autocomplete suggestion engine (AR-1006) draws from the complete set",
-        "Write tests in `tests/test_textual_tui.py` that pilot each newly added slash command and assert it triggers the correct handler without falling through to the 'unknown command' branch"
+        "Add compaction backend config with values llm and coding_cli.",
+        "Keep llm as the default backend for backward compatibility.",
+        "Implement coding_cli backend execution for compact synthesis paths.",
+        "Validate coding_cli output shape before writing tier files.",
+        "Add tests for backend selection and fallback behavior."
       ],
       "acceptance_criteria": [
-        "Every `action_id` in `get_palette_actions()` has a corresponding entry in `_build_slash_command_map()` or is handled by `local_router.py`",
-        "`/ralph-view-diff`, `/ralph-watch`, `/ralph-hooks-install`, `/ralph-hooks-uninstall`, `/ralph-opencode-install`, `/ralph-opencode-uninstall`, `/ralph-notifications`, and `/ralph-terminal` all execute without an 'unknown command' error",
-        "Short aliases `/diff` and `/watch` work and invoke the correct handlers",
-        "`/help` output is grouped by category and lists every command with aligned descriptions — no catch-all `/ralph-*` language remains",
-        "The `#cli_input` placeholder no longer reads 'Type /help for commands...'"
+        "Users can select compaction backend via config.",
+        "Default behavior stays unchanged when config is not set.",
+        "Compaction can run using coding_cli backend when configured.",
+        "Invalid coding_cli output does not corrupt tier files."
       ],
       "validation_commands": [
-        "uv run pytest tests/test_textual_tui.py"
+        "uv run pytest tests/test_compact.py -q"
       ],
-      "passes": true
+      "passes": false
     },
     {
-      "id": "AR-1010",
-      "priority": 3,
-      "title": "Command Palette UX Overhaul: Ordering, Limits & Cross-Session Recents",
-      "description": "The Command Palette (`CommandPaletteModal`) presents all groups in a fixed order with no cap on items per group and has no memory of what the user has previously run. Three improvements address this: (1) reorder groups to match the user's actual task flow — Recent first, then Core actions, Views, Sessions, Settings, System; (2) when unfiltered, cap each group at 5 visible items with a 'Show more…' affordance so the palette opens light and scannable; (3) add a persistent cross-session 'Recent' section that records the last 8 action IDs selected and stores them as a JSON list in the config directory, displayed at the top of the palette on every open.",
-      "user_story": "As a returning user, I want the Command Palette to immediately surface my most-used actions at the top so I can re-run common workflows with a single keystroke, and I want the default unfiltered list to be short and scannable rather than overwhelming.",
+      "id": "AR-1013",
+      "priority": 1,
+      "title": "Auto-Mark Completed PRD Steps as [DONE]",
+      "description": "Ensure Ralph loop marks each completed step in PRD items with a [DONE] prefix when an item is completed, not only passes: true.",
+      "user_story": "As a user handing off between agents, I want completed steps clearly marked in the PRD so the next agent can quickly see exactly what has already been done.",
       "steps": [
-        "Create `src/agent_recall/cli/tui/commands/palette_recents.py` with two functions: `load_recents(config_dir: Path, max_items: int = 8) -> list[str]` (reads `<config_dir>/palette_recents.json`, returns list of action IDs) and `record_recent(config_dir: Path, action_id: str, max_items: int = 8) -> None` (prepends, deduplicates, trims to `max_items`, writes back); both functions handle missing files and JSON errors gracefully",
-        "In `CommandPaletteModal.__init__()`, add a `recents: list[str]` parameter (list of action IDs) and store it as `self.recents`",
-        "In `AgentRecallTextualApp.action_open_command_palette()` in `commands_mixin.py`, call `load_recents(config_dir)` and pass the result into the modal constructor",
-        "After a successful selection in both `on_option_list_option_selected()` and `on_input_submitted()`, call `record_recent(config_dir, action_id)` before `self.dismiss()` — skip recording for heading/disabled items and the dynamic 'run-query' entry",
-        "In `_rebuild_options()`, change `grouped_order` to `[('Recent', 'Recent'), ('Core', 'Suggested'), ('Views', 'Views'), ('Sessions', 'Session'), ('Settings', 'Settings'), ('System', 'System')]`",
-        "Render the 'Recent' group by resolving each stored action ID back to its `PaletteAction` from `self.actions`; silently skip IDs that no longer exist; apply identical line formatting as other groups",
-        "When `query` is empty, cap each non-Recent group at 5 visible items; append a disabled `Option` like `[dim]  … N more  ·  type to filter[/dim]` for trimmed groups",
-        "When `query` is non-empty, remove the per-group cap entirely and hide the Recent section so search results are unobstructed",
-        "Add a CSS rule in `ui/styles.py` for the Recent section heading using a subtly distinct accent color",
-        "Write tests asserting: (a) `palette_recents.json` is written after selection, (b) recents appear at the top when unfiltered, (c) group cap limits items when unfiltered, (d) all matching items appear when a filter query is present"
+        "[DONE] Add loop-side normalization that updates steps for passed items.",
+        "[DONE] Prefix each completed step string with [DONE] if missing.",
+        "[DONE] Avoid double-prefixing steps already marked [DONE].",
+        "[DONE] Run this normalization each iteration before next prompt context.",
+        "[DONE] Add regression test for step-marking behavior."
       ],
       "acceptance_criteria": [
-        "Opening the palette without typing shows at most 5 items per non-Recent group with a '… N more' indicator where trimmed",
-        "The Recent section appears at the top and lists up to 8 of the user's most recently run actions across TUI sessions",
-        "Selecting any action records it to `palette_recents.json` on disk",
-        "Recent entries survive closing and reopening the TUI — they are read from disk on each palette open",
-        "Typing a search query hides the Recent section and removes per-group caps so all matching results are shown",
-        "Invalid or removed action IDs in the recents file are silently skipped without crashing",
-        "Group order in the unfiltered palette is: Recent → Suggested → Views → Session → Settings → System"
+        "When an item has passes: true, its steps are marked with [DONE].",
+        "Existing [DONE] steps are not double-prefixed.",
+        "Next iteration prompt includes updated PRD step status."
       ],
       "validation_commands": [
-        "uv run pytest tests/test_textual_tui.py"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-1011",
-      "priority": 2,
-      "title": "Inline Diff Summary Dashboard Widget",
-      "description": "The existing `DiffViewerModal` surfaces raw unified diff text on demand but is buried behind a command. Users monitoring a Ralph loop need a lightweight, always-visible diff summary in the dashboard that communicates what the last iteration changed at a glance: lines added in green, lines deleted in red, and a per-file breakdown with a file signifier. This is a new `DiffSummaryWidget` in `src/agent_recall/cli/tui/widgets/diff_summary.py` that reads the most recent Ralph iteration diff from the report store, parses the unified diff stats, and renders a compact Rich panel. It appears in the `all` view grid and is accessible as a dedicated `/view:diff` view.",
-      "user_story": "As a developer monitoring a Ralph loop, I want to see a colour-coded summary of what the last iteration changed — lines added, lines removed, and which files were affected — without opening a modal or leaving the dashboard.",
-      "steps": [
-        "Create `src/agent_recall/cli/tui/widgets/diff_summary.py` with a `DiffSummaryWidget` dataclass following the pattern of `RalphStatusWidget` — receives `agent_dir: Path` and implements `render() -> Panel`",
-        "Implement `_load_latest_diff(self) -> str | None` which reads the most recent `IterationReport` from `IterationReportStore` and returns the raw unified diff string stored on the report, or `None` if unavailable",
-        "Implement a module-level `parse_diff_stats(diff_text: str) -> tuple[int, int, list[tuple[str, int, int]]]` function that parses a unified diff string and returns `(total_added, total_deleted, [(filename, added, deleted), ...])` — count lines starting with `+` (excluding `+++` headers) as added and lines starting with `-` (excluding `---` headers) as deleted; group by file using `diff --git a/` or `--- a/` headers",
-        "Implement `_render_panel(self, total_added, total_deleted, per_file) -> Panel` that builds a Rich `Table` with: a header row showing `[green]+{total_added}[/green]  [red]-{total_deleted}[/red]  {len(per_file)} files changed` in bold; a per-file breakdown with columns — file signifier prefix (the literal string `[F]` styled as `[dim cyan]`), truncated filename, `[green]+{added}[/green]`, `[red]-{deleted}[/red]`; a footer row showing the source iteration number and PRD item ID",
-        "When `diff_text` is `None` or empty, render a placeholder panel with the message `'No diff available — run Ralph loop to see changes'` in dim styling",
-        "Add `diff_summary: Panel | None` to `DashboardPanels` in `views/dashboard_context.py` and instantiate `DiffSummaryWidget` in `views/dashboard.py` `build_dashboard_panels()`",
-        "Mount the diff summary panel in the `all` view layout in `app.py` `_mount_dashboard_widgets()`, placed in the sidebar or as a third column depending on terminal width",
-        "Add `'diff'` to the `valid` views set in `local_router.py` and `_build_slash_command_map()`, and add `PaletteAction('view:diff', 'Diff View', 'Latest Ralph iteration diff summary', 'Views', keywords='diff changes files added deleted')` to `palette_actions.py`",
-        "Write unit tests in `tests/test_textual_tui.py` that pass synthetic unified diff strings to `parse_diff_stats` and assert correct totals and per-file breakdown; test the `None`/empty fallback renders the placeholder without raising"
-      ],
-      "acceptance_criteria": [
-        "The Diff Summary panel appears in the `all` view without disrupting the existing grid layout",
-        "`/view:diff` and the Command Palette 'Diff View' action display the standalone diff summary view",
-        "Lines starting with `+` (excluding `+++` file headers) are counted as added and rendered in green; lines starting with `-` (excluding `---` headers) are rendered in red",
-        "Each changed file appears on its own row with a `[F]` file signifier, truncated filename, and individual green/red counters",
-        "The panel header shows total added, total deleted, and total file count as a single scannable summary line",
-        "When no Ralph iteration diff is available, the panel shows a clear placeholder message rather than an error or empty space",
-        "The widget updates on every dashboard refresh cycle so new iteration diffs appear automatically"
-      ],
-      "validation_commands": [
-        "uv run pytest tests/test_textual_tui.py"
+        "uv run pytest tests/test_ralph_loop.py -q"
       ],
       "passes": true
     }

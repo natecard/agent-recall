@@ -32,6 +32,7 @@ After selecting the task:
 - Re-rank remaining unpassed PRD items by setting numeric `priority` values.
 - Use the focus PRD slice for implementation context, and the condensed full PRD list for end-of-iteration regrading.
 - Keep only one selected item in active implementation scope.
+- When marking an item complete (`passes: true`), prefix each completed step in `steps` with `[DONE]`.
 
 ## Execution
 

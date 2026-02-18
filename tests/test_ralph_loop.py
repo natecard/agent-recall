@@ -122,6 +122,14 @@ def _mark_pass_and_emit_complete_agent_cmd(item_id: str) -> str:
     )
 
 
+def _mark_pass_agent_cmd(item_id: str) -> str:
+    return (
+        f"jq '(.items[] | select(.id==\"{item_id}\") | .passes) = true' "
+        "agent_recall/ralph/prd.json > agent_recall/ralph/prd.json.tmp "
+        "&& mv agent_recall/ralph/prd.json.tmp agent_recall/ralph/prd.json"
+    )
+
+
 def test_ralph_loop_injects_iteration_memory_and_agent_context(tmp_path: Path) -> None:
     """Weather Model: rebuild-forecast overwrites RECENT from iteration reports;
     tier files are read-only for agent."""
@@ -209,6 +217,52 @@ def test_ralph_loop_preserves_archived_reports_across_runs(tmp_path: Path) -> No
     second_payload = json.loads(second_report.read_text(encoding="utf-8"))
     assert int(first_payload.get("iteration", 0)) == 1
     assert int(second_payload.get("iteration", 0)) == 2
+
+
+def test_ralph_loop_marks_passed_item_steps_done(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "agent_recall" / "ralph"
+    agent_dir = tmp_path / ".agent"
+    ralph_dir.mkdir(parents=True, exist_ok=True)
+    agent_dir.mkdir(parents=True, exist_ok=True)
+
+    (ralph_dir / "prd.json").write_text(
+        """{
+  "project": "Ralph Test",
+  "items": [
+    {
+      "id": "RLPH-001",
+      "priority": 1,
+      "title": "First",
+      "steps": ["Build flow", "Add tests", "[DONE] Existing done"],
+      "passes": false
+    },
+    {
+      "id": "RLPH-002",
+      "priority": 2,
+      "title": "Second",
+      "steps": ["Pending follow-up"],
+      "passes": false
+    }
+  ]
+}
+"""
+    )
+    (ralph_dir / "progress.txt").write_text("# Progress\n")
+    (ralph_dir / "agent-prompt.md").write_text("# Task\n")
+    (agent_dir / "RULES.md").write_text("# Rules\n")
+    (agent_dir / "GUARDRAILS.md").write_text("# Guardrails\n")
+    (agent_dir / "STYLE.md").write_text("# Style\n")
+    (agent_dir / "RECENT.md").write_text("# Recent\n")
+
+    result = _run_loop(tmp_path, agent_cmd=_mark_pass_agent_cmd("RLPH-001"))
+    assert result.returncode == 2
+
+    payload = json.loads((ralph_dir / "prd.json").read_text(encoding="utf-8"))
+    item = next(entry for entry in payload["items"] if entry["id"] == "RLPH-001")
+    steps = list(item.get("steps") or [])
+    assert steps[0] == "[DONE] Build flow"
+    assert steps[1] == "[DONE] Add tests"
+    assert steps[2] == "[DONE] Existing done"
 
 
 def test_ralph_loop_supports_external_repo_layout_with_custom_paths(tmp_path: Path) -> None:

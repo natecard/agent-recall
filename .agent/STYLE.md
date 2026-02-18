@@ -8,3 +8,4 @@
 - [PATTERN] Reuse the activity result list to route sync actions through worker execution with existing command plumbing.
 - [PATTERN] Reused the existing dashboard panel builder and view routing patterns to add a new view with minimal impact.
 - [PATTERN] Used _build_slash_command_map() as single source of truth for hyphenated commands, then routed to handle_palette_action() which dispatches correctly to palette_router
+- [PATTERN] Used Rich markup for heading styling instead of CSS rules since all headings share [bold accent] format

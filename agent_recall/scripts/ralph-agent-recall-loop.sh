@@ -894,6 +894,39 @@ finalize_iteration() {
     }
 }
 
+mark_done_steps_for_passed_items() {
+  local tmp_file="$RUNTIME_DIR/prd-steps.tmp.json"
+  local before_hash
+  local after_hash
+
+  before_hash="$(file_hash "$PRD_FILE")"
+  jq '
+    def mark_done_step:
+      if type == "string" then
+        if test("^\\s*\\[DONE\\]") then .
+        else "[DONE] " + .
+        end
+      else .
+      end;
+    .items |= map(
+      if (.passes == true and (.steps | type == "array")) then
+        .steps |= map(mark_done_step)
+      else .
+      end
+    )
+  ' "$PRD_FILE" >"$tmp_file" \
+    || {
+      echo "Warning: failed to normalize [DONE] step markers in PRD." >&2
+      rm -f "$tmp_file"
+      return 0
+    }
+  mv "$tmp_file" "$PRD_FILE"
+  after_hash="$(file_hash "$PRD_FILE")"
+  if [[ $before_hash != "$after_hash" ]]; then
+    echo "Updated PRD steps with [DONE] markers for passed items."
+  fi
+}
+
 refresh_context_after_compaction() {
   local iteration="$1"
   local item_id="$2"
@@ -1152,6 +1185,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     echo "4. RULES.md is user-authored policy. Follow it as highest-precedence project instruction unless it conflicts with system safety constraints."
     echo "5. Do not request missing placeholders; use the provided report path: $CURRENT_REPORT_PATH."
     echo "6. Update $PRD_FILE for completed work and priority regrading."
+    echo "   For completed items, prefix completed step entries in the steps array with [DONE]."
     echo "7. Treat generated memory files as read-only; do NOT edit $GUARDRAILS_FILE, $STYLE_FILE, or $RECENT_FILE (system updates them from iteration reports)."
     if [[ -n $VALIDATE_CMD ]]; then
       echo "8. Run validation and ensure it passes before committing."
@@ -1216,6 +1250,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   VALIDATION_HINT="$(extract_validation_hint "$i")"
 
   finalize_iteration "$i" "$LAST_VALIDATE_EXIT" "$VALIDATION_HINT"
+  mark_done_steps_for_passed_items
 
   HAS_COMPLETE=0
   if [[ $AGENT_OUTPUT_MODE == "stream-json" ]]; then
