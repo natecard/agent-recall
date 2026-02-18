@@ -8,3 +8,4 @@
 - [GOTCHA] The TUI refresh path caches dashboard layout; layout changes must reset the signature to force a remount.
 - [GOTCHA] Timeline detail depends on existing iteration reports; handle empty stores with a friendly placeholder.
 - [GOTCHA] Widget already existed from prior work, only needed wiring into dashboard views
+- [GOTCHA] Implementation was complete but PRD not updated - similar to AR-1005 and AR-1013 cases

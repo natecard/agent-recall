@@ -28,3 +28,9 @@ _COMPACT_MODE_OPTIONS: list[tuple[str, str]] = [
     ("on-failure", "on-failure"),
     ("off", "off"),
 ]
+
+_RALPH_AGENT_TRANSPORT_OPTIONS: list[tuple[str, str]] = [
+    ("pipe (default, stable output)", "pipe"),
+    ("auto (use PTY when available)", "auto"),
+    ("pty (force PTY, fallback to pipe)", "pty"),
+]

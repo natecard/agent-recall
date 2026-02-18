@@ -19,15 +19,16 @@
       "priority": "high",
       "description": "Currently, there are two clocks visible in the TUI: one in the top header (with 'AgentRecallTextualApp') and one in the dashboard (with 'Updated timestamp'). We need to simplify this to a single, clean clock display.",
       "requirements": [
-        "Remove the 'AgentRecallTextualApp' header branding and its associated clock.",
-        "Update the dashboard clock to remove the 'Updated' prefix, showing only the current time.",
-        "Ensure the remaining clock is clearly visible and updates correctly."
+        "[DONE] Remove the 'AgentRecallTextualApp' header branding and its associated clock.",
+        "[DONE] Update the dashboard clock to remove the 'Updated' prefix, showing only the current time.",
+        "[DONE] Ensure the remaining clock is clearly visible and updates correctly."
       ],
       "acceptance_criteria": [
-        "The top header bar matches the new minimal design (no default Textual header).",
-        "The dashboard header shows only the time (e.g., '14:30:00' instead of 'Updated 2024-05-20 14:30:00').",
-        "Only one clock is running in the TUI viewport."
-      ]
+        "[DONE] The top header bar matches the new minimal design (no default Textual header).",
+        "[DONE] The dashboard header shows only the time (e.g., '14:30:00' instead of 'Updated 2024-05-20 14:30:00').",
+        "[DONE] Only one clock is running in the TUI viewport."
+      ],
+      "passes": true
     },
     {
       "id": "AR-102",
@@ -44,7 +45,8 @@
         "Global padding reduced (e.g., `padding: 1 2` -> `padding: 0 1`).",
         "Margins between panels reduced.",
         "Information density is improved without breaking visual hierarchy."
-      ]
+      ],
+      "passes": false
     },
     {
       "id": "AR-103",

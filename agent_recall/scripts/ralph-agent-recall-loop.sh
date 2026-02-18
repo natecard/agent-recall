@@ -582,36 +582,36 @@ can_use_script_pty() {
 resolve_agent_transport() {
   local requested="$1"
   if [[ $AGENT_OUTPUT_MODE == "stream-json" ]]; then
-    printf 'legacy(pipe)\n'
+    printf 'pipe\n'
     return 0
   fi
 
   case "$requested" in
   pipe)
-    printf 'legacy(pipe)\n'
+    printf 'pipe\n'
     ;;
   pty)
     if can_use_script_pty; then
       printf 'pty(script)\n'
     else
       echo "Warning: requested PTY transport, but script PTY is unavailable; falling back to pipe." >&2
-      printf 'legacy(pipe)\n'
+      printf 'pipe\n'
     fi
     ;;
   auto)
     if can_use_script_pty; then
       printf 'pty(script)\n'
     else
-      printf 'legacy(pipe)\n'
+      printf 'pipe\n'
     fi
     ;;
   *)
-    printf 'legacy(pipe)\n'
+    printf 'pipe\n'
     ;;
   esac
 }
 
-LAST_AGENT_TRANSPORT="legacy(pipe)"
+LAST_AGENT_TRANSPORT="pipe"
 AGENT_EXIT_NORMALIZED=0
 
 run_agent() {

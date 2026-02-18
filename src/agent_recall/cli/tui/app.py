@@ -8,7 +8,7 @@ from rich.theme import Theme
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Header, Input, Log, OptionList, Static
+from textual.widgets import Footer, Input, Log, OptionList, Static
 from textual.widgets.option_list import Option
 
 from agent_recall.cli.tui.commands.help_text import (
@@ -79,6 +79,7 @@ class AgentRecallTextualApp(
         initial_view: str = "overview",
         refresh_seconds: float = 2.0,
         all_cursor_workspaces: bool = False,
+        ralph_agent_transport: str = "pipe",
         onboarding_required: bool = False,
         terminal_panel_visible: bool = False,
         terminal_supported: bool = False,
@@ -109,6 +110,10 @@ class AgentRecallTextualApp(
         self.current_view = initial_view
         self.refresh_seconds = refresh_seconds
         self.all_cursor_workspaces = all_cursor_workspaces
+        normalized_transport = str(ralph_agent_transport).strip().lower()
+        self.ralph_agent_transport = (
+            normalized_transport if normalized_transport in {"pipe", "auto", "pty"} else "pipe"
+        )
         self.onboarding_required = onboarding_required
         self.terminal_panel_visible = terminal_panel_visible
         self.terminal_supported = terminal_supported
@@ -140,7 +145,6 @@ class AgentRecallTextualApp(
         self._layout_module: object | None = None
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
         with Vertical(id="root"):
             with Vertical(id="app_shell"):
                 yield Vertical(id="dashboard")
@@ -242,6 +246,7 @@ class AgentRecallTextualApp(
             banner_size=self.tui_banner_size,
             view=self.current_view,
             refresh_seconds=self.refresh_seconds,
+            ralph_agent_transport=self.ralph_agent_transport,
             show_slash_console=False,
             widget_visibility=self.tui_widget_visibility,
         )
@@ -285,6 +290,7 @@ class AgentRecallTextualApp(
             banner_size=self.tui_banner_size,
             view=view,
             refresh_seconds=self.refresh_seconds,
+            ralph_agent_transport=self.ralph_agent_transport,
             show_slash_console=False,
             widget_visibility=self.tui_widget_visibility,
         )

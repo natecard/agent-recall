@@ -258,11 +258,61 @@ def test_tui_ralph_run_streams_shell_loop_with_configured_agent_cmd(tmp_path, mo
     assert captured_cmd[captured_cmd.index("--max-iterations") + 1] == "3"
     assert "--compact-mode" in captured_cmd
     assert captured_cmd[captured_cmd.index("--compact-mode") + 1] == "off"
+    assert "--agent-transport" in captured_cmd
+    assert captured_cmd[captured_cmd.index("--agent-transport") + 1] == "pipe"
     assert "--prd-ids" in captured_cmd
     assert captured_cmd[captured_cmd.index("--prd-ids") + 1] == "AR-1,AR-2"
     assert any("cli output line 1" in line for line in captured_activity)
     assert any("cli output line 2" in line for line in captured_activity)
     assert worker_result["exit_code"] == 0
+
+
+def test_tui_ralph_run_uses_settings_transport_override(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    agent_dir = tmp_path / ".agent"
+    (agent_dir / "ralph").mkdir(parents=True)
+
+    config = {"ralph": {"enabled": True, "coding_cli": "codex", "max_iterations": 1}}
+    (agent_dir / "config.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
+    (agent_dir / "ralph" / "prd.json").write_text(
+        '{"items":[{"id":"AR-1","title":"One","passes":false}]}', encoding="utf-8"
+    )
+    fake_script = tmp_path / "ralph-agent-recall-loop.sh"
+    fake_script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+
+    app = _build_test_app()
+    app.ralph_agent_transport = "auto"
+    captured_cmd: list[str] = []
+
+    monkeypatch.setattr("agent_recall.cli.ralph.get_default_script_path", lambda: fake_script)
+    monkeypatch.setenv("AGENT_RECALL_RALPH_STREAM_DEBUG", "0")
+    monkeypatch.setattr(
+        "agent_recall.cli.tui.logic.ralph_mixin.run_streaming_command",
+        lambda cmd, **kwargs: (
+            captured_cmd.__setitem__(slice(None), list(cmd)),
+            kwargs["on_emit"]("line\n"),
+            0,
+        )[-1],
+    )
+    monkeypatch.setattr(app, "_append_activity", lambda _line: None)
+    monkeypatch.setattr(app, "call_from_thread", lambda fn, *args: fn(*args))
+    dummy_widget = type("DummyWidget", (), {"display": False})()
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: dummy_widget)
+
+    def _run_worker_inline(fn, **_kwargs):  # noqa: ANN001
+        fn()
+
+        class _Worker:
+            pass
+
+        return _Worker()
+
+    monkeypatch.setattr(app, "run_worker", _run_worker_inline)
+
+    app.action_run_ralph_loop()
+
+    assert "--agent-transport" in captured_cmd
+    assert captured_cmd[captured_cmd.index("--agent-transport") + 1] == "auto"
 
 
 def test_tui_successful_ralph_run_clears_selected_prd_ids(tmp_path, monkeypatch) -> None:

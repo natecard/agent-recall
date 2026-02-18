@@ -8,15 +8,27 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Select, Static
 
+from agent_recall.cli.tui.constants import _RALPH_AGENT_TRANSPORT_OPTIONS
+
 
 class SettingsModal(ModalScreen[dict[str, Any] | None]):
     BINDINGS = [Binding("escape", "dismiss(None)", "Close")]
 
-    def __init__(self, current_view: str, refresh_seconds: float, all_cursor_workspaces: bool):
+    def __init__(
+        self,
+        current_view: str,
+        refresh_seconds: float,
+        all_cursor_workspaces: bool,
+        ralph_agent_transport: str = "pipe",
+    ):
         super().__init__()
         self.current_view = current_view
         self.refresh_seconds = refresh_seconds
         self.all_cursor_workspaces = all_cursor_workspaces
+        normalized_transport = str(ralph_agent_transport).strip().lower()
+        self.ralph_agent_transport = (
+            normalized_transport if normalized_transport in {"pipe", "auto", "pty"} else "pipe"
+        )
 
     def compose(self) -> ComposeResult:
         views = [
@@ -51,6 +63,20 @@ class SettingsModal(ModalScreen[dict[str, Any] | None]):
                         id="settings_refresh",
                         classes="field_input",
                     )
+                with Horizontal(classes="field_row"):
+                    yield Static("Ralph transport", classes="field_label")
+                    yield Select(
+                        _RALPH_AGENT_TRANSPORT_OPTIONS,
+                        value=self.ralph_agent_transport,
+                        allow_blank=False,
+                        id="settings_ralph_transport",
+                        classes="field_input",
+                    )
+                yield Static(
+                    "[dim]pipe = most stable stream. auto = use PTY when available. "
+                    "pty = force PTY (falls back to pipe).[/dim]",
+                    id="settings_transport_help",
+                )
                 yield Checkbox(
                     "Include all Cursor workspaces",
                     value=self.all_cursor_workspaces,
@@ -85,10 +111,21 @@ class SettingsModal(ModalScreen[dict[str, Any] | None]):
             error_widget.update("[red]Refresh must be >= 0.2[/red]")
             return
 
+        transport_widget = self.query_one("#settings_ralph_transport", Select)
+        transport_value = transport_widget.value
+        if transport_value == Select.BLANK:
+            error_widget.update("[red]Ralph transport selection is required[/red]")
+            return
+        ralph_agent_transport = str(transport_value).strip().lower()
+        if ralph_agent_transport not in {"pipe", "auto", "pty"}:
+            error_widget.update("[red]Invalid Ralph transport selection[/red]")
+            return
+
         self.dismiss(
             {
                 "view": selected_view,
                 "refresh_seconds": refresh_seconds,
+                "ralph_agent_transport": ralph_agent_transport,
                 "all_cursor_workspaces": bool(
                     self.query_one("#settings_all_cursor", Checkbox).value
                 ),

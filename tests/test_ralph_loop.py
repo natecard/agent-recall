@@ -506,7 +506,7 @@ def test_ralph_loop_reports_agent_transport_marker(tmp_path: Path) -> None:
     result = _run_loop(tmp_path, agent_cmd="printf 'agent output\\n'")
 
     assert result.returncode == 2
-    assert "Agent transport: legacy(pipe)" in result.stdout
+    assert "Agent transport: pipe" in result.stdout
 
 
 def test_ralph_loop_normalizes_known_pty_script_io_artifact(tmp_path: Path) -> None:

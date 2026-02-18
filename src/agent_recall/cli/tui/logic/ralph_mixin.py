@@ -87,6 +87,9 @@ class RalphMixin:
             )
             if compact_mode not in {"always", "on-failure", "off"}:
                 compact_mode = "always"
+            selected_transport = str(getattr(self, "ralph_agent_transport", "pipe")).strip().lower()
+            if selected_transport not in {"pipe", "auto", "pty"}:
+                selected_transport = "pipe"
 
             prd_path = get_default_prd_path()
             selected_value = ralph_cfg.get("selected_prd_ids")
@@ -195,6 +198,8 @@ class RalphMixin:
                 str(max_iterations),
                 "--compact-mode",
                 compact_mode,
+                "--agent-transport",
+                selected_transport,
                 "--sleep-seconds",
                 str(sleep_seconds),
             ]

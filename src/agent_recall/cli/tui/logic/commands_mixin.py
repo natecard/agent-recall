@@ -73,6 +73,7 @@ class CommandsMixin:
                 current_view=self.current_view,
                 refresh_seconds=self.refresh_seconds,
                 all_cursor_workspaces=self.all_cursor_workspaces,
+                ralph_agent_transport=getattr(self, "ralph_agent_transport", "pipe"),
             ),
             self._apply_settings_modal_result,
         )
@@ -178,6 +179,7 @@ class CommandsMixin:
             include_banner_header=True,
             view=self.current_view,
             refresh_seconds=self.refresh_seconds,
+            ralph_agent_transport=getattr(self, "ralph_agent_transport", "pipe"),
             show_slash_console=False,
         )
         self.query_one("#dashboard", Static).update(renderable)
@@ -430,6 +432,14 @@ class CommandsMixin:
             return
         self.current_view = str(result.get("view", self.current_view))
         self.refresh_seconds = float(result.get("refresh_seconds", self.refresh_seconds))
+        selected_transport = (
+            str(result.get("ralph_agent_transport", getattr(self, "ralph_agent_transport", "pipe")))
+            .strip()
+            .lower()
+        )
+        self.ralph_agent_transport = (
+            selected_transport if selected_transport in {"pipe", "auto", "pty"} else "pipe"
+        )
         self.all_cursor_workspaces = bool(
             result.get("all_cursor_workspaces", self.all_cursor_workspaces)
         )
@@ -446,6 +456,7 @@ class CommandsMixin:
                     {
                         "default_view": self.current_view,
                         "refresh_seconds": self.refresh_seconds,
+                        "ralph_agent_transport": self.ralph_agent_transport,
                         "all_cursor_workspaces": self.all_cursor_workspaces,
                     },
                 )
