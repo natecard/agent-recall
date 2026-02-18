@@ -30,6 +30,15 @@ class WorkerMixin:
             self.status = "Operation cancelled"
             self._append_activity("Previous operation cancelled.")
             self._finalize_theme_commit(success=False)
+            # Mark sync as cancelled in interactive widget if this was a sync-source operation
+            context = self._worker_context.get(worker_key)
+            if context and context.startswith("sync-source:"):
+                source_name = context.split(":", 1)[1]
+                if (
+                    hasattr(self, "_interactive_sources_widget")
+                    and self._interactive_sources_widget is not None
+                ):
+                    self._interactive_sources_widget.mark_sync_complete(source_name, success=False)
             self._worker_context.pop(worker_key, None)
             self._complete_knowledge_worker(worker_key, success=False)
             self._refresh_dashboard_panel()
@@ -43,6 +52,15 @@ class WorkerMixin:
             else:
                 self._append_activity(f"Error: {error}")
             self._finalize_theme_commit(success=False)
+            # Mark sync as failed in interactive widget if this was a sync-source operation
+            context = self._worker_context.get(worker_key)
+            if context and context.startswith("sync-source:"):
+                source_name = context.split(":", 1)[1]
+                if (
+                    hasattr(self, "_interactive_sources_widget")
+                    and self._interactive_sources_widget is not None
+                ):
+                    self._interactive_sources_widget.mark_sync_complete(source_name, success=False)
             self._worker_context.pop(worker_key, None)
             self._complete_knowledge_worker(worker_key, success=False)
             self._refresh_dashboard_panel()
@@ -99,6 +117,12 @@ class WorkerMixin:
             else:
                 self.status = "Source sync complete"
                 self._append_activity("Source sync complete.")
+            # Mark sync as complete in interactive widget if present
+            if (
+                hasattr(self, "_interactive_sources_widget")
+                and self._interactive_sources_widget is not None
+            ):
+                self._interactive_sources_widget.mark_sync_complete(source_name, success=True)
             self._refresh_dashboard_panel()
             return
 

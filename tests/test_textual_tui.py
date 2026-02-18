@@ -1160,3 +1160,153 @@ def test_cli_autocomplete_tab_completes_suggestion(monkeypatch) -> None:
     assert fake_input.value == "/refresh"
     assert fake_input.cursor_position == len("/refresh")
     assert app._suggestions_visible is False
+
+
+def test_interactive_sources_widget_displays_sources() -> None:
+    """Test that InteractiveSourcesWidget displays sources with correct data."""
+    from agent_recall.cli.tui.widgets import InteractiveSourcesWidget
+
+    sources = [
+        {"name": "cursor", "status": "available", "sessions": 5, "available": True},
+        {"name": "codex", "status": "empty", "sessions": 0, "available": False},
+    ]
+
+    sync_calls: list[str] = []
+
+    def on_sync(name: str) -> None:
+        sync_calls.append(name)
+
+    widget = InteractiveSourcesWidget(
+        sources=sources,
+        on_sync=on_sync,
+        last_synced="2024-01-15 10:30 UTC",
+    )
+
+    assert widget.sources == sources
+    assert widget.last_synced == "2024-01-15 10:30 UTC"
+    assert widget.on_sync == on_sync
+
+
+def test_interactive_sources_widget_mark_sync_complete() -> None:
+    """Test that mark_sync_complete updates widget state correctly."""
+    from agent_recall.cli.tui.widgets import InteractiveSourcesWidget
+
+    sources = [
+        {"name": "cursor", "status": "available", "sessions": 5, "available": True},
+    ]
+
+    widget = InteractiveSourcesWidget(
+        sources=sources,
+        on_sync=lambda _name: None,
+        last_synced="2024-01-15 10:30 UTC",
+    )
+
+    # Simulate a sync in progress
+    widget._syncing_sources.add("cursor")
+
+    # Mark as complete with success
+    widget.mark_sync_complete("cursor", success=True)
+
+    assert "cursor" not in widget._syncing_sources
+
+
+def test_interactive_sources_widget_mark_sync_complete_failure() -> None:
+    """Test that mark_sync_complete handles failure case."""
+    from agent_recall.cli.tui.widgets import InteractiveSourcesWidget
+
+    sources = [
+        {"name": "cursor", "status": "available", "sessions": 5, "available": True},
+    ]
+
+    widget = InteractiveSourcesWidget(
+        sources=sources,
+        on_sync=lambda _name: None,
+        last_synced="2024-01-15 10:30 UTC",
+    )
+
+    # Simulate a sync in progress
+    widget._syncing_sources.add("cursor")
+
+    # Mark as complete with failure
+    widget.mark_sync_complete("cursor", success=False)
+
+    assert "cursor" not in widget._syncing_sources
+
+
+def test_interactive_sources_widget_update_sources() -> None:
+    """Test that update_sources refreshes the sources data."""
+    from agent_recall.cli.tui.widgets import InteractiveSourcesWidget
+
+    initial_sources = [
+        {"name": "cursor", "status": "available", "sessions": 5, "available": True},
+    ]
+
+    widget = InteractiveSourcesWidget(
+        sources=initial_sources,
+        on_sync=lambda _name: None,
+        last_synced="2024-01-15 10:30 UTC",
+    )
+
+    new_sources = [
+        {"name": "cursor", "status": "available", "sessions": 10, "available": True},
+        {"name": "codex", "status": "available", "sessions": 3, "available": True},
+    ]
+
+    widget.update_sources(new_sources, "2024-01-15 11:00 UTC")
+
+    assert widget.sources == new_sources
+    assert widget.last_synced == "2024-01-15 11:00 UTC"
+
+
+def test_build_sources_data_returns_correct_format() -> None:
+    """Test that build_sources_data returns sources in expected format."""
+    from rich.console import Console
+
+    from agent_recall.cli.tui.views import build_sources_data
+    from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
+
+    class _MockIngester:
+        source_name = "cursor"
+
+        def discover_sessions(self) -> list[object]:
+            return [object(), object(), object()]  # 3 sessions
+
+    class _MockStorage:
+        def get_last_processed_at(self) -> None:
+            return None
+
+    class _MockFiles:
+        def read_config(self) -> dict[str, object]:
+            return {}
+
+    class _ThemeManager:
+        def get_theme_name(self) -> str:
+            return "dark+"
+
+    context = DashboardRenderContext(
+        console=Console(width=120, record=True),
+        theme_manager=_ThemeManager(),
+        agent_dir=Path("/tmp"),
+        ralph_max_iterations=10,
+        get_storage=lambda: _MockStorage(),
+        get_files=lambda: _MockFiles(),
+        get_repo_selected_sources=lambda _files: None,
+        resolve_repo_root_for_display=lambda: Path("/tmp"),
+        filter_ingesters_by_sources=lambda ingesters, _selected: ingesters,
+        get_default_ingesters=lambda **_kwargs: [_MockIngester()],
+        render_iteration_timeline=lambda _store, max_entries: [],
+        summarize_costs=lambda _reports: type(
+            "CostSummary", (), {"total_tokens": 0, "total_cost_usd": 0.0}
+        )(),
+        format_usd=lambda amount: f"${amount:.2f}",
+        is_interactive_terminal=lambda: False,
+        help_lines_provider=lambda: [],
+    )
+
+    sources_data, last_synced = build_sources_data(context, all_cursor_workspaces=False)
+
+    assert len(sources_data) == 1
+    assert sources_data[0]["name"] == "cursor"
+    assert sources_data[0]["sessions"] == 3
+    assert sources_data[0]["available"] is True
+    assert last_synced == "Never"

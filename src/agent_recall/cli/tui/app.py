@@ -34,8 +34,9 @@ from agent_recall.cli.tui.types import (
 )
 from agent_recall.cli.tui.ui.bindings import TUI_BINDINGS
 from agent_recall.cli.tui.ui.styles import APP_CSS
-from agent_recall.cli.tui.views import DashboardPanels, build_dashboard_panels
+from agent_recall.cli.tui.views import DashboardPanels, build_dashboard_panels, build_sources_data
 from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
+from agent_recall.cli.tui.widgets import InteractiveSourcesWidget
 
 
 class AgentRecallTextualApp(
@@ -126,6 +127,7 @@ class AgentRecallTextualApp(
         self._cli_commands_cache: list[str] = get_all_cli_commands()
         self._suggestions_visible = False
         self._highlighted_suggestion_index: int | None = None
+        self._interactive_sources_widget: InteractiveSourcesWidget | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -262,6 +264,23 @@ class AgentRecallTextualApp(
             return detail_panels.knowledge
         return detail_panels.timeline
 
+    def _build_interactive_sources_widget(self) -> InteractiveSourcesWidget:
+        """Build the interactive sources widget with sync buttons."""
+        sources_data, last_synced = build_sources_data(
+            self._dashboard_context,
+            all_cursor_workspaces=self.all_cursor_workspaces,
+        )
+        return InteractiveSourcesWidget(
+            sources=sources_data,
+            on_sync=self._handle_source_sync_click,
+            last_synced=last_synced,
+            id="dashboard_sources_interactive",
+        )
+
+    def _handle_source_sync_click(self, source_name: str) -> None:
+        """Handle sync button click from interactive sources widget."""
+        self._run_source_sync(source_name)
+
     def _mount_dashboard_widgets(self, dashboard: Vertical, panels: DashboardPanels) -> None:
         if panels.header is not None:
             dashboard.mount(Static(panels.header, id="dashboard_header"))
@@ -280,7 +299,8 @@ class AgentRecallTextualApp(
         elif self.current_view == "llm":
             dashboard.mount(Static(panels.llm, id="dashboard_llm"))
         elif self.current_view == "sources":
-            dashboard.mount(Static(panels.sources, id="dashboard_sources"))
+            self._interactive_sources_widget = self._build_interactive_sources_widget()
+            dashboard.mount(self._interactive_sources_widget)
         elif self.current_view == "settings":
             dashboard.mount(Static(panels.settings, id="dashboard_settings"))
         elif self.current_view == "console":
@@ -329,7 +349,17 @@ class AgentRecallTextualApp(
         if self.current_view == "llm":
             return self._update_static_widget("#dashboard_llm", panels.llm)
         if self.current_view == "sources":
-            return self._update_static_widget("#dashboard_sources", panels.sources)
+            # Update interactive sources widget instead of static
+            try:
+                widget = self.query_one("#dashboard_sources_interactive", InteractiveSourcesWidget)
+                sources_data, last_synced = build_sources_data(
+                    self._dashboard_context,
+                    all_cursor_workspaces=self.all_cursor_workspaces,
+                )
+                widget.update_sources(sources_data, last_synced)
+                return True
+            except Exception:
+                return False
         if self.current_view == "settings":
             return self._update_static_widget("#dashboard_settings", panels.settings)
         if self.current_view == "console":

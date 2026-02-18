@@ -285,6 +285,66 @@ def build_dashboard_panels(
     )
 
 
+def build_sources_data(
+    context: DashboardRenderContext,
+    all_cursor_workspaces: bool = False,
+) -> tuple[list[dict[str, object]], str]:
+    """Build sources data for InteractiveSourcesWidget.
+
+    Returns a tuple of (sources_list, last_synced_display).
+    Each source dict contains: name, status, sessions, available.
+    """
+    storage = context.get_storage()
+    files = context.get_files()
+
+    selected_sources = context.get_repo_selected_sources(files)
+
+    ingesters = list(
+        context.filter_ingesters_by_sources(
+            context.get_default_ingesters(cursor_all_workspaces=all_cursor_workspaces),
+            selected_sources,
+        )
+    )
+
+    sources_data: list[dict[str, object]] = []
+    for ingester in ingesters:
+        try:
+            sessions = ingester.discover_sessions()
+            session_count = len(sessions)
+            available = session_count > 0
+
+            sources_data.append(
+                {
+                    "name": ingester.source_name,
+                    "status": "available" if available else "empty",
+                    "sessions": session_count,
+                    "available": available,
+                }
+            )
+        except Exception:  # noqa: BLE001
+            sources_data.append(
+                {
+                    "name": ingester.source_name,
+                    "status": "error",
+                    "sessions": 0,
+                    "available": False,
+                }
+            )
+
+    last_processed_at = storage.get_last_processed_at()
+    if last_processed_at is None:
+        last_synced_display = "Never"
+    else:
+        normalized_last_processed = (
+            last_processed_at.replace(tzinfo=UTC)
+            if last_processed_at.tzinfo is None
+            else last_processed_at.astimezone(UTC)
+        )
+        last_synced_display = normalized_last_processed.strftime("%Y-%m-%d %H:%M UTC")
+
+    return sources_data, last_synced_display
+
+
 def _build_overview_layout(
     panels: DashboardPanels,
     ralph_enabled: bool,
