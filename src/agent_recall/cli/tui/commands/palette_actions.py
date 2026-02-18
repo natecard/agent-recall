@@ -376,10 +376,10 @@ def get_palette_actions() -> list[PaletteAction]:
         PaletteAction(
             "ralph-view-diff",
             "View Last Diff",
-            "Review the most recent Ralph iteration diff",
+            "Review the most recent Ralph iteration diff with side-by-side viewer",
             "Settings",
             shortcut="ralph view-diff",
-            keywords="ralph diff viewer iteration changes",
+            keywords="ralph diff viewer iteration changes side-by-side",
         ),
         PaletteAction(
             "ralph-notifications",

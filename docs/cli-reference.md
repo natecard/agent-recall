@@ -29,6 +29,7 @@
 - `agent-recall compact-tiers / lint-tiers / tier-stats`
 - `agent-recall write-guardrails / write-style / write-recent`
 - `agent-recall ralph status|enable|disable [--max-iterations N] [--sleep-seconds N]`
+- `agent-recall ralph run --agent-cmd <cmd> [--max-iterations N] [--compact-mode always|on-failure|off] [--agent-transport pipe|pty|auto]`
 
 Inside `agent-recall open` / `tui`, use keybindings:
 - `Ctrl+P` opens a searchable command palette.
@@ -40,3 +41,8 @@ Inside `agent-recall open` / `tui`, use keybindings:
 - `Ctrl+Q` quits the TUI.
 
 In the command palette, search both actions and CLI commands; Enter runs the selection. Typing a full command and pressing Enter runs it directly. Setup and model configuration are also available as palette actions.
+
+Ralph transport troubleshooting:
+- Default transport is `pipe` to avoid macOS PTY `script` write-master false failures.
+- Use `--agent-transport pty` (or `RALPH_AGENT_TRANSPORT=pty`) only when PTY rendering is needed.
+- `--agent-output-mode stream-json` always uses `pipe` transport to preserve JSON marker parsing.

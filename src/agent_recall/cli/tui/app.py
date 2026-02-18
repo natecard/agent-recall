@@ -82,6 +82,7 @@ class AgentRecallTextualApp(
         onboarding_required: bool = False,
         terminal_panel_visible: bool = False,
         terminal_supported: bool = False,
+        no_delta_setup: bool = False,
     ):
         super().__init__()
         self._render_dashboard = render_dashboard
@@ -111,6 +112,7 @@ class AgentRecallTextualApp(
         self.onboarding_required = onboarding_required
         self.terminal_panel_visible = terminal_panel_visible
         self.terminal_supported = terminal_supported
+        self.no_delta_setup = no_delta_setup
         self.status = "Ready. Press Ctrl+P for commands."
         self.activity: deque[str] = deque(maxlen=2000)
         self._theme_preview_active = False
@@ -153,6 +155,12 @@ class AgentRecallTextualApp(
 
     def on_mount(self) -> None:
         self._load_tui_layout_settings()
+        if not self.no_delta_setup:
+            from agent_recall.cli.tui.delta import is_delta_available, is_delta_setup_declined
+            from agent_recall.cli.tui.ui.screens.first_launch import FirstLaunchScreen
+
+            if not is_delta_available() and not is_delta_setup_declined():
+                self.push_screen(FirstLaunchScreen())
         if self._theme_runtime_provider is not None:
             self._sync_runtime_theme()
         elif self._rich_theme is not None:

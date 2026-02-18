@@ -24,6 +24,7 @@ from agent_recall.cli.tui.ui.modals import (
 )
 from agent_recall.cli.tui.ui.modals.coding_agent_step import CodingAgentStepModal
 from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
+from agent_recall.cli.tui.ui.screens.diff_screen import IterationMetadata
 
 
 class CommandsMixin:
@@ -217,7 +218,7 @@ class CommandsMixin:
         self.status = "Loading diff"
         self._append_activity("Loading latest iteration diff...")
 
-        def _load_diff() -> tuple[str | None, int | None]:
+        def _load_diff() -> tuple[str | None, int | None, IterationMetadata | None]:
             try:
                 from agent_recall.ralph.iteration_store import IterationReportStore
 
@@ -225,12 +226,20 @@ class CommandsMixin:
                 store = IterationReportStore(agent_dir / "ralph")
                 reports = store.load_recent(count=1)
                 if not reports:
-                    return None, None
+                    return None, None, None
                 report = reports[0]
                 diff_text = store.load_diff_for_iteration(report.iteration)
-                return diff_text, report.iteration
+                meta = IterationMetadata(
+                    iteration=report.iteration,
+                    item_id=report.item_id,
+                    item_title=report.item_title,
+                    commit_hash=report.commit_hash,
+                    completed_at=report.completed_at,
+                    outcome=report.outcome.value if report.outcome else None,
+                )
+                return diff_text, report.iteration, meta
             except Exception:
-                return None, None
+                return None, None, None
 
         worker = self.run_worker(
             _load_diff,

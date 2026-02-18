@@ -143,4 +143,5 @@ def test_extract_from_artifacts_builds_deterministic_dict(tmp_path: Path) -> Non
         "validation_hint": "ERROR: boom",
         "files_changed": ["changed.txt"],
         "git_diff": "diff --git a/foo b/foo\n+add\n",
+        "commit_hash": None,
     }

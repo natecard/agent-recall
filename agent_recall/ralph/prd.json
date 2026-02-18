@@ -13,51 +13,57 @@
   },
   "items": [
     {
-      "id": "AR-1012",
-      "priority": 1,
-      "title": "Compaction Backend Choice (LLM or Coding CLI)",
-      "description": "Add a compaction backend setting so users can run compaction summarization through the coding CLI agent instead of only the configured LLM provider.",
-      "user_story": "As a user, I want to choose whether compaction summarization uses the configured LLM provider or my coding CLI agent so I can keep behavior consistent with my workflow.",
-      "steps": [
-        "[DONE] Add compaction backend config with values llm and coding_cli.",
-        "[DONE] Keep llm as the default backend for backward compatibility.",
-        "[DONE] Implement coding_cli backend execution for compact synthesis paths.",
-        "[DONE] Validate coding_cli output shape before writing tier files.",
-        "[DONE] Add tests for backend selection and fallback behavior."
+      "id": "AR-101",
+      "title": "TUI: Consolidate Clocks & Header Cleanup",
+      "type": "polish",
+      "priority": "high",
+      "description": "Currently, there are two clocks visible in the TUI: one in the top header (with 'AgentRecallTextualApp') and one in the dashboard (with 'Updated timestamp'). We need to simplify this to a single, clean clock display.",
+      "requirements": [
+        "Remove the 'AgentRecallTextualApp' header branding and its associated clock.",
+        "Update the dashboard clock to remove the 'Updated' prefix, showing only the current time.",
+        "Ensure the remaining clock is clearly visible and updates correctly."
       ],
       "acceptance_criteria": [
-        "Users can select compaction backend via config.",
-        "Default behavior stays unchanged when config is not set.",
-        "Compaction can run using coding_cli backend when configured.",
-        "Invalid coding_cli output does not corrupt tier files."
-      ],
-      "validation_commands": [
-        "uv run pytest tests/test_compact.py -q"
-      ],
-      "passes": true
+        "The top header bar matches the new minimal design (no default Textual header).",
+        "The dashboard header shows only the time (e.g., '14:30:00' instead of 'Updated 2024-05-20 14:30:00').",
+        "Only one clock is running in the TUI viewport."
+      ]
     },
     {
-      "id": "AR-1013",
-      "priority": 1,
-      "title": "Auto-Mark Completed PRD Steps as [DONE]",
-      "description": "Ensure Ralph loop marks each completed step in PRD items with a [DONE] prefix when an item is completed, not only passes: true.",
-      "user_story": "As a user handing off between agents, I want completed steps clearly marked in the PRD so the next agent can quickly see exactly what has already been done.",
-      "steps": [
-        "[DONE] Add loop-side normalization that updates steps for passed items.",
-        "[DONE] Prefix each completed step string with [DONE] if missing.",
-        "[DONE] Avoid double-prefixing steps already marked [DONE].",
-        "[DONE] Run this normalization each iteration before next prompt context.",
-        "[DONE] Add regression test for step-marking behavior."
+      "id": "AR-102",
+      "title": "TUI: Global Padding Reduction",
+      "type": "polish",
+      "priority": "medium",
+      "description": "The current TUI layout uses excessive padding, making the interface feel sparse and wasting screen real estate. We need to tighten the layout globally.",
+      "requirements": [
+        "Review and reduce padding/margins in global CSS (`APP_CSS`).",
+        "Target specific containers like `#dashboard_all_sidebar`, `#terminal_panel`, `#activity_log`, etc.",
+        "Ensure content remains readable but denser."
       ],
       "acceptance_criteria": [
-        "When an item has passes: true, its steps are marked with [DONE].",
-        "Existing [DONE] steps are not double-prefixed.",
-        "Next iteration prompt includes updated PRD step status."
+        "Global padding reduced (e.g., `padding: 1 2` -> `padding: 0 1`).",
+        "Margins between panels reduced.",
+        "Information density is improved without breaking visual hierarchy."
+      ]
+    },
+    {
+      "id": "AR-103",
+      "title": "TUI: Enhanced Diff Viewer",
+      "type": "feature",
+      "priority": "high",
+      "description": "The current diff summary is insufficient for reviewing changes. We need a robust diff viewer that allows traversing the diff tree and viewing detailed changes per file.",
+      "requirements": [
+        "Implement a file tree view for changed files in the diff.",
+        "Create a detail view to show the actual diff content for the selected file.",
+        "Support syntax highlighting for diffs (e.g., using `rich.syntax.Syntax`).",
+        "Evaluate external Python packages for TUI diffs if they offer better functionality than building from scratch (e.g., `textual-diff` or similar if available, otherwise custom builds with `difflib`)."
       ],
-      "validation_commands": [
-        "uv run pytest tests/test_ralph_loop.py -q"
-      ],
-      "passes": true
+      "acceptance_criteria": [
+        "User can see a list of changed files.",
+        "User can select a file to view its specific diff.",
+        "Diff view handles scrolling for large files/diffs.",
+        "Syntax highlighting is applied to the diff output."
+      ]
     }
   ]
 }

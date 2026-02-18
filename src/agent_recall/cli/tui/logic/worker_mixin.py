@@ -5,9 +5,10 @@ from typing import Any, cast
 from textual.worker import Worker, WorkerState
 
 from agent_recall.cli.tui.logic.text_sanitizers import _strip_rich_markup
-from agent_recall.cli.tui.ui.modals.diff_viewer import DiffViewerModal
 from agent_recall.cli.tui.ui.modals.prd_select import PRDSelectModal
 from agent_recall.cli.tui.ui.modals.session_run import SessionRunModal
+from agent_recall.cli.tui.ui.screens.diff_screen import DiffScreen, IterationMetadata
+from agent_recall.cli.tui.ui.screens.first_launch import DeltaDownloadComplete
 
 
 class WorkerMixin:
@@ -45,6 +46,13 @@ class WorkerMixin:
             return
 
         if event.state == WorkerState.ERROR:
+            if context == "delta_download":
+                error = event.worker.error
+                error_str = str(error) if error else "Download failed"
+                if hasattr(self, "screen") and self.screen is not None:
+                    self.screen.post_message(DeltaDownloadComplete(success=False, error=error_str))
+                self._worker_context.pop(worker_key, None)
+                return
             self.status = "Operation failed"
             error = event.worker.error
             if error is None:
@@ -66,6 +74,13 @@ class WorkerMixin:
             self._refresh_dashboard_panel()
 
     def _handle_worker_success(self: Any, context: str, result: object) -> None:
+        if context == "delta_download":
+            success = result is True
+            error = None if success else (str(result) if result else "Download failed")
+            if hasattr(self, "screen") and self.screen is not None:
+                self.screen.post_message(DeltaDownloadComplete(success=success, error=error))
+            return
+
         if context == "command":
             should_exit = False
             lines: list[str] = []
@@ -172,20 +187,35 @@ class WorkerMixin:
 
         if context == "diff_viewer":
             diff_text: str | None = None
-            iteration = None
-            if isinstance(result, tuple) and len(result) == 2:
-                diff_text = result[0] if isinstance(result[0], str) else None
-                iteration = result[1] if isinstance(result[1], int) else None
+            iteration_meta: IterationMetadata | None = None
+
+            if isinstance(result, tuple):
+                if len(result) == 3:
+                    diff_text = result[0] if isinstance(result[0], str) else None
+                    iteration_meta = result[2] if isinstance(result[2], IterationMetadata) else None
+                elif len(result) == 2:
+                    diff_text = result[0] if isinstance(result[0], str) else None
+                    iteration = result[1] if isinstance(result[1], int) else None
+                    if iteration is not None:
+                        iteration_meta = IterationMetadata(iteration=iteration)
+
             if not diff_text:
                 self.status = "No diff available"
                 self._append_activity("No iteration diff found to display.")
                 self._refresh_dashboard_panel()
                 return
+
+            iteration = iteration_meta.iteration if iteration_meta else None
             title = "Iteration Diff" if iteration is None else f"Iteration {iteration:03d} Diff"
             self.status = "Viewing diff"
             self._append_activity("Opened iteration diff viewer.")
             self.push_screen(
-                DiffViewerModal(diff_text=diff_text, title=title),
+                DiffScreen(
+                    diff_text=diff_text,
+                    repo_dir=getattr(self, "_repo_dir", None),
+                    title=title,
+                    iteration_meta=iteration_meta,
+                ),
             )
             self._refresh_dashboard_panel()
             return

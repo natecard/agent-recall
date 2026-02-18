@@ -2636,6 +2636,11 @@ def tui(
         "--force-onboarding",
         help="Run onboarding even if this repository is already configured.",
     ),
+    no_delta_setup: bool = typer.Option(
+        False,
+        "--no-delta-setup",
+        help="Skip first-launch delta diff renderer setup prompt.",
+    ),
 ):
     """Start a live terminal UI dashboard for agent-recall."""
     _get_theme_manager()
@@ -2748,6 +2753,7 @@ def tui(
             onboarding_required=onboarding_required,
             terminal_panel_visible=bool(tui_config.get("terminal_panel_visible", False)),
             terminal_supported=show_terminal,
+            no_delta_setup=no_delta_setup,
         )
         app_instance.run()
     except KeyboardInterrupt:
