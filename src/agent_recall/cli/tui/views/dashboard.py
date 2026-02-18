@@ -45,6 +45,8 @@ def build_dashboard_panels(
     context: DashboardRenderContext,
     all_cursor_workspaces: bool = False,
     include_banner_header: bool = True,
+    banner_size: str = "normal",
+    widget_visibility: dict[str, bool] | None = None,
     slash_status: str | None = None,
     slash_output: list[str] | None = None,
     view: str = "overview",
@@ -163,7 +165,9 @@ def build_dashboard_panels(
     )
 
     banner_renderer = BannerRenderer(context.console, context.theme_manager)
-    header_text = banner_renderer.get_tui_header_text()
+    header_text = banner_renderer.get_tui_header_text(banner_size)
+
+    _ = widget_visibility
 
     knowledge_widget = KnowledgeWidget(
         repo_name=repo_name,
@@ -225,7 +229,7 @@ def build_dashboard_panels(
         header_title = f"{badge}  {header_title}"
 
     header_panel = None
-    if include_banner_header:
+    if include_banner_header and header_text:
         header_panel = Panel(
             header_text,
             title=header_title,
@@ -333,6 +337,7 @@ def _build_overview_layout(
     panels: DashboardPanels,
     ralph_enabled: bool,
     ralph_running: bool,
+    visibility: dict[str, bool],
 ) -> list[Panel | Table]:
     """Build context-aware overview layout based on Ralph state."""
 
@@ -345,30 +350,61 @@ def _build_overview_layout(
 
     if not ralph_enabled:
         # Ralph disabled: show Knowledge + Sources side-by-side
-        return [_two_panel_row(panels.knowledge, panels.sources_compact)]
+        if visibility.get("knowledge", True) and visibility.get("sources", True):
+            return [_two_panel_row(panels.knowledge, panels.sources_compact)]
+        if visibility.get("knowledge", True):
+            return [panels.knowledge]
+        if visibility.get("sources", True):
+            return [panels.sources_compact]
+        return []
+
+    if not visibility.get("ralph", True):
+        base_panels: list[Panel | Table] = []
+        if visibility.get("knowledge", True):
+            base_panels.append(panels.knowledge)
+        if visibility.get("sources", True):
+            base_panels.append(panels.sources_compact)
+        if visibility.get("timeline", True):
+            base_panels.append(panels.timeline)
+        return base_panels
 
     if ralph_running:
         # Ralph enabled and running: full-width Ralph + Timeline
-        return [panels.ralph, panels.timeline]
+        renderables: list[Panel | Table] = []
+        if visibility.get("ralph", True):
+            renderables.append(panels.ralph)
+        if visibility.get("timeline", True):
+            renderables.append(panels.timeline)
+        return renderables
 
     # Ralph enabled but idle: Ralph (left) + Knowledge condensed (right)
-    return [_two_panel_row(panels.ralph, panels.knowledge)]
+    if visibility.get("ralph", True) and visibility.get("knowledge", True):
+        return [_two_panel_row(panels.ralph, panels.knowledge)]
+    if visibility.get("ralph", True):
+        return [panels.ralph]
+    if visibility.get("knowledge", True):
+        return [panels.knowledge]
+    return []
 
 
 def build_tui_dashboard(
     context: DashboardRenderContext,
     all_cursor_workspaces: bool = False,
     include_banner_header: bool = True,
+    banner_size: str = "normal",
     slash_status: str | None = None,
     slash_output: list[str] | None = None,
     view: str = "overview",
     refresh_seconds: float = 2.0,
     show_slash_console: bool = True,
+    widget_visibility: dict[str, bool] | None = None,
 ) -> Group:
     panels = build_dashboard_panels(
         context,
         all_cursor_workspaces=all_cursor_workspaces,
         include_banner_header=include_banner_header,
+        banner_size=banner_size,
+        widget_visibility=widget_visibility,
         slash_status=slash_status,
         slash_output=slash_output,
         view=view,
@@ -387,34 +423,46 @@ def build_tui_dashboard(
     if panels.header is not None:
         renderables.append(panels.header)
 
+    visibility = widget_visibility or {}
+
     if view == "knowledge":
-        renderables.append(panels.knowledge)
+        if visibility.get("knowledge", True):
+            renderables.append(panels.knowledge)
     elif view == "timeline":
-        renderables.append(panels.timeline)
+        if visibility.get("timeline", True):
+            renderables.append(panels.timeline)
     elif view == "ralph":
-        renderables.append(panels.ralph)
+        if visibility.get("ralph", True):
+            renderables.append(panels.ralph)
     elif view == "llm":
-        renderables.append(panels.llm)
+        if visibility.get("llm", True):
+            renderables.append(panels.llm)
     elif view == "sources":
-        renderables.append(panels.sources)
+        if visibility.get("sources", True):
+            renderables.append(panels.sources)
     elif view == "settings":
-        renderables.append(panels.settings)
+        if visibility.get("settings", True):
+            renderables.append(panels.settings)
     elif view == "console":
         pass
     elif view == "all":
-        renderables.extend(
-            [
-                _two_panel_row(panels.knowledge, panels.llm),
-                _two_panel_row(panels.sources, panels.settings),
-                panels.timeline,
-            ]
-        )
+        if visibility.get("knowledge", True) or visibility.get("llm", True):
+            left = panels.knowledge if visibility.get("knowledge", True) else panels.llm
+            right = panels.llm if visibility.get("llm", True) else panels.knowledge
+            renderables.append(_two_panel_row(left, right))
+        if visibility.get("sources", True) or visibility.get("settings", True):
+            left = panels.sources if visibility.get("sources", True) else panels.settings
+            right = panels.settings if visibility.get("settings", True) else panels.sources
+            renderables.append(_two_panel_row(left, right))
+        if visibility.get("timeline", True):
+            renderables.append(panels.timeline)
     else:
         # Overview view with context-aware layout
         overview_panels = _build_overview_layout(
             panels,
             context.ralph_enabled,
             context.ralph_running,
+            visibility,
         )
         renderables.extend(overview_panels)
 

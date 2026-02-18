@@ -310,6 +310,15 @@ def get_palette_actions() -> list[PaletteAction]:
             keywords="settings preferences",
         ),
         PaletteAction(
+            "layout",
+            "Customise Layout",
+            "Toggle visible dashboard widgets and banner size",
+            "Settings",
+            shortcut="layout widgets banner",
+            binding="Ctrl+L",
+            keywords="layout widgets banner",
+        ),
+        PaletteAction(
             "ralph-config",
             "Ralph Configuration",
             "Configure Ralph loop agent, model, and behavior",

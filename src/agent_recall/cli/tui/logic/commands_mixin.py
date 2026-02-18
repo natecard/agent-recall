@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import shlex
 from pathlib import Path
 from typing import Any
@@ -13,13 +14,15 @@ from agent_recall.cli.tui.commands.palette_actions import (
     get_palette_actions,
 )
 from agent_recall.cli.tui.commands.palette_router import handle_palette_action
+from agent_recall.cli.tui.ui.modals import (
+    LLMConfigStepModal,
+    ModelConfigModal,
+    RalphConfigModal,
+    SettingsModal,
+    SetupModal,
+)
 from agent_recall.cli.tui.ui.modals.coding_agent_step import CodingAgentStepModal
 from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
-from agent_recall.cli.tui.ui.modals.llm_config_step import LLMConfigStepModal
-from agent_recall.cli.tui.ui.modals.model_config import ModelConfigModal
-from agent_recall.cli.tui.ui.modals.ralph_config import RalphConfigModal
-from agent_recall.cli.tui.ui.modals.settings import SettingsModal
-from agent_recall.cli.tui.ui.modals.setup import SetupModal
 
 
 class CommandsMixin:
@@ -57,6 +60,19 @@ class CommandsMixin:
             ),
             self._apply_settings_modal_result,
         )
+
+    def action_open_layout_modal(self: Any) -> None:
+        self.push_screen(
+            self._get_layout_modal_class()(
+                widget_visibility=self.tui_widget_visibility,
+                banner_size=self.tui_banner_size,
+            ),
+            self._apply_layout_modal_result,
+        )
+
+    def _get_layout_modal_class(self: Any):  # noqa: ANN001
+        module = self._load_layout_module()
+        return module.LayoutCustomiserModal
 
     def action_open_setup_modal(self: Any) -> None:
         self._pending_setup_payload = None
@@ -394,9 +410,44 @@ class CommandsMixin:
             result.get("all_cursor_workspaces", self.all_cursor_workspaces)
         )
         self._configure_refresh_timer(self.refresh_seconds)
+        try:
+            from agent_recall.cli.main import _write_tui_config
+            from agent_recall.storage.files import FileStorage
+
+            agent_dir = Path(".agent")
+            if agent_dir.exists():
+                files = FileStorage(agent_dir)
+                _write_tui_config(
+                    files,
+                    {
+                        "default_view": self.current_view,
+                        "refresh_seconds": self.refresh_seconds,
+                        "all_cursor_workspaces": self.all_cursor_workspaces,
+                    },
+                )
+        except Exception:  # noqa: BLE001
+            pass
         self.status = "Settings updated"
         self._append_activity("Settings updated.")
         self._refresh_dashboard_panel()
+
+    def _apply_layout_modal_result(self: Any, result: dict[str, Any] | None) -> None:
+        if result is None:
+            return
+        module = self._load_layout_module()
+        default_widget_visibility = module.default_widget_visibility
+        normalize_banner_size = module.normalize_banner_size
+
+        widgets = result.get("widgets")
+        if isinstance(widgets, dict):
+            normalized: dict[str, bool] = default_widget_visibility()
+            for key, value in widgets.items():
+                if isinstance(key, str):
+                    normalized[key] = bool(value)
+            self.tui_widget_visibility = normalized
+        banner_value = result.get("banner_size")
+        self.tui_banner_size = normalize_banner_size(banner_value)
+        self._apply_tui_layout_settings()
 
     def _update_terminal_panel_visibility(self: Any, *, initial: bool) -> None:
         terminal_panel = self.query_one("#terminal_panel", Static)
@@ -415,6 +466,13 @@ class CommandsMixin:
             if not initial:
                 self.status = "Terminal panel hidden"
                 self._append_activity("Terminal panel hidden.")
+
+    def _load_layout_module(self: Any) -> object:
+        if getattr(self, "_layout_module", None) is None:
+            self._layout_module = importlib.import_module(
+                "agent_recall.cli.tui.ui.modals.layout_customiser"
+            )
+        return self._layout_module
 
     def _apply_session_run_modal_result(self: Any, result: dict[str, Any] | None) -> None:
         if result is None:

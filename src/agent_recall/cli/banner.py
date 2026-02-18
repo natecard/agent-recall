@@ -143,17 +143,27 @@ class BannerRenderer:
         else:
             return BANNER_MINIMAL
 
-    def get_tui_header_banner(self, width: int | None = None) -> str:
-        """Select TUI header banner based on terminal width."""
+    def get_tui_header_banner(
+        self,
+        width: int | None = None,
+        size: str = "normal",
+    ) -> str:
+        """Select TUI header banner based on terminal width and size."""
+        if size == "hidden":
+            return ""
+
+        if size == "compact":
+            return "AGENT RECALL | MEMORY RETRIEVAL SYSTEM"
+
         if width is None:
             width = self.console.width
 
+        if size == "large":
+            return BANNER_FULL
+
         if width >= 100:
             return BANNER_TUI_HEADER_SIMPLE
-        elif width >= 70:
-            return BANNER_TUI_HEADER_MINIMAL
-        else:
-            return BANNER_TUI_HEADER_MINIMAL
+        return BANNER_TUI_HEADER_MINIMAL
 
     def stylize_banner(self, banner: str) -> Text:
         """Apply theme styles to banner text."""
@@ -221,9 +231,11 @@ class BannerRenderer:
         banner = self.get_appropriate_banner()
         return self.stylize_banner(banner)
 
-    def get_tui_header_text(self) -> Text:
+    def get_tui_header_text(self, size: str = "normal") -> Text:
         """Get the styled TUI header banner as a Rich Text object."""
-        banner = self.get_tui_header_banner()
+        banner = self.get_tui_header_banner(size=size)
+        if not banner:
+            return Text("")
         return self.stylize_banner(banner)
 
 

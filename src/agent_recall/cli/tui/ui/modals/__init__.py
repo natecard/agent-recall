@@ -2,6 +2,11 @@ from agent_recall.cli.tui.ui.modals.coding_agent_step import CodingAgentStepModa
 from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
 from agent_recall.cli.tui.ui.modals.diff_viewer import DiffViewerModal
 from agent_recall.cli.tui.ui.modals.iteration_detail import IterationDetailModal
+from agent_recall.cli.tui.ui.modals.layout_customiser import (
+    LayoutCustomiserModal,
+    default_widget_visibility,
+    normalize_banner_size,
+)
 from agent_recall.cli.tui.ui.modals.llm_config_step import LLMConfigStepModal
 from agent_recall.cli.tui.ui.modals.model_config import ModelConfigModal
 from agent_recall.cli.tui.ui.modals.prd_select import PRDSelectModal
@@ -17,6 +22,9 @@ __all__ = [
     "DiffViewerModal",
     "IterationDetailModal",
     "LLMConfigStepModal",
+    "LayoutCustomiserModal",
+    "default_widget_visibility",
+    "normalize_banner_size",
     "ModelConfigModal",
     "PRDSelectModal",
     "RalphConfigModal",

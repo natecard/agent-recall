@@ -82,6 +82,8 @@ def _build_test_app() -> AgentRecallTextualApp:
         format_usd=lambda amount: f"${amount:.2f}",
         is_interactive_terminal=lambda: False,
         help_lines_provider=lambda: ["/help"],
+        ralph_enabled=False,
+        ralph_running=False,
     )
 
     return AgentRecallTextualApp(
@@ -133,6 +135,11 @@ def test_palette_contains_ralph_config_action() -> None:
 def test_palette_contains_ralph_run_action() -> None:
     action_ids = {action.action_id for action in get_palette_actions()}
     assert "ralph-run" in action_ids
+
+
+def test_palette_contains_layout_action() -> None:
+    action_ids = {action.action_id for action in get_palette_actions()}
+    assert "layout" in action_ids
 
 
 def test_palette_contains_terminal_toggle() -> None:
@@ -382,10 +389,114 @@ def test_selecting_source_sync_option_runs_sync(monkeypatch) -> None:
     assert captured == ["cursor"]
 
 
+def test_layout_modal_updates_visibility_and_banner(monkeypatch) -> None:
+    app = _build_test_app()
+    app.tui_widget_visibility = {
+        "knowledge": True,
+        "sources": True,
+        "timeline": True,
+        "ralph": True,
+        "llm": True,
+        "settings": True,
+    }
+    captured: dict[str, bool] = {}
+    monkeypatch.setattr(app, "_apply_tui_layout_settings", lambda: captured.setdefault("ok", True))
+
+    class _LayoutModule:
+        @staticmethod
+        def default_widget_visibility() -> dict[str, bool]:
+            return {
+                "knowledge": True,
+                "sources": True,
+                "timeline": True,
+                "ralph": True,
+                "llm": True,
+                "settings": True,
+            }
+
+        @staticmethod
+        def normalize_banner_size(value: object) -> str:
+            return "compact" if str(value).strip().lower() == "compact" else "normal"
+
+    app._layout_module = None
+    monkeypatch.setattr(app, "_load_layout_module", lambda: _LayoutModule)
+
+    app._apply_layout_modal_result(
+        {
+            "widgets": {"knowledge": False, "sources": True},
+            "banner_size": "compact",
+        }
+    )
+
+    assert app.tui_widget_visibility["knowledge"] is False
+    assert app.tui_widget_visibility["sources"] is True
+    assert app.tui_banner_size == "compact"
+    assert captured.get("ok") is True
+
+
+def test_dashboard_mount_skips_hidden_widgets() -> None:
+    app = _build_test_app()
+    app.current_view = "overview"
+    app.tui_banner_size = "normal"
+    app.tui_widget_visibility = {
+        "knowledge": False,
+        "sources": False,
+        "timeline": True,
+        "ralph": True,
+        "llm": True,
+        "settings": True,
+    }
+
+    cast(Any, app)._build_overview_row = lambda panels: None
+
+    panels = DashboardPanels(
+        header=Panel("header"),
+        knowledge=Panel("knowledge"),
+        llm=Panel("llm"),
+        sources=Panel("sources"),
+        sources_compact=Panel("sources_compact"),
+        settings=Panel("settings"),
+        timeline=Panel("timeline"),
+        ralph=Panel("ralph"),
+        slash_console=None,
+        source_names=[],
+    )
+
+    class _FakeDashboard:
+        def __init__(self) -> None:
+            self.mounted: list[object] = []
+
+        def mount(self, widget: object) -> None:
+            self.mounted.append(widget)
+
+    dashboard = _FakeDashboard()
+
+    app._mount_dashboard_widgets(cast(Any, dashboard), panels)
+
+    mounted_ids = {getattr(widget, "id", None) for widget in dashboard.mounted}
+    assert "dashboard_knowledge" not in mounted_ids
+    assert "dashboard_sources" not in mounted_ids
+    assert "dashboard_header" in mounted_ids
+
+
 def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) -> None:
     app = _build_test_app()
     app.current_view = "overview"
     app._dashboard_layout_view = "overview"
+    app.tui_widget_visibility = {
+        "knowledge": True,
+        "sources": True,
+        "timeline": True,
+        "ralph": True,
+        "llm": True,
+        "settings": True,
+    }
+    app.tui_banner_size = "normal"
+    app._last_layout_signature = (
+        app.tui_banner_size,
+        tuple(sorted(app.tui_widget_visibility.items())),
+    )
+    app._layout_module = None
 
     panels = DashboardPanels(
         header=Panel("header"),
@@ -418,6 +529,7 @@ def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) ->
     class _FakeStatic:
         def __init__(self) -> None:
             self.updates: list[object] = []
+            self.classes = ""
 
         def update(self, renderable: object) -> None:
             self.updates.append(renderable)
@@ -448,6 +560,8 @@ def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) ->
     app._refresh_dashboard_panel()
 
     assert dashboard.remove_children_calls == 0
+
+    assert app._last_layout_signature is not None
 
     # Verify we got Panel objects with the expected content
     assert len(header.updates) == 2
@@ -993,6 +1107,16 @@ def test_filter_command_suggestions_prefix_match() -> None:
         if "/help" in suggestions
         else True
     )
+
+
+def test_filter_command_suggestions_includes_layout() -> None:
+    """Test that /layout appears in suggestions."""
+    from agent_recall.cli.tui.commands.help_text import filter_command_suggestions
+
+    commands = ["/layout", "/settings", "/help"]
+    suggestions = filter_command_suggestions("/l", commands, max_results=8)
+
+    assert "/layout" in suggestions
 
 
 def test_filter_command_suggestions_max_results() -> None:

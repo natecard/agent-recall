@@ -130,6 +130,9 @@ APP_CSS = """
         border: round $accent;
         overflow: auto;
     }
+    .layout_modal {
+        max-width: 72;
+    }
     .modal_compact {
         width: 52%;
         max-width: 58;
@@ -243,6 +246,20 @@ APP_CSS = """
         color: $text;
         text-style: bold;
     }
+    #dashboard_header.banner-hidden {
+        display: none;
+    }
+    #dashboard_header.banner-compact {
+        height: 3;
+        text-align: center;
+        text-style: bold;
+    }
+    #dashboard_header.banner-normal {
+        height: auto;
+    }
+    #dashboard_header.banner-large {
+        height: auto;
+    }
     .field_row {
         height: auto;
         margin: 0 0 1 0;
@@ -264,7 +281,11 @@ APP_CSS = """
         padding-top: 1;
         height: auto;
     }
-    #setup_status, #model_api_hint, #model_error, #settings_error {
+    .section_title {
+        margin-top: 1;
+        text-style: bold;
+    }
+    #setup_status, #model_api_hint, #model_error, #settings_error, #layout_error {
         margin-top: 0;
     }
     #model_discovery_status {

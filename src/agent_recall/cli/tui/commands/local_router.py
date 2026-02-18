@@ -46,6 +46,12 @@ def handle_local_command(app, raw: str) -> bool:
         app._append_activity("Opened settings dialog.")
         return True
 
+    if action == "layout":
+        app.action_open_layout_modal()
+        app.status = "Layout"
+        app._append_activity("Opened layout dialog.")
+        return True
+
     if action == "config" and second in {"settings", "preferences", "prefs"}:
         app.action_open_settings_modal()
         app.status = "Settings"

@@ -39,6 +39,7 @@ from agent_recall.cli.tui.views import DashboardPanels, build_dashboard_panels, 
 from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
 from agent_recall.cli.tui.widgets import InteractiveSourcesWidget, InteractiveTimelineWidget
 from agent_recall.ralph.iteration_store import IterationReport, IterationReportStore
+from agent_recall.storage.files import FileStorage
 
 
 class AgentRecallTextualApp(
@@ -131,6 +132,10 @@ class AgentRecallTextualApp(
         self._highlighted_suggestion_index: int | None = None
         self._interactive_sources_widget: InteractiveSourcesWidget | None = None
         self._interactive_timeline_widget: InteractiveTimelineWidget | None = None
+        self.tui_widget_visibility: dict[str, bool] = {}
+        self.tui_banner_size: str = "normal"
+        self._last_layout_signature: tuple[str, tuple[tuple[str, bool], ...]] | None = None
+        self._layout_module: object | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -147,6 +152,7 @@ class AgentRecallTextualApp(
         yield Footer()
 
     def on_mount(self) -> None:
+        self._load_tui_layout_settings()
         if self._theme_runtime_provider is not None:
             self._sync_runtime_theme()
         elif self._rich_theme is not None:
@@ -217,20 +223,28 @@ class AgentRecallTextualApp(
         self._dashboard_refresh_generation += 1
         refresh_generation = self._dashboard_refresh_generation
         self._sync_runtime_theme()
+        layout_signature = (
+            self.tui_banner_size,
+            tuple(sorted(self.tui_widget_visibility.items())),
+        )
         panels = build_dashboard_panels(
             self._dashboard_context,
             all_cursor_workspaces=self.all_cursor_workspaces,
-            include_banner_header=True,
+            include_banner_header=self.tui_banner_size != "hidden",
+            banner_size=self.tui_banner_size,
             view=self.current_view,
             refresh_seconds=self.refresh_seconds,
             show_slash_console=False,
+            widget_visibility=self.tui_widget_visibility,
         )
         dashboard = self.query_one("#dashboard", Vertical)
         if panels.source_names:
             self._refresh_source_actions(panels.source_names)
 
-        if self._dashboard_layout_view == self.current_view and self._update_dashboard_widgets(
-            panels
+        if (
+            self._dashboard_layout_view == self.current_view
+            and self._last_layout_signature == layout_signature
+            and self._update_dashboard_widgets(panels)
         ):
             self._refresh_activity_panel()
             return
@@ -244,6 +258,7 @@ class AgentRecallTextualApp(
             self._apply_dashboard_view_class(dashboard)
             self._mount_dashboard_widgets(dashboard, panels)
             self._dashboard_layout_view = self.current_view
+            self._last_layout_signature = layout_signature
             self._refresh_activity_panel()
 
         self.call_next(_mount_after_prune)
@@ -259,9 +274,11 @@ class AgentRecallTextualApp(
             self._dashboard_context,
             all_cursor_workspaces=self.all_cursor_workspaces,
             include_banner_header=True,
+            banner_size=self.tui_banner_size,
             view=view,
             refresh_seconds=self.refresh_seconds,
             show_slash_console=False,
+            widget_visibility=self.tui_widget_visibility,
         )
         if view == "knowledge":
             return detail_panels.knowledge
@@ -310,34 +327,47 @@ class AgentRecallTextualApp(
 
     def _mount_dashboard_widgets(self, dashboard: Vertical, panels: DashboardPanels) -> None:
         if panels.header is not None:
-            dashboard.mount(Static(panels.header, id="dashboard_header"))
+            classes = f"banner-{self.tui_banner_size}"
+            dashboard.mount(Static(panels.header, id="dashboard_header", classes=classes))
+        elif self.tui_banner_size == "compact":
+            dashboard.mount(Static("AGENT RECALL", id="dashboard_header", classes="banner-compact"))
         if self.current_view == "all":
             self._mount_all_view(dashboard, panels)
         elif self.current_view == "knowledge":
-            dashboard.mount(
-                Static(self._build_view_detail_panel("knowledge"), id="dashboard_knowledge")
-            )
+            if self._is_widget_visible("knowledge"):
+                dashboard.mount(
+                    Static(
+                        self._build_view_detail_panel("knowledge"),
+                        id="dashboard_knowledge",
+                    )
+                )
         elif self.current_view == "timeline":
-            self._interactive_timeline_widget = self._build_interactive_timeline_widget()
-            dashboard.mount(self._interactive_timeline_widget)
+            if self._is_widget_visible("timeline"):
+                self._interactive_timeline_widget = self._build_interactive_timeline_widget()
+                dashboard.mount(self._interactive_timeline_widget)
         elif self.current_view == "ralph":
-            dashboard.mount(Static(panels.ralph, id="dashboard_ralph"))
+            if self._is_widget_visible("ralph"):
+                dashboard.mount(Static(panels.ralph, id="dashboard_ralph"))
         elif self.current_view == "llm":
-            dashboard.mount(Static(panels.llm, id="dashboard_llm"))
+            if self._is_widget_visible("llm"):
+                dashboard.mount(Static(panels.llm, id="dashboard_llm"))
         elif self.current_view == "sources":
-            self._interactive_sources_widget = self._build_interactive_sources_widget()
-            dashboard.mount(self._interactive_sources_widget)
+            if self._is_widget_visible("sources"):
+                self._interactive_sources_widget = self._build_interactive_sources_widget()
+                dashboard.mount(self._interactive_sources_widget)
         elif self.current_view == "settings":
-            dashboard.mount(Static(panels.settings, id="dashboard_settings"))
+            if self._is_widget_visible("settings"):
+                dashboard.mount(Static(panels.settings, id="dashboard_settings"))
         elif self.current_view == "console":
             pass
+        elif self.current_view == "overview":
+            overview_row = self._build_overview_row(panels)
+            if overview_row is not None:
+                dashboard.mount(overview_row)
         else:
-            overview_row = Horizontal(
-                Static(panels.knowledge, id="dashboard_knowledge"),
-                Static(panels.sources_compact, id="dashboard_sources"),
-                id="dashboard_overview_row",
-            )
-            dashboard.mount(overview_row)
+            overview_row = self._build_overview_row(panels)
+            if overview_row is not None:
+                dashboard.mount(overview_row)
 
     def _update_static_widget(self, selector: str, renderable: Any) -> bool:
         try:
@@ -349,9 +379,15 @@ class AgentRecallTextualApp(
 
     def _update_dashboard_widgets(self, panels: DashboardPanels) -> bool:
         if panels.header is None:
-            return False
-        if not self._update_static_widget("#dashboard_header", panels.header):
-            return False
+            if self.tui_banner_size in {"compact", "large"}:
+                return False
+        else:
+            try:
+                header_widget = self.query_one("#dashboard_header", Static)
+                header_widget.update(panels.header)
+                header_widget.classes = f"banner-{self.tui_banner_size}"
+            except Exception:
+                return False
         if self.current_view == "all":
             return (
                 self._update_static_widget("#dashboard_knowledge", panels.knowledge)
@@ -361,11 +397,15 @@ class AgentRecallTextualApp(
                 and self._update_static_widget("#dashboard_timeline", panels.timeline)
             )
         if self.current_view == "knowledge":
+            if not self._is_widget_visible("knowledge"):
+                return False
             return self._update_static_widget(
                 "#dashboard_knowledge",
                 self._build_view_detail_panel("knowledge"),
             )
         if self.current_view == "timeline":
+            if not self._is_widget_visible("timeline"):
+                return False
             try:
                 widget = self.query_one(
                     "#dashboard_timeline_interactive", InteractiveTimelineWidget
@@ -375,10 +415,16 @@ class AgentRecallTextualApp(
             except Exception:
                 return False
         if self.current_view == "ralph":
+            if not self._is_widget_visible("ralph"):
+                return False
             return self._update_static_widget("#dashboard_ralph", panels.ralph)
         if self.current_view == "llm":
+            if not self._is_widget_visible("llm"):
+                return False
             return self._update_static_widget("#dashboard_llm", panels.llm)
         if self.current_view == "sources":
+            if not self._is_widget_visible("sources"):
+                return False
             # Update interactive sources widget instead of static
             try:
                 widget = self.query_one("#dashboard_sources_interactive", InteractiveSourcesWidget)
@@ -391,12 +437,22 @@ class AgentRecallTextualApp(
             except Exception:
                 return False
         if self.current_view == "settings":
+            if not self._is_widget_visible("settings"):
+                return False
             return self._update_static_widget("#dashboard_settings", panels.settings)
         if self.current_view == "console":
             return True
-        return self._update_static_widget(
-            "#dashboard_knowledge", panels.knowledge
-        ) and self._update_static_widget("#dashboard_sources", panels.sources_compact)
+        if self.current_view == "overview":
+            if not self._is_widget_visible("knowledge") and not self._is_widget_visible("sources"):
+                return False
+            return (
+                not self._is_widget_visible("knowledge")
+                or self._update_static_widget("#dashboard_knowledge", panels.knowledge)
+            ) and (
+                not self._is_widget_visible("sources")
+                or self._update_static_widget("#dashboard_sources", panels.sources_compact)
+            )
+        return False
 
     def _refresh_source_actions(self, source_names: list[str]) -> None:
         if self.current_view not in {"sources", "all"}:
@@ -453,23 +509,105 @@ class AgentRecallTextualApp(
         self._worker_context[id(worker)] = f"sync-source:{source_name}"
 
     def _mount_all_view(self, dashboard: Vertical, panels: DashboardPanels) -> None:
-        sidebar = Vertical(
-            Static(panels.knowledge, id="dashboard_knowledge"),
-            Static(panels.sources, id="dashboard_sources"),
-            Static(panels.llm, id="dashboard_llm"),
-            Static(panels.settings, id="dashboard_settings"),
-            id="dashboard_all_sidebar",
-        )
-        main = Vertical(
-            Static(panels.timeline, id="dashboard_timeline"),
-            id="dashboard_all_main",
-        )
+        sidebar_children: list[Static] = []
+        if self._is_widget_visible("knowledge"):
+            sidebar_children.append(Static(panels.knowledge, id="dashboard_knowledge"))
+        if self._is_widget_visible("sources"):
+            sidebar_children.append(Static(panels.sources, id="dashboard_sources"))
+        if self._is_widget_visible("llm"):
+            sidebar_children.append(Static(panels.llm, id="dashboard_llm"))
+        if self._is_widget_visible("settings"):
+            sidebar_children.append(Static(panels.settings, id="dashboard_settings"))
+        sidebar = Vertical(*sidebar_children, id="dashboard_all_sidebar")
+        main_children: list[Static] = []
+        if self._is_widget_visible("timeline"):
+            main_children.append(Static(panels.timeline, id="dashboard_timeline"))
+        main = Vertical(*main_children, id="dashboard_all_main")
         grid = Vertical(
             sidebar,
             main,
             id="dashboard_all_grid",
         )
         dashboard.mount(grid)
+
+    def _build_overview_row(self, panels: DashboardPanels) -> Horizontal | None:
+        show_knowledge = self._is_widget_visible("knowledge")
+        show_sources = self._is_widget_visible("sources")
+
+        if show_knowledge and show_sources:
+            return Horizontal(
+                Static(panels.knowledge, id="dashboard_knowledge"),
+                Static(panels.sources_compact, id="dashboard_sources"),
+                id="dashboard_overview_row",
+            )
+        if show_knowledge:
+            return Horizontal(
+                Static(panels.knowledge, id="dashboard_knowledge"),
+                id="dashboard_overview_row",
+            )
+        if show_sources:
+            return Horizontal(
+                Static(panels.sources_compact, id="dashboard_sources"),
+                id="dashboard_overview_row",
+            )
+        return None
+
+    def _is_widget_visible(self, key: str) -> bool:
+        return bool(self.tui_widget_visibility.get(key, True))
+
+    def _load_tui_layout_settings(self) -> None:
+        try:
+            agent_dir = self._dashboard_context.agent_dir
+            files = FileStorage(agent_dir)
+            config = files.read_config()
+            tui_config = config.get("tui", {}) if isinstance(config, dict) else {}
+            if isinstance(tui_config, dict):
+                widgets = tui_config.get("widget_visibility")
+                if isinstance(widgets, dict):
+                    self.tui_widget_visibility = {
+                        key: bool(value) for key, value in widgets.items() if isinstance(key, str)
+                    }
+                banner = tui_config.get("banner_size")
+                if isinstance(banner, str):
+                    self.tui_banner_size = banner.strip().lower()
+        except Exception:
+            self.tui_widget_visibility = {}
+            self.tui_banner_size = "normal"
+
+        if not self.tui_widget_visibility:
+            self.tui_widget_visibility = {
+                "knowledge": True,
+                "sources": True,
+                "timeline": True,
+                "ralph": True,
+                "llm": True,
+                "settings": True,
+            }
+        if self.tui_banner_size not in {"hidden", "compact", "normal", "large"}:
+            self.tui_banner_size = "normal"
+
+        self._last_layout_signature = None
+
+    def _apply_tui_layout_settings(self) -> None:
+        try:
+            agent_dir = self._dashboard_context.agent_dir
+            files = FileStorage(agent_dir)
+            config = files.read_config()
+            if "tui" not in config or not isinstance(config.get("tui"), dict):
+                config["tui"] = {}
+            tui_config = config["tui"]
+            if isinstance(tui_config, dict):
+                tui_config["widget_visibility"] = dict(self.tui_widget_visibility)
+                tui_config["banner_size"] = self.tui_banner_size
+            config["tui"] = tui_config
+            files.write_config(config)
+        except Exception as exc:  # noqa: BLE001
+            self._append_activity(f"Failed to save layout settings: {exc}")
+
+        self._last_layout_signature = None
+        self.status = "Layout updated"
+        self._append_activity("Layout updated.")
+        self._refresh_dashboard_panel()
 
     def _build_slash_command_map(self) -> dict[str, str]:
         return {
@@ -494,6 +632,7 @@ class AgentRecallTextualApp(
             "settings": "settings",
             "preferences": "settings",
             "theme": "theme",
+            "layout": "layout",
             "view:overview": "view:overview",
             "view:sources": "view:sources",
             "view:llm": "view:llm",
@@ -525,6 +664,7 @@ class AgentRecallTextualApp(
             self._append_activity("  /setup         - Open setup wizard")
             self._append_activity("  /model         - Model preferences")
             self._append_activity("  /settings      - Workspace preferences")
+            self._append_activity("  /layout        - Customise dashboard layout")
             self._append_activity("  /theme         - Switch theme")
             self._append_activity("  /view:<name>   - Switch view (overview, sources, llm, etc.)")
             self._append_activity("  /ralph-*       - Ralph loop controls")

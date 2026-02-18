@@ -39,6 +39,7 @@ def get_all_cli_commands() -> list[str]:
         "/sync",
         "/sync --no-compact",
         "/settings",
+        "/layout",
         "/preferences",
         "/quit",
         "/refresh",
@@ -101,5 +102,6 @@ def build_tui_help_lines() -> list[str]:
     )
     lines.append("[dim]/run[/dim] - Alias for /sync (includes synthesis by default)")
     lines.append("[dim]/settings[/dim] - Open settings view")
+    lines.append("[dim]/layout[/dim] - Customise dashboard layout")
     lines.append("[dim]/quit[/dim] - Exit the TUI")
     return lines

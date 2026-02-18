@@ -2209,15 +2209,28 @@ def _build_tui_dashboard(
     show_slash_console: bool = True,
 ) -> Group:
     """Build the live TUI dashboard renderable."""
+    try:
+        tui_config = _read_tui_config(get_files())
+    except Exception:  # noqa: BLE001
+        tui_config = {}
+    banner_size = "normal"
+    if isinstance(tui_config, dict):
+        raw_banner = tui_config.get("banner_size")
+        if isinstance(raw_banner, str):
+            banner_size = raw_banner.strip().lower()
     return build_tui_dashboard(
         _dashboard_render_context(),
         all_cursor_workspaces=all_cursor_workspaces,
         include_banner_header=include_banner_header,
+        banner_size=banner_size,
         slash_status=slash_status,
         slash_output=slash_output,
         view=view,
         refresh_seconds=refresh_seconds,
         show_slash_console=show_slash_console,
+        widget_visibility=tui_config.get("widget_visibility")
+        if isinstance(tui_config, dict)
+        else None,
     )
 
 
@@ -2699,9 +2712,11 @@ def tui(
             providers=get_available_providers(),
             cli_commands=_collect_cli_commands_for_palette(),
             rich_theme=_theme_manager.get_theme(),
-            initial_view="overview",
-            refresh_seconds=refresh_seconds,
-            all_cursor_workspaces=all_cursor_workspaces,
+            initial_view=str(tui_config.get("default_view", "overview")),
+            refresh_seconds=float(tui_config.get("refresh_seconds", refresh_seconds)),
+            all_cursor_workspaces=bool(
+                tui_config.get("all_cursor_workspaces", all_cursor_workspaces)
+            ),
             onboarding_required=onboarding_required,
             terminal_panel_visible=bool(tui_config.get("terminal_panel_visible", False)),
             terminal_supported=show_terminal,

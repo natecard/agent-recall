@@ -127,6 +127,12 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("tui",),
         ),
         CommandContract(
+            command="layout",
+            aliases=(),
+            description="Customise dashboard layout",
+            surfaces=("tui",),
+        ),
+        CommandContract(
             command="compact",
             aliases=(),
             description="Synthesize knowledge from recent logs",

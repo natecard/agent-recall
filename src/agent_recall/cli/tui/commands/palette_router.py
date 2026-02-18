@@ -20,6 +20,9 @@ def handle_palette_action(app, action_id: str | None) -> None:
     if action_id == "settings":
         app.action_open_settings_modal()
         return
+    if action_id == "layout":
+        app.action_open_layout_modal()
+        return
     if action_id == "ralph-config":
         app.action_open_ralph_config_modal()
         return
