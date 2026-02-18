@@ -161,6 +161,14 @@ APP_CSS = """
         padding: 1 2;
         margin-top: 1;
     }
+    #iteration_detail_content {
+        height: 1fr;
+        overflow: auto;
+        background: $panel;
+        border: round $accent;
+        padding: 1 2;
+        margin-top: 1;
+    }
     #palette_header {
         layout: horizontal;
         width: 100%;

@@ -1,4 +1,5 @@
 from agent_recall.cli.tui.widgets.interactive_sources import InteractiveSourcesWidget
+from agent_recall.cli.tui.widgets.interactive_timeline import InteractiveTimelineWidget
 from agent_recall.cli.tui.widgets.knowledge import KnowledgeWidget
 from agent_recall.cli.tui.widgets.llm_config import LLMConfigWidget
 from agent_recall.cli.tui.widgets.ralph import RalphStatusWidget
@@ -8,6 +9,7 @@ from agent_recall.cli.tui.widgets.timeline import TimelineWidget
 
 __all__ = [
     "InteractiveSourcesWidget",
+    "InteractiveTimelineWidget",
     "KnowledgeWidget",
     "LLMConfigWidget",
     "RalphStatusWidget",

@@ -33,10 +33,12 @@ from agent_recall.cli.tui.types import (
     ThemeRuntimeFn,
 )
 from agent_recall.cli.tui.ui.bindings import TUI_BINDINGS
+from agent_recall.cli.tui.ui.modals.iteration_detail import IterationDetailModal
 from agent_recall.cli.tui.ui.styles import APP_CSS
 from agent_recall.cli.tui.views import DashboardPanels, build_dashboard_panels, build_sources_data
 from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
-from agent_recall.cli.tui.widgets import InteractiveSourcesWidget
+from agent_recall.cli.tui.widgets import InteractiveSourcesWidget, InteractiveTimelineWidget
+from agent_recall.ralph.iteration_store import IterationReport, IterationReportStore
 
 
 class AgentRecallTextualApp(
@@ -128,6 +130,7 @@ class AgentRecallTextualApp(
         self._suggestions_visible = False
         self._highlighted_suggestion_index: int | None = None
         self._interactive_sources_widget: InteractiveSourcesWidget | None = None
+        self._interactive_timeline_widget: InteractiveTimelineWidget | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -277,6 +280,30 @@ class AgentRecallTextualApp(
             id="dashboard_sources_interactive",
         )
 
+    def _build_interactive_timeline_widget(self) -> InteractiveTimelineWidget:
+        report_store = IterationReportStore(self._dashboard_context.agent_dir / "ralph")
+        return InteractiveTimelineWidget(
+            report_store,
+            on_select=self._open_iteration_detail,
+            id="dashboard_timeline_interactive",
+        )
+
+    def _open_iteration_detail(self, report: IterationReport) -> None:
+        report_store = IterationReportStore(self._dashboard_context.agent_dir / "ralph")
+        diff_text = report_store.load_diff_for_iteration(report.iteration) or ""
+        item_label = " ".join(part for part in [report.item_id, report.item_title] if part)
+        summary_text = report.summary or "No summary available."
+        outcome_text = report.outcome.value if report.outcome else "Unknown"
+        self.push_screen(
+            IterationDetailModal(
+                title=f"Iteration {report.iteration} Detail",
+                summary_text=summary_text,
+                outcome_text=outcome_text,
+                item_text=item_label or "Unknown item",
+                diff_text=diff_text,
+            )
+        )
+
     def _handle_source_sync_click(self, source_name: str) -> None:
         """Handle sync button click from interactive sources widget."""
         self._run_source_sync(source_name)
@@ -291,9 +318,8 @@ class AgentRecallTextualApp(
                 Static(self._build_view_detail_panel("knowledge"), id="dashboard_knowledge")
             )
         elif self.current_view == "timeline":
-            dashboard.mount(
-                Static(self._build_view_detail_panel("timeline"), id="dashboard_timeline")
-            )
+            self._interactive_timeline_widget = self._build_interactive_timeline_widget()
+            dashboard.mount(self._interactive_timeline_widget)
         elif self.current_view == "ralph":
             dashboard.mount(Static(panels.ralph, id="dashboard_ralph"))
         elif self.current_view == "llm":
@@ -340,10 +366,14 @@ class AgentRecallTextualApp(
                 self._build_view_detail_panel("knowledge"),
             )
         if self.current_view == "timeline":
-            return self._update_static_widget(
-                "#dashboard_timeline",
-                self._build_view_detail_panel("timeline"),
-            )
+            try:
+                widget = self.query_one(
+                    "#dashboard_timeline_interactive", InteractiveTimelineWidget
+                )
+                widget.refresh_timeline()
+                return True
+            except Exception:
+                return False
         if self.current_view == "ralph":
             return self._update_static_widget("#dashboard_ralph", panels.ralph)
         if self.current_view == "llm":

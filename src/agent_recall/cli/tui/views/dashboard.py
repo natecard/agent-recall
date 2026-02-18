@@ -208,26 +208,10 @@ def build_dashboard_panels(
         agent_dir=context.agent_dir,
         max_iterations=context.ralph_max_iterations,
     )
-    detail_title = None
-    detail_body = None
-    if view == "timeline":
-        recent_reports = report_store.load_recent(count=1)
-        if recent_reports:
-            report = recent_reports[0]
-            detail_title = f"Iteration {report.iteration} Detail"
-            diff_text = report_store.load_diff_for_iteration(report.iteration) or ""
-            detail_body = (
-                "## Summary\n"
-                f"Outcome: {report.outcome.value if report.outcome else 'Unknown'}\n"
-                f"Item: {report.item_id} {report.item_title}\n\n"
-                f"{report.summary or ''}\n\n"
-                "## Diff\n"
-                f"{diff_text}"
-            )
     timeline_widget = TimelineWidget(
         timeline_lines=timeline_lines,
-        detail_title=detail_title,
-        detail_body=detail_body,
+        detail_title=None,
+        detail_body=None,
     )
 
     now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

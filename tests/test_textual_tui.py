@@ -1310,3 +1310,49 @@ def test_build_sources_data_returns_correct_format() -> None:
     assert sources_data[0]["sessions"] == 3
     assert sources_data[0]["available"] is True
     assert last_synced == "Never"
+
+
+def test_open_iteration_detail_builds_modal(monkeypatch) -> None:
+    app = _build_test_app()
+
+    class _FakeModal:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+    captured: dict[str, Any] = {}
+
+    def _capture_push(screen: Any) -> None:
+        captured["screen"] = screen
+
+    class _FakeReport:
+        iteration = 5
+        item_id = "AR-1004"
+        item_title = "Enhanced Knowledge"
+        summary = "Did the thing."
+        outcome = type("Outcome", (), {"value": "COMPLETED"})()
+
+    class _FakeStore:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def load_diff_for_iteration(self, _iteration: int) -> str:
+            return "diff --git a/file b/file"
+
+    monkeypatch.setattr(
+        "agent_recall.cli.tui.app.IterationDetailModal",
+        _FakeModal,
+    )
+    monkeypatch.setattr(
+        "agent_recall.cli.tui.app.IterationReportStore",
+        _FakeStore,
+    )
+    monkeypatch.setattr(app, "push_screen", _capture_push)
+
+    app._open_iteration_detail(cast(Any, _FakeReport()))
+
+    screen = captured.get("screen")
+    assert isinstance(screen, _FakeModal)
+    assert screen.kwargs["title"] == "Iteration 5 Detail"
+    assert screen.kwargs["summary_text"] == "Did the thing."
+    assert screen.kwargs["outcome_text"] == "COMPLETED"
+    assert "AR-1004" in screen.kwargs["item_text"]

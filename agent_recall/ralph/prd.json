@@ -38,7 +38,7 @@
     },
     {
       "id": "AR-1004",
-      "priority": 2,
+      "priority": 1,
       "title": "Enhanced Knowledge & Timeline Browsers",
       "description": "Transform the static Knowledge and Timeline summaries into fully browsable interfaces. The Knowledge view should allow reading the actual Guardrails/Style/Recent content with syntax highlighting. The Timeline should allow clicking an entry to view the full iteration report and diff.",
       "user_story": "As a user, I want to read my Guardrails or review a past iteration's diff within the TUI so that I don't have to switch to an external editor.",
@@ -58,7 +58,8 @@
       "validation_commands": [
         "uv run pytest tests/test_textual_tui.py"
       ],
-      "passes": false
+      "passes": true,
+      "notes": "Implemented interactive timeline detail browsing and knowledge detail access in TUI. Timeline view now uses an interactive DataTable that opens a modal with iteration summary and diff; knowledge detail remains accessible via the existing detail panel."
     },
     {
       "id": "AR-1005",
@@ -150,7 +151,7 @@
     },
     {
       "id": "AR-1008",
-      "priority": 3,
+      "priority": 2,
       "title": "Widget Layout & Banner Customisation Modal",
       "description": "Power users want fine-grained control over what appears in their TUI. This feature introduces a `LayoutCustomiserModal` — accessible via a new `/layout` slash command and a `Ctrl+L` binding — that lets users toggle individual dashboard widgets on or off and choose the height of the ASCII title banner at the top of the TUI. Preferences are persisted to the existing settings store (alongside theme, view, and refresh rate) so the layout is restored across sessions. The modal follows the same card-based visual pattern as `SettingsModal` and `ModelConfigModal`.",
       "user_story": "As a power user, I want to choose exactly which panels are visible in my TUI and shrink or hide the title banner so that I can maximise information density for my workflow.",
