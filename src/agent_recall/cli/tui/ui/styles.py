@@ -84,8 +84,7 @@ APP_CSS = """
         display: none;
         border: round $accent;
         background: $panel;
-        padding: 1 2;
-        margin-bottom: 1;
+        padding: 0 1;
     }
     #activity {
         height: 1fr;
@@ -97,7 +96,7 @@ APP_CSS = """
         overflow: auto;
         border: round $accent;
         background: $panel;
-        padding: 1 2;
+        padding: 0 1;
     }
     #activity_result_list {
         height: 1fr;
@@ -115,7 +114,7 @@ APP_CSS = """
         max-width: 94;
         height: auto;
         max-height: 78%;
-        padding: 1 3;
+        padding: 0 2;
         background: $panel;
         border: none;
         overflow: auto;
@@ -125,7 +124,7 @@ APP_CSS = """
         max-width: 84;
         height: auto;
         max-height: 82%;
-        padding: 1 2;
+        padding: 0 1;
         background: $panel;
         border: round $accent;
         overflow: auto;
@@ -136,7 +135,7 @@ APP_CSS = """
     .modal_compact {
         width: 52%;
         max-width: 58;
-        padding: 1 2;
+        padding: 0 1;
     }
     .field_row_compact {
         margin: 0 0 0 0;
@@ -156,27 +155,17 @@ APP_CSS = """
     .modal_column:last-child {
         padding: 0 0 0 1;
     }
-    #diff_content {
-        height: 1fr;
-        overflow: auto;
-        background: $panel;
-        border: round $accent;
-        padding: 1 2;
-        margin-top: 1;
-    }
     #iteration_detail_content {
         height: 1fr;
         overflow: auto;
         background: $panel;
         border: round $accent;
-        padding: 1 2;
-        margin-top: 1;
+        padding: 0 1;
     }
     #palette_header {
         layout: horizontal;
         width: 100%;
         height: 1;
-        margin-bottom: 1;
     }
     #palette_title, .modal_title {
         text-style: bold;
@@ -194,10 +183,9 @@ APP_CSS = """
     }
     .modal_subtitle {
         color: $text-muted;
-        margin-bottom: 1;
     }
     .modal_title {
-        padding-top: 1;
+        padding-top: 0;
     }
     #palette_search {
         margin-bottom: 1;
@@ -210,7 +198,6 @@ APP_CSS = """
         color: $text-muted;
     }
     #palette_hint {
-        margin-top: 1;
     }
     #cli_input_container {
         height: auto;
@@ -262,27 +249,25 @@ APP_CSS = """
     }
     .field_row {
         height: auto;
-        margin: 0 0 1 0;
+        margin: 0;
     }
     .field_label {
         width: 15;
         color: $text-muted;
-        padding-top: 1;
+        padding-top: 0;
     }
     .field_input {
         width: 1fr;
     }
     .setup_agents {
         height: auto;
-        margin-bottom: 1;
     }
     .modal_actions {
-        margin-top: 1;
-        padding-top: 1;
+        margin-top: 0;
+        padding-top: 0;
         height: auto;
     }
     .section_title {
-        margin-top: 1;
         text-style: bold;
     }
     #setup_status, #model_api_hint, #model_error, #settings_error, #layout_error {

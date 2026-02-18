@@ -90,6 +90,87 @@ def extract_git_diff(repo_dir: Path) -> str:
     return result.stdout
 
 
+def get_current_commit_hash(repo_dir: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def get_last_commit_message(repo_dir: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%B"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def extract_commit_diff(repo_dir: Path, commit_hash: str) -> str:
+    if not commit_hash:
+        return ""
+    try:
+        result = subprocess.run(
+            ["git", "show", commit_hash, "--format=", "--patch"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout
+
+
+def extract_smart_diff(repo_dir: Path) -> dict[str, str | None]:
+    """
+    Intelligently extract diff after agent run.
+
+    Agents are instructed to include 'RALPH' in commit messages.
+    This function checks if the last commit is a RALPH commit:
+    - If yes: return the commit's diff and commit hash
+    - If no: return unstaged diff (git diff) with no commit hash
+
+    Returns dict with keys: 'diff', 'commit_hash'
+    """
+    last_message = get_last_commit_message(repo_dir)
+    commit_hash = None
+    diff = ""
+
+    if last_message and "RALPH" in last_message:
+        commit_hash = get_current_commit_hash(repo_dir)
+        if commit_hash:
+            diff = extract_commit_diff(repo_dir, commit_hash)
+
+    if not diff:
+        diff = extract_git_diff(repo_dir)
+        if not diff and commit_hash:
+            commit_hash = None
+
+    return {
+        "diff": diff,
+        "commit_hash": commit_hash,
+    }
+
+
 def extract_validation_hint(validation_output: list[str]) -> str | None:
     for line in validation_output:
         stripped = line.strip()
@@ -109,12 +190,14 @@ def extract_from_artifacts(
     timeout: float,
     repo_dir: Path,
 ) -> dict[str, object]:
+    smart = extract_smart_diff(repo_dir)
     return {
         "outcome": extract_outcome(validation_exit, agent_exit, elapsed, timeout),
         "failure_reason": extract_failure_reason(validation_output),
         "validation_hint": extract_validation_hint(validation_output),
         "files_changed": extract_files_changed(repo_dir),
-        "git_diff": extract_git_diff(repo_dir),
+        "git_diff": smart.get("diff") or "",
+        "commit_hash": smart.get("commit_hash"),
     }
 
 

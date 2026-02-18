@@ -13,51 +13,98 @@
   },
   "items": [
     {
-      "id": "AR-1012",
-      "priority": 1,
-      "title": "Compaction Backend Choice (LLM or Coding CLI)",
-      "description": "Add a compaction backend setting so users can run compaction summarization through the coding CLI agent instead of only the configured LLM provider.",
-      "user_story": "As a user, I want to choose whether compaction summarization uses the configured LLM provider or my coding CLI agent so I can keep behavior consistent with my workflow.",
-      "steps": [
-        "[DONE] Add compaction backend config with values llm and coding_cli.",
-        "[DONE] Keep llm as the default backend for backward compatibility.",
-        "[DONE] Implement coding_cli backend execution for compact synthesis paths.",
-        "[DONE] Validate coding_cli output shape before writing tier files.",
-        "[DONE] Add tests for backend selection and fallback behavior."
+      "id": "AR-104",
+      "title": "TUI: Unified History & Diff View",
+      "type": "feature",
+      "priority": "high",
+      "description": "Currently, there are disparate views for diffs ('Diff View', 'View Last Diff'). These should be consolidated into a single 'History' or 'Iterations' view that allows navigating through past Ralph iterations and viewing their respective diffs.",
+      "requirements": [
+        "Combine 'Diff View' and 'View Last Diff' functionality.",
+        "Implement navigation controls (Previous/Next Iteration) to browse history.",
+        "Display the diff summary and file details for the selected iteration.",
+        "Ensure the view state persists or resets logically when switching views."
       ],
       "acceptance_criteria": [
-        "Users can select compaction backend via config.",
-        "Default behavior stays unchanged when config is not set.",
-        "Compaction can run using coding_cli backend when configured.",
-        "Invalid coding_cli output does not corrupt tier files."
+        "User can view a history of Ralph iterations.",
+        "User can navigate backwards and forwards through the commit/iteration list.",
+        "Selecting an iteration shows its diff and details.",
+        "Redundant diff views are removed from the Command Palette and UI."
       ],
-      "validation_commands": [
-        "uv run pytest tests/test_compact.py -q"
-      ],
-      "passes": true
+      "passes": false
     },
     {
-      "id": "AR-1013",
-      "priority": 1,
-      "title": "Auto-Mark Completed PRD Steps as [DONE]",
-      "description": "Ensure Ralph loop marks each completed step in PRD items with a [DONE] prefix when an item is completed, not only passes: true.",
-      "user_story": "As a user handing off between agents, I want completed steps clearly marked in the PRD so the next agent can quickly see exactly what has already been done.",
-      "steps": [
-        "[DONE] Add loop-side normalization that updates steps for passed items.",
-        "[DONE] Prefix each completed step string with [DONE] if missing.",
-        "[DONE] Avoid double-prefixing steps already marked [DONE].",
-        "[DONE] Run this normalization each iteration before next prompt context.",
-        "[DONE] Add regression test for step-marking behavior."
+      "id": "AR-105",
+      "title": "TUI: Fix Layout Customization",
+      "type": "polish",
+      "priority": "medium",
+      "description": "The current layout customization options (visibility toggles) are confusing, do not reflect the actual current state of the UI, and do not offer meaningful control over the layout structure.",
+      "requirements": [
+        "Ensure the 'Customise Layout' modal pre-populates with the *actual* current widget visibility and banner settings.",
+        "Refactor layout options to be more intuitive, possibly introducing 'View Modes' (e.g., Focus, Overview, Debug) instead of just raw toggles.",
+        "Verify that applying changes immediately reflects in the dashboard without requiring a full reload or manual refresh.",
+        "Ensure layout settings persist correctly across sessions."
       ],
       "acceptance_criteria": [
-        "When an item has passes: true, its steps are marked with [DONE].",
-        "Existing [DONE] steps are not double-prefixed.",
-        "Next iteration prompt includes updated PRD step status."
+        "Opening layout settings shows the correct current state.",
+        "Changes to layout settings are applied immediately and visibly.",
+        "Layout options are clear and easier to understand for the user."
       ],
-      "validation_commands": [
-        "uv run pytest tests/test_ralph_loop.py -q"
+      "passes": false
+    },
+    {
+      "id": "AR-106",
+      "title": "TUI: Fix Banner Flashing",
+      "type": "bugfix",
+      "priority": "medium",
+      "description": "The dashboard banner flashes every few seconds (likely on the refresh interval), indicating unnecessary full re-renders of the component or the entire dashboard.",
+      "requirements": [
+        "Investigate the `_refresh_dashboard_panel` and `_update_dashboard_widgets` logic.",
+        "Ensure that simple time updates in the banner do not trigger a full dashboard tear-down and re-mount.",
+        "Optimize the Banner widget to update its content (text) in-place without replacing the widget itself.",
+        "Verify that `_update_dashboard_widgets` returns `True` for routine updates."
       ],
-      "passes": true
+      "acceptance_criteria": [
+        "The banner time updates smoothly without flashing.",
+        "The rest of the dashboard remains stable during time updates.",
+        "CPU usage for TUI idle state is minimized."
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-107",
+      "title": "TUI: Fix Command Palette Truncation",
+      "type": "bugfix",
+      "priority": "high",
+      "description": "The Command Palette currently truncates the list of commands in each section (e.g., showing only 5 items). Users need to see the full list of available commands.",
+      "requirements": [
+        "Remove the arbitrary limit (e.g., 5 items) on command groups in the Command Palette.",
+        "Allow the `OptionList` to handle scrolling if the list is long.",
+        "Ensure all available commands for each section are rendered and accessible."
+      ],
+      "acceptance_criteria": [
+        "The Command Palette shows all commands in each section.",
+        "No '... X more' truncation text is visible unless explicitly desired for very large lists (but prefer scroll).",
+        "Users can scroll through the entire command list."
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-108",
+      "title": "TUI: Remove CLI Commands from Command Palette",
+      "type": "polish",
+      "priority": "high",
+      "description": "The Command Palette currently lists raw CLI commands. Selecting them or typing them often results in errors like 'Commands must start with /', which is confusing. These should be removed to streamline the experience.",
+      "requirements": [
+        "Remove the 'CLI Commands' section from the Command Palette logic.",
+        "Ensure only valid TUI actions or slash commands are actionable from the palette.",
+        "Fix the issue where selecting a command triggers a validation error about missing slash prefix."
+      ],
+      "acceptance_criteria": [
+        "Command Palette no longer shows a 'CLI Commands' group.",
+        "Selecting any remaining action works immediately.",
+        "Typing a slash command works as expected."
+      ],
+      "passes": false
     }
   ]
 }

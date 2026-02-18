@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 
 def _script_path() -> Path:
@@ -503,7 +506,40 @@ def test_ralph_loop_reports_agent_transport_marker(tmp_path: Path) -> None:
     result = _run_loop(tmp_path, agent_cmd="printf 'agent output\\n'")
 
     assert result.returncode == 2
-    if sys.platform == "darwin":
-        assert "Agent transport: pty(script)" in result.stdout
-    else:
-        assert "Agent transport: legacy(pipe)" in result.stdout
+    assert "Agent transport: pipe" in result.stdout
+
+
+def test_ralph_loop_normalizes_known_pty_script_io_artifact(tmp_path: Path) -> None:
+    if sys.platform != "darwin" or shutil.which("script") is None:
+        pytest.skip("PTY script transport test requires macOS script(1).")
+
+    _write_default_repo_layout(tmp_path)
+
+    result = _run_loop(
+        tmp_path,
+        "--agent-transport",
+        "pty",
+        agent_cmd="printf 'script: write master: Input/output error\\n' >&2; exit 1",
+    )
+
+    assert result.returncode == 2
+    assert "Normalized PTY script write-master I/O artifact to success." in result.stdout
+    assert "Agent command exited non-zero (1). Continuing loop." not in result.stdout
+
+
+def test_ralph_loop_preserves_real_nonzero_failures_for_pty(tmp_path: Path) -> None:
+    if sys.platform != "darwin" or shutil.which("script") is None:
+        pytest.skip("PTY script transport test requires macOS script(1).")
+
+    _write_default_repo_layout(tmp_path)
+
+    result = _run_loop(
+        tmp_path,
+        "--agent-transport",
+        "pty",
+        agent_cmd="cat {prompt_file} >/dev/null; printf 'real failure\\n' >&2; exit 1",
+    )
+
+    assert result.returncode == 2
+    assert "Normalized PTY script write-master I/O artifact to success." not in result.stdout
+    assert "Agent command exited non-zero (1). Continuing loop." in result.stdout

@@ -10,3 +10,7 @@
 - [PATTERN] Used _build_slash_command_map() as single source of truth for hyphenated commands, then routed to handle_palette_action() which dispatches correctly to palette_router
 - [PATTERN] Used Rich markup for heading styling instead of CSS rules since all headings share [bold accent] format
 - [PATTERN] Checked existing tests first before implementing - discovered functionality was already complete via bash script.
+- [PATTERN] Reused existing LLMProvider interface for CodingCLIProvider to maintain consistent abstraction over backend selection.
+- [PATTERN] Checked existing implementation before starting new work - discovered full feature already built with tree view, content viewer, syntax highlighting, and scrolling support
+- [PATTERN] Small targeted CSS edits achieved full acceptance criteria coverage without breaking visual hierarchy.
+- [PATTERN] Small targeted edits to app.py and dashboard.py achieved full acceptance criteria coverage

@@ -1,9 +1,19 @@
 from __future__ import annotations
 
 
+def _normalize_action_id(action_id: str) -> str:
+    """Strip duplicate suffix (e.g. status:1 -> status) from deduplicated option IDs."""
+    if ":" in action_id:
+        parts = action_id.rsplit(":", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            return parts[0]
+    return action_id
+
+
 def handle_palette_action(app, action_id: str | None) -> None:
     if not action_id:
         return
+    action_id = _normalize_action_id(action_id)
     if action_id.startswith("view:"):
         app.current_view = action_id.split(":", 1)[1]
         app.status = f"View: {app.current_view}"

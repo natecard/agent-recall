@@ -32,7 +32,6 @@ from agent_recall.ralph.costs import (
 )
 from agent_recall.ralph.extraction import (
     extract_from_artifacts,
-    extract_git_diff,
     extract_outcome,
     extract_token_usage,
 )
@@ -765,6 +764,11 @@ def ralph_run(
         "-v",
         help="Validation command for bash loop mode",
     ),
+    agent_transport: str = typer.Option(
+        "pipe",
+        "--agent-transport",
+        help="Agent transport for bash loop mode: pipe, pty, auto",
+    ),
     max_iterations: int = typer.Option(
         10,
         "--max-iterations",
@@ -916,6 +920,10 @@ def ralph_run(
     if compact_mode not in {"always", "on-failure", "off"}:
         console.print("[error]Invalid compact mode. Use always, on-failure, or off.[/error]")
         raise typer.Exit(1)
+    agent_transport = agent_transport.strip().lower()
+    if agent_transport not in {"pipe", "pty", "auto"}:
+        console.print("[error]Invalid agent transport. Use pipe, pty, or auto.[/error]")
+        raise typer.Exit(1)
 
     script_path = get_default_script_path()
     if not script_path.exists():
@@ -950,6 +958,8 @@ def ralph_run(
         str(prd_path),
         "--compact-mode",
         compact_mode,
+        "--agent-transport",
+        agent_transport,
         "--sleep-seconds",
         str(sleep_seconds),
         "--prompt-prd-top-n",
@@ -1484,8 +1494,12 @@ def ralph_extract_iteration(
     files_changed = artifacts.get("files_changed")
     if isinstance(files_changed, list):
         report.files_changed = [str(item) for item in files_changed if item]
-    git_diff = extract_git_diff(Path.cwd())
-    store.save_current_diff(report, git_diff)
+    git_diff = artifacts.get("git_diff")
+    if isinstance(git_diff, str):
+        store.save_current_diff(report, git_diff)
+    commit_hash = artifacts.get("commit_hash")
+    if isinstance(commit_hash, str) and commit_hash:
+        report.commit_hash = commit_hash
     store.save_current(report)
     console.print("[success]✓ Updated current report with extracted artifacts[/success]")
 

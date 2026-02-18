@@ -120,10 +120,14 @@ class PRDSelectModal(ModalScreen[dict[str, Any] | None]):
 
         option_list = self.query_one("#prd_select_list", OptionList)
         options: list[Option] = []
+        seen_ids: set[str] = set()
         for item in visible_items:
             item_id = str(item.get("id") or "")
             if not item_id:
                 continue
+            if item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
             selected = item_id in self.selected_prd_ids
             options.append(
                 Option(

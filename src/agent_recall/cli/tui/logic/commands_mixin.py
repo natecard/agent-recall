@@ -24,6 +24,7 @@ from agent_recall.cli.tui.ui.modals import (
 )
 from agent_recall.cli.tui.ui.modals.coding_agent_step import CodingAgentStepModal
 from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
+from agent_recall.cli.tui.ui.screens.diff_screen import IterationMetadata
 
 
 class CommandsMixin:
@@ -72,6 +73,7 @@ class CommandsMixin:
                 current_view=self.current_view,
                 refresh_seconds=self.refresh_seconds,
                 all_cursor_workspaces=self.all_cursor_workspaces,
+                ralph_agent_transport=getattr(self, "ralph_agent_transport", "pipe"),
             ),
             self._apply_settings_modal_result,
         )
@@ -177,6 +179,7 @@ class CommandsMixin:
             include_banner_header=True,
             view=self.current_view,
             refresh_seconds=self.refresh_seconds,
+            ralph_agent_transport=getattr(self, "ralph_agent_transport", "pipe"),
             show_slash_console=False,
         )
         self.query_one("#dashboard", Static).update(renderable)
@@ -217,7 +220,7 @@ class CommandsMixin:
         self.status = "Loading diff"
         self._append_activity("Loading latest iteration diff...")
 
-        def _load_diff() -> tuple[str | None, int | None]:
+        def _load_diff() -> tuple[str | None, int | None, IterationMetadata | None]:
             try:
                 from agent_recall.ralph.iteration_store import IterationReportStore
 
@@ -225,12 +228,20 @@ class CommandsMixin:
                 store = IterationReportStore(agent_dir / "ralph")
                 reports = store.load_recent(count=1)
                 if not reports:
-                    return None, None
+                    return None, None, None
                 report = reports[0]
                 diff_text = store.load_diff_for_iteration(report.iteration)
-                return diff_text, report.iteration
+                meta = IterationMetadata(
+                    iteration=report.iteration,
+                    item_id=report.item_id,
+                    item_title=report.item_title,
+                    commit_hash=report.commit_hash,
+                    completed_at=report.completed_at,
+                    outcome=report.outcome.value if report.outcome else None,
+                )
+                return diff_text, report.iteration, meta
             except Exception:
-                return None, None
+                return None, None, None
 
         worker = self.run_worker(
             _load_diff,
@@ -421,6 +432,14 @@ class CommandsMixin:
             return
         self.current_view = str(result.get("view", self.current_view))
         self.refresh_seconds = float(result.get("refresh_seconds", self.refresh_seconds))
+        selected_transport = (
+            str(result.get("ralph_agent_transport", getattr(self, "ralph_agent_transport", "pipe")))
+            .strip()
+            .lower()
+        )
+        self.ralph_agent_transport = (
+            selected_transport if selected_transport in {"pipe", "auto", "pty"} else "pipe"
+        )
         self.all_cursor_workspaces = bool(
             result.get("all_cursor_workspaces", self.all_cursor_workspaces)
         )
@@ -437,6 +456,7 @@ class CommandsMixin:
                     {
                         "default_view": self.current_view,
                         "refresh_seconds": self.refresh_seconds,
+                        "ralph_agent_transport": self.ralph_agent_transport,
                         "all_cursor_workspaces": self.all_cursor_workspaces,
                     },
                 )

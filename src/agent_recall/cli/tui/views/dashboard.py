@@ -53,6 +53,7 @@ def build_dashboard_panels(
     slash_output: list[str] | None = None,
     view: str = "overview",
     refresh_seconds: float = 2.0,
+    ralph_agent_transport: str = "pipe",
     show_slash_console: bool = True,
 ) -> DashboardPanels:
     storage = context.get_storage()
@@ -204,6 +205,7 @@ def build_dashboard_panels(
     settings_widget = SettingsWidget(
         view=view,
         refresh_seconds=refresh_seconds,
+        ralph_agent_transport=ralph_agent_transport,
         theme_name=context.theme_manager.get_theme_name(),
         interactive_shell=context.is_interactive_terminal(),
         repo_name=repo_name,
@@ -221,10 +223,9 @@ def build_dashboard_panels(
     )
     diff_widget = DiffSummaryWidget(agent_dir=context.agent_dir)
 
-    now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_text = datetime.now().strftime("%H:%M:%S")
 
-    # Build header title with Ralph status badge if enabled
-    header_title = f"[dim]Updated {now_text}[/dim]"
+    header_title = f"[dim]{now_text}[/dim]"
     if context.ralph_enabled:
         badge = (
             "[success]Ralph Active[/success]" if context.ralph_running else "[dim]Ralph Idle[/dim]"
@@ -401,6 +402,7 @@ def build_tui_dashboard(
     slash_output: list[str] | None = None,
     view: str = "overview",
     refresh_seconds: float = 2.0,
+    ralph_agent_transport: str = "pipe",
     show_slash_console: bool = True,
     widget_visibility: dict[str, bool] | None = None,
 ) -> Group:
@@ -414,6 +416,7 @@ def build_tui_dashboard(
         slash_output=slash_output,
         view=view,
         refresh_seconds=refresh_seconds,
+        ralph_agent_transport=ralph_agent_transport,
         show_slash_console=show_slash_console,
     )
 

@@ -2234,6 +2234,7 @@ def _build_tui_dashboard(
     slash_output: list[str] | None = None,
     view: str = "overview",
     refresh_seconds: float = 2.0,
+    ralph_agent_transport: str = "pipe",
     show_slash_console: bool = True,
 ) -> Group:
     """Build the live TUI dashboard renderable."""
@@ -2255,6 +2256,7 @@ def _build_tui_dashboard(
         slash_output=slash_output,
         view=view,
         refresh_seconds=refresh_seconds,
+        ralph_agent_transport=ralph_agent_transport,
         show_slash_console=show_slash_console,
         widget_visibility=tui_config.get("widget_visibility")
         if isinstance(tui_config, dict)
@@ -2636,10 +2638,24 @@ def tui(
         "--force-onboarding",
         help="Run onboarding even if this repository is already configured.",
     ),
+    no_delta_setup: bool = typer.Option(
+        False,
+        "--no-delta-setup",
+        help="Skip first-launch delta diff renderer setup prompt.",
+    ),
+    force_delta_setup: bool = typer.Option(
+        False,
+        "--force-delta-setup",
+        help="Reset delta setup: clear cached binary and show the download prompt again.",
+    ),
 ):
     """Start a live terminal UI dashboard for agent-recall."""
     _get_theme_manager()
     ensure_initialized()
+    if force_delta_setup:
+        from agent_recall.cli.tui.delta import reset_delta_setup
+
+        reset_delta_setup()
     inject_stored_api_keys()
     files = get_files()
     interactive_shell = is_interactive_terminal()
@@ -2745,9 +2761,11 @@ def tui(
             all_cursor_workspaces=bool(
                 tui_config.get("all_cursor_workspaces", all_cursor_workspaces)
             ),
+            ralph_agent_transport=str(tui_config.get("ralph_agent_transport", "pipe")),
             onboarding_required=onboarding_required,
             terminal_panel_visible=bool(tui_config.get("terminal_panel_visible", False)),
             terminal_supported=show_terminal,
+            no_delta_setup=no_delta_setup,
         )
         app_instance.run()
     except KeyboardInterrupt:

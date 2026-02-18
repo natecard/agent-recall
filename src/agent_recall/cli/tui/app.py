@@ -8,7 +8,7 @@ from rich.theme import Theme
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Header, Input, Log, OptionList, Static
+from textual.widgets import Footer, Input, Log, OptionList, Static
 from textual.widgets.option_list import Option
 
 from agent_recall.cli.tui.commands.help_text import (
@@ -79,9 +79,11 @@ class AgentRecallTextualApp(
         initial_view: str = "overview",
         refresh_seconds: float = 2.0,
         all_cursor_workspaces: bool = False,
+        ralph_agent_transport: str = "pipe",
         onboarding_required: bool = False,
         terminal_panel_visible: bool = False,
         terminal_supported: bool = False,
+        no_delta_setup: bool = False,
     ):
         super().__init__()
         self._render_dashboard = render_dashboard
@@ -108,9 +110,14 @@ class AgentRecallTextualApp(
         self.current_view = initial_view
         self.refresh_seconds = refresh_seconds
         self.all_cursor_workspaces = all_cursor_workspaces
+        normalized_transport = str(ralph_agent_transport).strip().lower()
+        self.ralph_agent_transport = (
+            normalized_transport if normalized_transport in {"pipe", "auto", "pty"} else "pipe"
+        )
         self.onboarding_required = onboarding_required
         self.terminal_panel_visible = terminal_panel_visible
         self.terminal_supported = terminal_supported
+        self.no_delta_setup = no_delta_setup
         self.status = "Ready. Press Ctrl+P for commands."
         self.activity: deque[str] = deque(maxlen=2000)
         self._theme_preview_active = False
@@ -138,7 +145,6 @@ class AgentRecallTextualApp(
         self._layout_module: object | None = None
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
         with Vertical(id="root"):
             with Vertical(id="app_shell"):
                 yield Vertical(id="dashboard")
@@ -153,6 +159,12 @@ class AgentRecallTextualApp(
 
     def on_mount(self) -> None:
         self._load_tui_layout_settings()
+        if not self.no_delta_setup:
+            from agent_recall.cli.tui.delta import is_delta_available, is_delta_setup_declined
+            from agent_recall.cli.tui.ui.screens.first_launch import FirstLaunchScreen
+
+            if not is_delta_available() and not is_delta_setup_declined():
+                self.push_screen(FirstLaunchScreen())
         if self._theme_runtime_provider is not None:
             self._sync_runtime_theme()
         elif self._rich_theme is not None:
@@ -234,6 +246,7 @@ class AgentRecallTextualApp(
             banner_size=self.tui_banner_size,
             view=self.current_view,
             refresh_seconds=self.refresh_seconds,
+            ralph_agent_transport=self.ralph_agent_transport,
             show_slash_console=False,
             widget_visibility=self.tui_widget_visibility,
         )
@@ -277,6 +290,7 @@ class AgentRecallTextualApp(
             banner_size=self.tui_banner_size,
             view=view,
             refresh_seconds=self.refresh_seconds,
+            ralph_agent_transport=self.ralph_agent_transport,
             show_slash_console=False,
             widget_visibility=self.tui_widget_visibility,
         )
@@ -765,8 +779,8 @@ class AgentRecallTextualApp(
 
         suggestions_widget = self.query_one("#cli_suggestions", OptionList)
         suggestions_widget.clear_options()
-        for suggestion in suggestions:
-            suggestions_widget.add_option(Option(suggestion))
+        for index, suggestion in enumerate(suggestions):
+            suggestions_widget.add_option(Option(suggestion, id=f"suggestion:{index}"))
         suggestions_widget.display = True
         self._suggestions_visible = True
         self._highlighted_suggestion_index = None

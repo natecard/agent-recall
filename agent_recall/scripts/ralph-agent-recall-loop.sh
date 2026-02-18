@@ -14,6 +14,7 @@ Core options:
   --validate-cmd CMD           Validation command to keep CI green
   --agent-output-mode MODE     Agent output format: plain|stream-json (default: plain)
   --agent-timeout-seconds N    Timeout per agent iteration in seconds (default: 0, disabled)
+  --agent-transport MODE       Agent transport: pipe|pty|auto (default: pipe)
   --prd-file PATH              PRD JSON path (default: agent_recall/ralph/prd.json)
   --prd-ids ID1,ID2,...        Comma-separated PRD item IDs to process (omit for all)
   --prompt-prd-top-n N         Number of highest-priority unpassed PRDs to include in prompt (default: 8)
@@ -56,12 +57,14 @@ Environment fallbacks:
   RALPH_AGENT_CMD
   RALPH_VALIDATE_CMD
   RALPH_PRD_IDS              Comma-separated PRD IDs (or use agent-recall ralph get-selected-prds)
+  RALPH_AGENT_TRANSPORT      Agent transport: pipe|pty|auto
 USAGE
 }
 
 AGENT_CMD="${RALPH_AGENT_CMD:-}"
 VALIDATE_CMD="${RALPH_VALIDATE_CMD:-}"
 PRD_IDS="${RALPH_PRD_IDS:-}"
+AGENT_TRANSPORT="${RALPH_AGENT_TRANSPORT:-pipe}"
 AGENT_OUTPUT_MODE="plain"
 AGENT_TIMEOUT_SECONDS=0
 AGENT_TIMEOUT_BACKEND="none"
@@ -148,6 +151,10 @@ while [[ $# -gt 0 ]]; do
     ;;
   --agent-timeout-seconds)
     AGENT_TIMEOUT_SECONDS="$2"
+    shift 2
+    ;;
+  --agent-transport)
+    AGENT_TRANSPORT="$2"
     shift 2
     ;;
   --prd-file)
@@ -367,6 +374,12 @@ if [[ $AGENT_OUTPUT_MODE != "plain" && $AGENT_OUTPUT_MODE != "stream-json" ]]; t
   exit 1
 fi
 
+AGENT_TRANSPORT="$(printf '%s' "$AGENT_TRANSPORT" | tr '[:upper:]' '[:lower:]')"
+if [[ $AGENT_TRANSPORT != "pipe" && $AGENT_TRANSPORT != "pty" && $AGENT_TRANSPORT != "auto" ]]; then
+  echo "Error: --agent-transport must be pipe, pty, or auto." >&2
+  exit 1
+fi
+
 if [[ $COMPACT_MODE != "always" && $COMPACT_MODE != "on-failure" && $COMPACT_MODE != "off" ]]; then
   echo "Error: --compact-mode must be always, on-failure, or off." >&2
   exit 1
@@ -566,13 +579,50 @@ can_use_script_pty() {
   script -q /dev/null true >/dev/null 2>&1
 }
 
+resolve_agent_transport() {
+  local requested="$1"
+  if [[ $AGENT_OUTPUT_MODE == "stream-json" ]]; then
+    printf 'pipe\n'
+    return 0
+  fi
+
+  case "$requested" in
+  pipe)
+    printf 'pipe\n'
+    ;;
+  pty)
+    if can_use_script_pty; then
+      printf 'pty(script)\n'
+    else
+      echo "Warning: requested PTY transport, but script PTY is unavailable; falling back to pipe." >&2
+      printf 'pipe\n'
+    fi
+    ;;
+  auto)
+    if can_use_script_pty; then
+      printf 'pty(script)\n'
+    else
+      printf 'pipe\n'
+    fi
+    ;;
+  *)
+    printf 'pipe\n'
+    ;;
+  esac
+}
+
+LAST_AGENT_TRANSPORT="pipe"
+AGENT_EXIT_NORMALIZED=0
+
 run_agent() {
   local prompt_file="$1"
   local log_file="$2"
   local cmd="$AGENT_CMD"
   local -a timeout_prefix=()
-  local transport="legacy(pipe)"
+  local transport
   local command_has_prompt_file=0
+  transport="$(resolve_agent_transport "$AGENT_TRANSPORT")"
+  LAST_AGENT_TRANSPORT="$transport"
 
   if [[ $AGENT_TIMEOUT_SECONDS -gt 0 ]]; then
     case "$AGENT_TIMEOUT_BACKEND" in
@@ -593,8 +643,7 @@ run_agent() {
     command_has_prompt_file=1
   fi
 
-  if [[ $AGENT_OUTPUT_MODE != "stream-json" ]] && can_use_script_pty; then
-    transport="pty(script)"
+  if [[ $transport == "pty(script)" ]]; then
     if [[ $command_has_prompt_file -eq 1 ]]; then
       if [[ $AGENT_TIMEOUT_SECONDS -gt 0 ]]; then
         {
@@ -648,6 +697,41 @@ run_agent() {
       } 2>&1 | tee "$log_file"
     fi
   fi
+}
+
+normalize_agent_exit_for_known_pty_artifact() {
+  local raw_exit="$1"
+  local transport="$2"
+  local log_file="$3"
+  AGENT_EXIT_NORMALIZED="$raw_exit"
+
+  if [[ $transport != "pty(script)" ]]; then
+    return 0
+  fi
+  if [[ $raw_exit -eq 124 || $raw_exit -eq 142 ]]; then
+    return 0
+  fi
+  if [[ $raw_exit -ne 1 ]]; then
+    return 0
+  fi
+  if log_has_exact_marker_line "$log_file" "$ABORT_MARKER"; then
+    return 0
+  fi
+  if log_has_known_pty_write_master_artifact "$log_file"; then
+    AGENT_EXIT_NORMALIZED=0
+    echo "Normalized PTY script write-master I/O artifact to success."
+  fi
+}
+
+log_has_known_pty_write_master_artifact() {
+  local log_file="$1"
+
+  if [[ ! -f $log_file ]]; then
+    return 1
+  fi
+
+  LC_ALL=C tr -d '\000\r' <"$log_file" \
+    | grep -Eiq 'script:.*write master( failed)?:.*input/output error'
 }
 
 agent_timed_out_exit() {
@@ -1207,8 +1291,10 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
 
   set +e
   run_agent "$PROMPT_FILE" "$AGENT_LOG"
-  AGENT_EXIT=$?
+  AGENT_EXIT_RAW=$?
   set -e
+  normalize_agent_exit_for_known_pty_artifact "$AGENT_EXIT_RAW" "$LAST_AGENT_TRANSPORT" "$AGENT_LOG"
+  AGENT_EXIT="$AGENT_EXIT_NORMALIZED"
   AGENT_TIMED_OUT=0
   if agent_timed_out_exit "$AGENT_EXIT"; then
     AGENT_TIMED_OUT=1
