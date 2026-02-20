@@ -667,12 +667,6 @@ class AgentRecallTextualApp(
             "ralph-select": "ralph-select",
             "ralph-run": "ralph-run",
             "ralph-config": "ralph-config",
-            "ralph-hooks-install": "ralph-hooks-install",
-            "ralph-hooks-uninstall": "ralph-hooks-uninstall",
-            "ralph-opencode-install": "ralph-opencode-install",
-            "ralph-opencode-uninstall": "ralph-opencode-uninstall",
-            "ralph-watch": "ralph-watch",
-            "watch": "ralph-watch",
             "ralph-view-diff": "ralph-view-diff",
             "diff": "ralph-view-diff",
             "ralph-notifications": "ralph-notifications",
@@ -715,11 +709,6 @@ class AgentRecallTextualApp(
             self._append_activity("  /ralph-select       - Select PRD items")
             self._append_activity("  /ralph-run          - Run Ralph loop")
             self._append_activity("  /ralph-config       - Ralph configuration")
-            self._append_activity("  /ralph-hooks-install    - Install Claude hooks")
-            self._append_activity("  /ralph-hooks-uninstall  - Uninstall Claude hooks")
-            self._append_activity("  /ralph-opencode-install - Install OpenCode plugin")
-            self._append_activity("  /ralph-opencode-uninstall - Uninstall OpenCode plugin")
-            self._append_activity("  /ralph-watch, /watch    - Watch Claude logs")
             self._append_activity("  /ralph-view-diff, /diff - Browse iteration history (diffs)")
             self._append_activity("  /ralph-notifications    - Toggle notifications")
             self._append_activity("  /ralph-terminal         - Toggle terminal panel")

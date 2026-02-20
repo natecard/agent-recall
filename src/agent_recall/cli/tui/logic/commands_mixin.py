@@ -85,6 +85,22 @@ class CommandsMixin:
             self._apply_layout_modal_result,
         )
 
+    def action_open_view_modal(self: Any) -> None:
+        from agent_recall.cli.tui.ui.modals.view_select import ViewSelectModal
+
+        self.push_screen(
+            ViewSelectModal(),
+            self._apply_view_modal_result,
+        )
+
+    def _apply_view_modal_result(self: Any, result: str | None) -> None:
+        if not result:
+            return
+        self.current_view = result
+        self.status = f"View: {self.current_view}"
+        self._append_activity(f"Switched to {self.current_view} view.")
+        self._refresh_dashboard_panel()
+
     def _get_layout_modal_class(self: Any):  # noqa: ANN001
         module = self._load_layout_module()
         return module.LayoutCustomiserModal
@@ -532,6 +548,20 @@ class CommandsMixin:
         if result is None:
             self._append_activity("Ralph configuration cancelled.")
             return
+
+        action = result.get("action")
+        if action:
+            action_map = {
+                "ralph_install_claude": "ralph hooks install",
+                "ralph_uninstall_claude": "ralph hooks uninstall",
+                "ralph_install_opencode": "ralph plugin opencode-install",
+                "ralph_uninstall_opencode": "ralph plugin opencode-uninstall",
+            }
+            command = action_map.get(action)
+            if command:
+                self._run_backend_command(command)
+            return
+
         try:
             from agent_recall.cli.ralph import write_ralph_config
             from agent_recall.storage.files import FileStorage

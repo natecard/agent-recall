@@ -147,9 +147,9 @@ def test_palette_contains_terminal_toggle() -> None:
     assert "ralph-terminal" in action_ids
 
 
-def test_palette_contains_timeline_view() -> None:
+def test_palette_contains_views_command() -> None:
     action_ids = {action.action_id for action in get_palette_actions()}
-    assert "view:timeline" in action_ids
+    assert "view-select" in action_ids
 
 
 def test_clean_optional_text_handles_none_variants() -> None:
@@ -1537,16 +1537,11 @@ def test_open_iteration_detail_builds_modal(monkeypatch) -> None:
     assert "AR-1004" in screen.kwargs["item_text"]
 
 
-def test_slash_command_map_includes_ralph_hooks_and_watch() -> None:
+def test_slash_command_map_includes_ralph_and_view_select() -> None:
     """Test that hyphenated Ralph slash commands are mapped correctly."""
     app = _build_test_app()
     command_map = app._build_slash_command_map()
 
-    assert command_map.get("ralph-hooks-install") == "ralph-hooks-install"
-    assert command_map.get("ralph-hooks-uninstall") == "ralph-hooks-uninstall"
-    assert command_map.get("ralph-opencode-install") == "ralph-opencode-install"
-    assert command_map.get("ralph-opencode-uninstall") == "ralph-opencode-uninstall"
-    assert command_map.get("ralph-watch") == "ralph-watch"
     assert command_map.get("ralph-view-diff") == "ralph-view-diff"
     assert command_map.get("ralph-notifications") == "ralph-notifications"
     assert command_map.get("ralph-terminal") == "ralph-terminal"
@@ -1558,7 +1553,6 @@ def test_slash_command_aliases() -> None:
     app = _build_test_app()
     command_map = app._build_slash_command_map()
 
-    assert command_map.get("watch") == "ralph-watch"
     assert command_map.get("diff") == "ralph-view-diff"
     assert command_map.get("run-select") == "run:select"
     assert command_map.get("select") == "run:select"
@@ -1581,8 +1575,6 @@ def test_help_output_is_grouped_by_category(monkeypatch) -> None:
     assert "Settings" in help_text
     assert "System" in help_text
 
-    assert "ralph-hooks-install" in help_text
-    assert "ralph-watch" in help_text
     assert "ralph-view-diff" in help_text
     assert "ralph-notifications" in help_text
     assert "ralph-terminal" in help_text
@@ -1605,12 +1597,6 @@ def test_get_all_cli_commands_includes_ralph_slash_commands() -> None:
 
     commands = get_all_cli_commands()
 
-    assert "/ralph-hooks-install" in commands
-    assert "/ralph-hooks-uninstall" in commands
-    assert "/ralph-opencode-install" in commands
-    assert "/ralph-opencode-uninstall" in commands
-    assert "/ralph-watch" in commands
-    assert "/watch" in commands
     assert "/ralph-view-diff" in commands
     assert "/diff" in commands
     assert "/ralph-notifications" in commands

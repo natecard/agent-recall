@@ -92,7 +92,7 @@
       "id": "AR-107",
       "title": "TUI: Fix Command Palette Truncation",
       "type": "bugfix",
-      "priority": "high",
+      "priority": 2,
       "description": "The Command Palette currently truncates the list of commands in each section (e.g., showing only 5 items). Users need to see the full list of available commands.",
       "requirements": [
         "[DONE] Remove the arbitrary limit (e.g., 5 items) on command groups in the Command Palette.",
@@ -110,7 +110,7 @@
       "id": "AR-108",
       "title": "TUI: Remove CLI Commands from Command Palette",
       "type": "polish",
-      "priority": "high",
+      "priority": 2,
       "description": "The Command Palette currently lists raw CLI commands. Selecting them or typing them often results in errors like 'Commands must start with /', which is confusing. These should be removed to streamline the experience.",
       "requirements": [
         "[DONE] Remove the 'CLI Commands' section from the Command Palette logic.",
@@ -123,6 +123,95 @@
         "[DONE] Typing a slash command works as expected."
       ],
       "passes": true
+    },
+    {
+      "id": "AR-109",
+      "title": "TUI: Command Palette Cleanup & Consolidation",
+      "type": "polish",
+      "priority": 1,
+      "description": "Review and consolidate existing Command Palette commands. Remove redundant actions, clarify 'Recent' vs. 'Suggested', and consider removing/re-evaluating OpenCode plugin, Claude Code Hooks, Watch Claude Logs, Source Health, and the Views list.",
+      "requirements": [
+        "Audit 'palette_actions.py' and 'palette_router.py' for redundant or obsolete commands.",
+        "Evaluate necessity of 'OpenCode plugin', 'Claude Code Hooks', 'Watch Claude Logs', 'Source Health', and 'Views' list.",
+        "Remove commands that are not explicitly required to streamline the palette.",
+        "Ensure 'Recent' properly saves and surfaces recently used acceptable commands instead of pushing out generic 'Suggested' commands without context."
+      ],
+      "acceptance_criteria": [
+        "Command Palette list is significantly smaller and more focused.",
+        "No overlap in command functionality.",
+        "Obsolete integrations (if determined) are removed from the palette."
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-110",
+      "title": "TUI: Fix Arrow Key Navigation in Select PRD Modal",
+      "type": "bugfix",
+      "priority": 1,
+      "description": "The up and down arrow keys do not function as expected in the 'Select PRD' modal (`prd_select.py`).",
+      "requirements": [
+        "Implement `on_key` event handler in `PRDSelectModal` to capture 'up' and 'down' key presses.",
+        "Route the arrow key events to modify the `highlighted` index of the `OptionList` (`#prd_select_list`), similar to the implementation in the Command Palette.",
+        "Ensure scrolling works seamlessly through the PRD options."
+      ],
+      "acceptance_criteria": [
+        "User can navigate the PRD list using up and down arrow keys.",
+        "The selected/highlighted item updates visually."
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-111",
+      "title": "TUI: Enhance Iteration Diff Viewer UI",
+      "type": "feature",
+      "priority": 2,
+      "description": "The Iteration Diff Viewer needs UI improvements: the file tree panel should be resizable, and the title must display the current iteration or commit information to provide context.",
+      "requirements": [
+        "Add a resizable handle or integrate a `Splitter` component between the `DiffTreeViewer` and the content view.",
+        "Update `IterationDetailModal` or the diff viewer component to accept and display the iteration identifier/title in its header.",
+        "Ensure CSS supports layout changes for a resizable tree."
+      ],
+      "acceptance_criteria": [
+        "User can drag the boundary between the file tree and diff content to resize it.",
+        "The top of the viewer clearly states which iteration/commit is being viewed."
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-112",
+      "title": "TUI: Fix Layout Widget Visibility Persistence",
+      "type": "bugfix",
+      "priority": 1,
+      "description": "When configuring the layout via the Layout Customiser, unchecking widgets (like terminal/console) causes the remaining active widgets to fail to render properly or be pushed out of view.",
+      "requirements": [
+        "Investigate `_build_overview_layout` in `dashboard.py` and `_mount_dashboard_widgets` in `app.py`.",
+        "Ensure that when a layout changes, the terminal panel or other components do not aggressively consume infinite space (`1fr`), forcing other panels to collapse.",
+        "Ensure `dashboard_all_grid` and `dashboard_overview_row` structures handle missing child panels gracefully."
+      ],
+      "acceptance_criteria": [
+        "Toggling widgets off correctly reallocates space to remaining visible widgets.",
+        "Toggling widgets on makes them appear immediately without breaking the layout.",
+        "The console/terminal does not unfairly consume all available screen real estate when other panels are active."
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-113",
+      "title": "TUI: Consolidate Sessions and Source Health Views",
+      "type": "feature",
+      "priority": 1,
+      "description": "The 'Source Health' and 'Sessions' views provide overlapping utility. We need to merge the display of sources into the 'Sessions' view to create a unified 'Browse Data' experience, eliminating the need for a separate 'Sources' view.",
+      "requirements": [
+        "Incorporate the 'InteractiveSourcesWidget' (or its data/functionality) into the 'SessionRunModal' or the main 'sessions' view.",
+        "Ensure users can still see source availability and initiate syncs from this unified view.",
+        "Remove the independent 'sources' command/view entirely once functionality is merged."
+      ],
+      "acceptance_criteria": [
+        "The Sessions view displays both conversation history and connected sources status.",
+        "Users can sync sources directly from the Sessions view.",
+        "The standalone 'view:sources' or 'sources' command is no longer necessary or accessible."
+      ],
+      "passes": false
     }
   ]
 }

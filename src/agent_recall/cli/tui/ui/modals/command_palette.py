@@ -165,9 +165,9 @@ class CommandPaletteModal(ModalScreen[str | None]):
                 )
             )
         grouped_order = [
-            ("Core", "Suggested"),
-            ("Views", "Views"),
-            ("Sessions", "Session"),
+            ("Dashboard", "Dashboard"),
+            ("Memory", "Memory"),
+            ("Ralph", "Ralph"),
             ("Settings", "Settings"),
             ("System", "System"),
         ]

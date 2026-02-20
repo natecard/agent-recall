@@ -14,11 +14,8 @@ def handle_palette_action(app, action_id: str | None) -> None:
     if not action_id:
         return
     action_id = _normalize_action_id(action_id)
-    if action_id.startswith("view:"):
-        app.current_view = action_id.split(":", 1)[1]
-        app.status = f"View: {app.current_view}"
-        app._append_activity(f"Switched to {app.current_view} view.")
-        app._refresh_dashboard_panel()
+    if action_id == "view-select":
+        app.action_open_view_modal()
         return
 
     if action_id == "setup":
@@ -72,12 +69,6 @@ def handle_palette_action(app, action_id: str | None) -> None:
         "ralph-disable": "ralph disable",
         "ralph-status": "ralph status",
         "ralph-select": "ralph select",
-        "ralph-hooks-install": "ralph hooks install",
-        "ralph-hooks-uninstall": "ralph hooks uninstall",
-        "ralph-opencode-install": "ralph plugin opencode-install",
-        "ralph-opencode-uninstall": "ralph plugin opencode-uninstall",
-        "ralph-watch": "ralph watch",
-        "sources": "sources",
         "sessions": "sessions",
     }
     command = command_by_action.get(action_id)

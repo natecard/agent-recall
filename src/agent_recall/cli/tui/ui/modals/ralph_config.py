@@ -97,6 +97,17 @@ class RalphConfigModal(ModalScreen[dict[str, Any] | None]):
                     value=enabled,
                     id="ralph_enabled",
                 )
+                yield Static("Integrations", classes="section_title")
+                with Horizontal(classes="field_row"):
+                    yield Button("Install Claude Hooks", id="ralph_install_claude")
+                    yield Button(
+                        "Remove Claude Hooks", id="ralph_uninstall_claude", variant="error"
+                    )
+                with Horizontal(classes="field_row"):
+                    yield Button("Install OpenCode Plugin", id="ralph_install_opencode")
+                    yield Button(
+                        "Remove OpenCode Plugin", id="ralph_uninstall_opencode", variant="error"
+                    )
                 yield Static("", id="ralph_error")
                 with Horizontal(classes="modal_actions"):
                     yield Button(
@@ -123,10 +134,22 @@ class RalphConfigModal(ModalScreen[dict[str, Any] | None]):
         self.query_one("#ralph_cli_model", Input).value = str(selected)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "ralph_cancel":
+        button_id = event.button.id
+        if button_id == "ralph_cancel":
             self.dismiss(None)
             return
-        if event.button.id != "ralph_apply":
+
+        # Integration buttons trigger immediate dismissal with an action
+        if button_id in {
+            "ralph_install_claude",
+            "ralph_uninstall_claude",
+            "ralph_install_opencode",
+            "ralph_uninstall_opencode",
+        }:
+            self.dismiss({"action": button_id})
+            return
+
+        if button_id != "ralph_apply":
             return
 
         error_w = self.query_one("#ralph_error", Static)

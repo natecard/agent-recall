@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
@@ -50,6 +51,32 @@ class PRDSelectModal(ModalScreen[dict[str, Any] | None]):
     def on_mount(self) -> None:
         self.query_one("#prd_select_filter", Input).focus()
         self._rebuild_options()
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key not in {"up", "down"}:
+            return
+        event.prevent_default()
+        event.stop()
+        direction = -1 if event.key == "up" else 1
+        self._move_highlight(direction)
+
+    def _move_highlight(self, direction: int) -> None:
+        option_list = self.query_one("#prd_select_list", OptionList)
+        options = option_list.options
+        if not options:
+            return
+
+        highlighted = option_list.highlighted
+        if highlighted is None:
+            index = 0 if direction > 0 else len(options) - 1
+        else:
+            index = highlighted + direction
+
+        while 0 <= index < len(options):
+            if not options[index].disabled:
+                option_list.highlighted = index
+                break
+            index += direction
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id != "prd_select_filter":
