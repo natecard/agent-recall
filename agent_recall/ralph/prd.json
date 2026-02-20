@@ -212,6 +212,24 @@
         "The standalone 'view:sources' or 'sources' command is no longer necessary or accessible."
       ],
       "passes": false
+    },
+    {
+      "id": "AR-114",
+      "title": "TUI: Standardize CSS Spacing",
+      "type": "polish",
+      "priority": 2,
+      "description": "Make the CSS consistent across the entire TUI. Standardize spacing, padding, margin, and gaps to use one of 3 values: 2, 4, 8. Use simple class names for these and apply them consistently across all files containing CSS styling.",
+      "requirements": [
+        "Define simple CSS classes for spacing values 2, 4, and 8 (e.g., .p-2, .m-4, .gap-8).",
+        "Audit all TUI Python files and CSS files for hardcoded spacing values and replace them with the standard classes/values.",
+        "Ensure consistent padding, margin, and gap usage across all TUI components."
+      ],
+      "acceptance_criteria": [
+        "All spacing (padding, margin, gap) in the TUI uses the standardized values of 2, 4, or 8.",
+        "Simple, standardized class names are used for spacing.",
+        "No visual regressions introduced by the CSS standardization."
+      ],
+      "passes": false
     }
   ]
 }

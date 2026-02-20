@@ -67,6 +67,7 @@ class RalphConfigModal(ModalScreen[dict[str, Any] | None]):
                         id="ralph_model_picker",
                         classes="field_input",
                     )
+                    yield Button("Refresh", id="ralph_refresh_models", variant="primary")
                 with Horizontal(classes="field_row"):
                     yield Static("Max iterations", classes="field_label")
                     yield Input(
@@ -137,6 +138,10 @@ class RalphConfigModal(ModalScreen[dict[str, Any] | None]):
         button_id = event.button.id
         if button_id == "ralph_cancel":
             self.dismiss(None)
+            return
+
+        if button_id == "ralph_refresh_models":
+            self._refresh_model_picker()
             return
 
         # Integration buttons trigger immediate dismissal with an action
