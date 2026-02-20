@@ -33,3 +33,9 @@
 - [PATTERN] Use a single source of truth for command mapping.
 - [PATTERN] Separate dynamic and static Panel content.
 - [PATTERN] Reuse existing interfaces for consistent abstraction.
+- [PATTERN] Patch failing test expectations before modifying runtime code.
+- [PATTERN] Construct minimal CLI slices with focused tests.
+- [PATTERN] Prioritize gate runs for identifying regressions.
+- [PATTERN] Use subprocess assertions for CLI command validation.
+- [PATTERN] Favor focused command construction tests.
+- [PATTERN] Validate with full suite after expectation patches.

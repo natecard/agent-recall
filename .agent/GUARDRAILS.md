@@ -14,3 +14,4 @@
 - [GOTCHA] When all widgets in a column (sidebar or main) are hidden, the empty Vertical container was still being created with width: 1fr or width: 44, consuming layout space unnecessarily.
 - [GOTCHA] Test _DummyApp._run_backend_command was missing bypass_local parameter - fixed pre-existing test bug discovered during validation.
 - [GOTCHA] Sandboxed uv execution required setting UV_CACHE_DIR=.uv-cache because ~/.cache/uv is not writable in this environment.
+- [GOTCHA] A few Ralph command tests used triple-quoted multiline literals while command builders/emitters intentionally output single-line command strings.

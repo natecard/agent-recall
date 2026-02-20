@@ -244,7 +244,9 @@ def test_tui_ralph_run_streams_shell_loop_with_configured_agent_cmd(tmp_path, mo
     assert "--agent-cmd" in captured_cmd
     agent_cmd = captured_cmd[captured_cmd.index("--agent-cmd") + 1]
     expected = (
-        "codex --ask-for-approval never exec --sandbox danger-full-access --model gpt-5.3-codex -"
+        "codex --ask-for-approval never exec --sandbox danger-full-access --model gpt-5.3-codex "
+        '--json - | jq -r \'if .type=="assistant" then (.message.content[]? | '
+        'select(.type=="text").text) elif .type=="result" then .result else empty end\''
     )
     assert agent_cmd == expected
     assert "--max-iterations" in captured_cmd
