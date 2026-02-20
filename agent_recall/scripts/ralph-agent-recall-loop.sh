@@ -68,7 +68,8 @@ AGENT_TRANSPORT="${RALPH_AGENT_TRANSPORT:-pipe}"
 AGENT_OUTPUT_MODE="plain"
 AGENT_TIMEOUT_SECONDS=0
 AGENT_TIMEOUT_BACKEND="none"
-PRD_FILE="agent_recall/ralph/prd.json"
+PRD_FILE_PROVIDED=0
+PRD_FILE=""
 PROMPT_PRD_TOP_N=8
 PROGRESS_FILE="agent_recall/ralph/progress.txt"
 PROMPT_TEMPLATE="agent_recall/ralph/agent-prompt.md"
@@ -135,6 +136,43 @@ EOF_R
   fi
 }
 
+resolve_prd_file() {
+  local custom_path
+  if [[ -f ".agent/config.json" ]]; then
+    if command -v jq >/dev/null 2>&1; then
+      custom_path="$(jq -r '.ralph.prd_path // empty' .agent/config.json 2>/dev/null || true)"
+      if [[ -n "$custom_path" ]]; then
+        echo "$custom_path"
+        return
+      fi
+    fi
+  fi
+
+  local candidates=(".agent/ralph/prd.json" "agent_recall/ralph/prd.json" "prd.json")
+  
+  # Pass 1: exists and has items
+  for c in "${candidates[@]}"; do
+    if [[ -f "$c" ]]; then
+      if command -v jq >/dev/null 2>&1; then
+        if jq -e '.items | length > 0' "$c" >/dev/null 2>&1; then
+          echo "$c"
+          return
+        fi
+      fi
+    fi
+  done
+  
+  # Pass 2: exists
+  for c in "${candidates[@]}"; do
+    if [[ -f "$c" ]]; then
+      echo "$c"
+      return
+    fi
+  done
+  
+  echo "${candidates[0]}"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
   --agent-cmd)
@@ -159,6 +197,7 @@ while [[ $# -gt 0 ]]; do
     ;;
   --prd-file)
     PRD_FILE="$2"
+    PRD_FILE_PROVIDED=1
     shift 2
     ;;
   --prd-ids)
@@ -268,6 +307,10 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
+
+if [[ $PRD_FILE_PROVIDED -eq 0 ]]; then
+  PRD_FILE="$(resolve_prd_file)"
+fi
 
 if [[ ${ARCHIVE_ONLY:-0} -eq 1 ]]; then
   if ! command -v uv >/dev/null 2>&1; then

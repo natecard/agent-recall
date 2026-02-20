@@ -537,6 +537,8 @@ class CommandsMixin:
             if not initial:
                 self.status = "Terminal panel hidden"
                 self._append_activity("Terminal panel hidden.")
+        if hasattr(self, "_sync_activity_layout"):
+            self._sync_activity_layout()
 
     def _load_layout_module(self: Any) -> object:
         if getattr(self, "_layout_module", None) is None:

@@ -104,15 +104,28 @@ class RalphLoop:
 
     @staticmethod
     def _resolve_prd_path(agent_dir: Path) -> Path:
-        candidates = [
-            agent_dir / "ralph" / "prd.json",
-            Path("agent_recall/ralph/prd.json"),
-            Path("prd.json"),
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-        return candidates[0]
+        try:
+            from agent_recall.cli.ralph import get_default_prd_path
+
+            return get_default_prd_path()
+        except ImportError:
+            candidates = [
+                agent_dir / "ralph" / "prd.json",
+                Path("agent_recall/ralph/prd.json"),
+                Path("prd.json"),
+            ]
+            for candidate in candidates:
+                if candidate.exists():
+                    try:
+                        data = json.loads(candidate.read_text(encoding="utf-8"))
+                        if data.get("items"):
+                            return candidate
+                    except (OSError, json.JSONDecodeError):
+                        pass
+            for candidate in candidates:
+                if candidate.exists():
+                    return candidate
+            return candidates[0]
 
     @staticmethod
     def _load_prd_items(prd_path: Path) -> list[dict[str, Any]]:

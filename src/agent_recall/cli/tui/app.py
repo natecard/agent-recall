@@ -178,6 +178,7 @@ class AgentRecallTextualApp(
         self._append_activity("TUI ready. Press Ctrl+P for commands.")
         self._refresh_dashboard_panel()
         self._update_terminal_panel_visibility(initial=True)
+        self._sync_activity_layout()
         if self.onboarding_required:
             self.status = "Onboarding required"
             self._append_activity("Onboarding required. Opening setup wizard...")
@@ -219,6 +220,35 @@ class AgentRecallTextualApp(
         except Exception:
             pass
 
+    def _sync_activity_layout(self) -> None:
+        """Adjust activity panel sizing based on current view and terminal visibility."""
+        try:
+            activity_panel = self.query_one("#activity", Vertical)
+            dashboard = self.query_one("#dashboard", Vertical)
+        except Exception:
+            return
+
+        console_focused = self.current_view == "console"
+        ralph_focused = self.current_view == "ralph"
+        terminal_visible = bool(self.terminal_supported and self.terminal_panel_visible)
+
+        if console_focused:
+            activity_panel.add_class("console-focused")
+            dashboard.add_class("console-focused")
+        else:
+            activity_panel.remove_class("console-focused")
+            dashboard.remove_class("console-focused")
+
+        if terminal_visible and not console_focused:
+            activity_panel.add_class("terminal-expanded")
+        else:
+            activity_panel.remove_class("terminal-expanded")
+
+        if ralph_focused and not console_focused:
+            activity_panel.add_class("ralph-focused")
+        else:
+            activity_panel.remove_class("ralph-focused")
+
     def _teardown_runtime(self) -> None:
         if self._resize_refresh_timer is not None:
             self._resize_refresh_timer.stop()
@@ -254,6 +284,7 @@ class AgentRecallTextualApp(
             and self._last_layout_signature == layout_signature
             and self._update_dashboard_widgets(panels)
         ):
+            self._sync_activity_layout()
             self._refresh_activity_panel()
             return
 
@@ -267,6 +298,7 @@ class AgentRecallTextualApp(
             self._mount_dashboard_widgets(dashboard, panels)
             self._dashboard_layout_view = self.current_view
             self._last_layout_signature = layout_signature
+            self._sync_activity_layout()
             self._refresh_activity_panel()
 
         self.call_next(_mount_after_prune)

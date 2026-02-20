@@ -70,3 +70,13 @@ Defaults target the current repo's `.agent` directory. Override if needed:
 - `{prompt_file}` in `--agent-cmd` is replaced by the generated prompt path.
 - Completion markers still gate exit: `<promise>COMPLETE</promise>` / `<promise>NO MORE TASKS</promise>`.
 - Abort marker exits with failure: `<promise>ABORT</promise>`.
+
+## PRD Naming Standard
+
+Agent Recall uses a **Date-Based Sequential** naming scheme for all Product Requirement Document (PRD) items in `prd.json` and the archive.
+
+**Format:** `AR-YYMMDD-NN` (e.g., `AR-260220-01`)
+- `YYMMDD`: The current date (Year, Month, Day) when the PRD item is created.
+- `NN`: A sequential number starting from `01` for that specific day.
+
+This format ensures globally unique IDs without requiring a central registry or checking the archive file, while keeping the token count extremely low for LLM context windows.

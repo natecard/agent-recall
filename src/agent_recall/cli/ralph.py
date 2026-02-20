@@ -120,14 +120,37 @@ def get_ralph_components() -> tuple[Path, SQLiteStorage, FileStorage]:
 
 
 def get_default_prd_path() -> Path:
+    config_path = Path(".agent/config.json")
+    if config_path.exists():
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            custom_path = config.get("ralph", {}).get("prd_path")
+            if custom_path:
+                return Path(custom_path)
+        except (OSError, json.JSONDecodeError):
+            pass
+
     candidates = [
         Path(".agent/ralph/prd.json"),
         Path("agent_recall/ralph/prd.json"),
         Path("prd.json"),
     ]
+
+    # First pass: look for a file that exists AND has items
+    for candidate in candidates:
+        if candidate.exists():
+            try:
+                data = json.loads(candidate.read_text(encoding="utf-8"))
+                if data.get("items"):
+                    return candidate
+            except (OSError, json.JSONDecodeError):
+                pass
+
+    # Second pass: if none have items, return the first that exists
     for candidate in candidates:
         if candidate.exists():
             return candidate
+
     return candidates[0]
 
 

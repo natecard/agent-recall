@@ -166,6 +166,64 @@ def test_sanitize_activity_fragment_strips_terminal_control_sequences() -> None:
     assert "\x08" not in cleaned
 
 
+def test_sync_activity_layout_console_view() -> None:
+    app = _build_test_app()
+    app.current_view = "console"
+    app.terminal_supported = True
+    app.terminal_panel_visible = True
+
+    class _Widget:
+        def __init__(self) -> None:
+            self.classes: set[str] = set()
+
+        def add_class(self, name: str) -> None:
+            self.classes.add(name)
+
+        def remove_class(self, name: str) -> None:
+            self.classes.discard(name)
+
+    activity = _Widget()
+    dashboard = _Widget()
+    mapping = {"#activity": activity, "#dashboard": dashboard}
+    app.query_one = lambda selector, *_args: mapping[selector]  # type: ignore[method-assign]
+
+    app._sync_activity_layout()
+
+    assert "console-focused" in activity.classes
+    assert "console-focused" in dashboard.classes
+    assert "terminal-expanded" not in activity.classes
+    assert "ralph-focused" not in activity.classes
+
+
+def test_sync_activity_layout_ralph_view_expands_activity() -> None:
+    app = _build_test_app()
+    app.current_view = "ralph"
+    app.terminal_supported = True
+    app.terminal_panel_visible = True
+
+    class _Widget:
+        def __init__(self) -> None:
+            self.classes: set[str] = set()
+
+        def add_class(self, name: str) -> None:
+            self.classes.add(name)
+
+        def remove_class(self, name: str) -> None:
+            self.classes.discard(name)
+
+    activity = _Widget()
+    dashboard = _Widget()
+    mapping = {"#activity": activity, "#dashboard": dashboard}
+    app.query_one = lambda selector, *_args: mapping[selector]  # type: ignore[method-assign]
+
+    app._sync_activity_layout()
+
+    assert "ralph-focused" in activity.classes
+    assert "terminal-expanded" in activity.classes
+    assert "console-focused" not in activity.classes
+    assert "console-focused" not in dashboard.classes
+
+
 def test_palette_cli_command_redundancy_filter() -> None:
     assert _is_palette_cli_command_redundant("open") is True
     assert _is_palette_cli_command_redundant("status") is True
@@ -393,6 +451,38 @@ def test_activity_scroll_keys_work_without_active_worker(monkeypatch) -> None:
     assert app._activity_follow_tail is True
     assert event.prevented is True
     assert event.stopped is True
+
+
+def test_activity_scroll_keys_do_not_intercept_timeline_focus(monkeypatch) -> None:
+    app = _build_test_app()
+
+    class _FocusedWidget:
+        id = "dashboard_timeline_interactive"
+
+    class _FakeKeyEvent:
+        def __init__(self, key: str) -> None:
+            self.key = key
+            self.prevented = False
+            self.stopped = False
+
+        def prevent_default(self) -> None:
+            self.prevented = True
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    monkeypatch.setattr(type(app), "focused", property(lambda _self: _FocusedWidget()))
+
+    def _unexpected_query(*_args: Any, **_kwargs: Any) -> object:
+        raise AssertionError("activity log should not be queried when timeline has focus")
+
+    monkeypatch.setattr(app, "query_one", _unexpected_query)
+
+    event = _FakeKeyEvent("down")
+    app.on_key(cast(Any, event))
+
+    assert event.prevented is False
+    assert event.stopped is False
 
 
 def test_selecting_source_sync_option_runs_sync(monkeypatch) -> None:

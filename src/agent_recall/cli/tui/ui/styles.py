@@ -11,9 +11,12 @@ APP_CSS = """
         height: 100%;
     }
     #dashboard {
-        height: auto;
+        height: 1fr;
         overflow: auto;
         min-height: 0;
+    }
+    #dashboard.console-focused {
+        height: auto;
     }
     #dashboard.view-all {
         overflow: hidden;
@@ -95,9 +98,21 @@ APP_CSS = """
         padding: 0 1;
     }
     #activity {
-        height: 1fr;
+        height: 10;
         min-height: 4;
         overflow: auto;
+    }
+    #activity.terminal-expanded {
+        height: 14;
+    }
+    #activity.ralph-focused {
+        height: 12;
+    }
+    #activity.ralph-focused.terminal-expanded {
+        height: 15;
+    }
+    #activity.console-focused {
+        height: 1fr;
     }
     #activity_log {
         height: 1fr;

@@ -100,6 +100,9 @@ class ActivityMixin:
         except Exception:  # noqa: BLE001
             focused_widget = None
         focused_widget_id = focused_widget.id if focused_widget is not None else ""
+        if focused_widget_id == "dashboard_timeline_interactive":
+            # Let timeline table navigation handle arrows/page keys directly.
+            return
         activity_widget = self.query_one("#activity_log", Log)
         if focused_widget_id == "activity_result_list":
             self._close_inline_result_list(announce=False)
