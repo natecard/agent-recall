@@ -57,7 +57,7 @@ class DiffScreen(Screen[None]):
     }
     DiffScreen #diff_header {
         height: auto;
-        padding: 0 1;
+        padding: 0 2;
         border-bottom: solid $accent;
     }
     DiffScreen #diff_header > Static#header_title {
@@ -69,13 +69,13 @@ class DiffScreen(Screen[None]):
     }
     DiffScreen #diff_tree_panel > Static#tree_title {
         height: 1;
-        padding: 0 1;
+        padding: 0 2;
         text-style: bold;
         border-bottom: solid $accent;
     }
     DiffScreen #diff_content_panel > Static#content_title {
         height: 1;
-        padding: 0 1;
+        padding: 0 2;
         border-bottom: solid $accent;
     }
     DiffScreen #diff_content_panel > DiffContentViewer {

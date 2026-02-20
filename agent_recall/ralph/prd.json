@@ -62,9 +62,9 @@
       "description": "Make the CSS consistent across the entire TUI. Standardize spacing, padding, margin, and gaps to use one of 3 values: 2, 4, 8. Use simple class names for these and apply them consistently across all files containing CSS styling.",
       "user_story": "As a developer, I want standardized CSS spacing across the TUI to ensure visual consistency and make adding new UI components simpler.",
       "steps": [
-        "Define simple CSS classes for spacing values 2, 4, and 8 (e.g., .p-2, .m-4, .gap-8).",
-        "Audit all TUI Python files and CSS files for hardcoded spacing values and replace them with the standard classes/values.",
-        "Ensure consistent padding, margin, and gap usage across all TUI components."
+        "[DONE] Define simple CSS classes for spacing values 2, 4, and 8 (e.g., .p-2, .m-4, .gap-8).",
+        "[DONE] Audit all TUI Python files and CSS files for hardcoded spacing values and replace them with the standard classes/values.",
+        "[DONE] Ensure consistent padding, margin, and gap usage across all TUI components."
       ],
       "acceptance_criteria": [
         "All spacing (padding, margin, gap) in the TUI uses the standardized values of 2, 4, or 8.",
@@ -75,7 +75,7 @@
         "uv run pytest tests/ -v",
         "uv run agent-recall open"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-260220-04",

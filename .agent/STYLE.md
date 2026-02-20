@@ -61,3 +61,9 @@
 - [PATTERN] Use focused command construction tests.
 - [PATTERN] Separate dynamic content from static Panel wrapper.
 - [PATTERN] Check if sidebar_children or main_children are empty before creating containers.
+- [PATTERN] Verify implementation & validation before code changes.
+- [PATTERN] Reuse tier parsing/reconstruction functions.
+- [PATTERN] Run full gate before patching expectations.
+- [PATTERN] Validate with full suite after patching expectations.
+- [PATTERN] Use subprocess assertions for CLI validation.
+- [PATTERN] Use Rich markup for consistent heading styles.

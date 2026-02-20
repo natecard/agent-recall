@@ -39,14 +39,14 @@ class FirstLaunchScreen(Screen[None]):
     FirstLaunchScreen #first_launch_card {
         width: 60;
         height: auto;
-        padding: 2 3;
+        padding: 2 4;
         border: solid $accent;
         background: $surface;
     }
     FirstLaunchScreen #first_launch_title {
         text-align: center;
         text-style: bold;
-        margin-bottom: 1;
+        margin-bottom: 2;
     }
     FirstLaunchScreen #first_launch_message {
         text-align: center;
@@ -56,14 +56,14 @@ class FirstLaunchScreen(Screen[None]):
     FirstLaunchScreen #first_launch_actions {
         height: auto;
         align: center middle;
-        margin-top: 1;
+        margin-top: 2;
     }
     FirstLaunchScreen #first_launch_progress {
-        margin: 1 0;
+        margin: 2 0;
     }
     FirstLaunchScreen #first_launch_error {
         color: $error;
-        margin: 1 0;
+        margin: 2 0;
         text-align: center;
     }
     """

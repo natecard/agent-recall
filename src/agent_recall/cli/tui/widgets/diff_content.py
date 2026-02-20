@@ -34,7 +34,7 @@ class DiffContentViewer(Vertical):
     }
     DiffContentViewer > Static#diff_header {
         height: 1;
-        padding: 0 1;
+        padding: 0 2;
         border-bottom: solid $accent;
     }
     DiffContentViewer > VerticalScroll#diff_scroll {
@@ -42,7 +42,7 @@ class DiffContentViewer(Vertical):
     }
     DiffContentViewer > VerticalScroll#diff_scroll > Static {
         height: auto;
-        padding: 0 1;
+        padding: 0 2;
     }
     """
 

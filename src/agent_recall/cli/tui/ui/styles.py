@@ -1,5 +1,36 @@
 APP_CSS = """
 
+    /* Standardized spacing utility classes */
+    .p-0 { padding: 0; }
+    .p-2 { padding: 2; }
+    .p-4 { padding: 4; }
+    .p-8 { padding: 8; }
+    .px-2 { padding-left: 2; padding-right: 2; }
+    .px-4 { padding-left: 4; padding-right: 4; }
+    .px-8 { padding-left: 8; padding-right: 8; }
+    .py-2 { padding-top: 2; padding-bottom: 2; }
+    .py-4 { padding-top: 4; padding-bottom: 4; }
+    .py-8 { padding-top: 8; padding-bottom: 8; }
+    .m-0 { margin: 0; }
+    .m-2 { margin: 2; }
+    .m-4 { margin: 4; }
+    .m-8 { margin: 8; }
+    .mx-2 { margin-left: 2; margin-right: 2; }
+    .mx-4 { margin-left: 4; margin-right: 4; }
+    .mx-8 { margin-left: 8; margin-right: 8; }
+    .my-2 { margin-top: 2; margin-bottom: 2; }
+    .my-4 { margin-top: 4; margin-bottom: 4; }
+    .my-8 { margin-top: 8; margin-bottom: 8; }
+    .mb-2 { margin-bottom: 2; }
+    .mb-4 { margin-bottom: 4; }
+    .mb-8 { margin-bottom: 8; }
+    .mr-2 { margin-right: 2; }
+    .mr-4 { margin-right: 4; }
+    .mr-8 { margin-right: 8; }
+    .gap-2 { gap: 2; }
+    .gap-4 { gap: 4; }
+    .gap-8 { gap: 8; }
+
     #root {
         height: 1fr;
         width: 100%;
@@ -32,7 +63,7 @@ APP_CSS = """
         min-width: 32;
         height: auto;
         min-height: 0;
-        margin: 0 1 0 0;
+        margin: 0 2 0 0;
     }
     #dashboard_all_main {
         width: 1fr;
@@ -69,7 +100,7 @@ APP_CSS = """
     }
     #dashboard_overview_row #dashboard_knowledge {
         width: 1fr;
-        margin: 0 1 0 0;
+        margin: 0 2 0 0;
     }
     #dashboard_overview_row #dashboard_sources {
         width: 1fr;
@@ -80,13 +111,13 @@ APP_CSS = """
     .narrow #dashboard_all_sidebar {
         width: 100%;
         min-width: 0;
-        margin: 0 0 1 0;
+        margin: 0 0 2 0;
     }
     .narrow #dashboard_overview_row {
         layout: vertical;
     }
     .narrow #dashboard_overview_row #dashboard_knowledge {
-        margin: 0 0 1 0;
+        margin: 0 0 2 0;
     }
     #terminal_panel {
         height: 1fr;
@@ -95,7 +126,7 @@ APP_CSS = """
         display: none;
         border: round $accent;
         background: $panel;
-        padding: 0 1;
+        padding: 0 2;
     }
     #activity {
         height: 1fr;
@@ -119,7 +150,7 @@ APP_CSS = """
         overflow: auto;
         border: round $accent;
         background: $panel;
-        padding: 0 1;
+        padding: 0 2;
     }
     #activity_result_list {
         height: 1fr;
@@ -147,7 +178,7 @@ APP_CSS = """
         max-width: 200;
         height: auto;
         max-height: 82%;
-        padding: 0 1;
+        padding: 0 2;
         background: $panel;
         border: round $accent;
         overflow: auto;
@@ -162,15 +193,12 @@ APP_CSS = """
     }
     #sessions_view_list {
         height: 1fr;
-        margin-bottom: 1;
+        margin-bottom: 2;
     }
     .modal_compact {
         width: 52%;
         max-width: 58;
-        padding: 0 1;
-    }
-    .field_row_compact {
-        margin: 0 0 0 0;
+        padding: 0 2;
     }
     #model_config_columns {
         layout: horizontal;
@@ -182,17 +210,17 @@ APP_CSS = """
         width: 1fr;
         min-width: 0;
         height: auto;
-        padding: 0 1 0 0;
+        padding: 0 2 0 0;
     }
     .modal_column:last-child {
-        padding: 0 0 0 1;
+        padding: 0 0 0 2;
     }
     #iteration_detail_content {
         height: 1fr;
         overflow: auto;
         background: $panel;
         border: round $accent;
-        padding: 0 1;
+        padding: 0 2;
     }
     #palette_header {
         layout: horizontal;
@@ -233,12 +261,12 @@ APP_CSS = """
     }
     #cli_input_container {
         height: auto;
-        margin: 0 0 1 0;
+        margin: 0 0 2 0;
     }
     #cli_input {
         border: round $accent;
         background: $panel;
-        padding: 0 1;
+        padding: 0 2;
     }
     #cli_input:focus {
         border: round $accent;
@@ -252,13 +280,13 @@ APP_CSS = """
         border: round $accent;
         background: $panel;
         padding: 0;
-        margin-bottom: 1;
+        margin-bottom: 2;
     }
     #cli_suggestions:focus {
         display: none;
     }
     #cli_suggestions > .option-list--option {
-        padding: 0 1;
+        padding: 0 2;
     }
     #cli_suggestions > .option-list--option-highlighted {
         background: $accent;

@@ -34,7 +34,7 @@ class InteractiveKnowledgeWidget(Vertical):
     InteractiveKnowledgeWidget #search_container {
         height: auto;
         display: none;
-        padding: 1;
+        padding: 2;
         background: $surface-darken-1;
     }
     InteractiveKnowledgeWidget #search_container.visible {
@@ -46,7 +46,7 @@ class InteractiveKnowledgeWidget(Vertical):
     InteractiveKnowledgeWidget #edit_container {
         height: auto;
         display: none;
-        padding: 1;
+        padding: 2;
         background: $surface-darken-2;
     }
     InteractiveKnowledgeWidget #edit_container.visible {
@@ -57,7 +57,7 @@ class InteractiveKnowledgeWidget(Vertical):
     }
     InteractiveKnowledgeWidget #help_footer {
         height: auto;
-        padding: 1;
+        padding: 2;
         background: $surface;
         text-align: center;
     }

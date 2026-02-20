@@ -24,7 +24,7 @@ class ConversationDetailModal(ModalScreen[None]):
         height: 90vh;
         background: $surface;
         border: thick $primary;
-        padding: 1 2;
+        padding: 2 4;
         border-title-color: $accent;
     }
 

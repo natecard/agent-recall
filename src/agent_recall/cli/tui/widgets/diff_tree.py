@@ -35,12 +35,12 @@ class DiffTreeViewer(Vertical):
     }
     DiffTreeViewer > Static {
         height: 1;
-        padding: 0 1;
+        padding: 0 2;
         color: $text-muted;
     }
     DiffTreeViewer > Input {
         dock: bottom;
-        margin: 1;
+        margin: 2;
         height: 3;
     }
     DiffTreeViewer > Tree {
