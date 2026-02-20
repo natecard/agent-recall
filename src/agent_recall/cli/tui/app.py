@@ -38,9 +38,13 @@ from agent_recall.cli.tui.ui.modals.sessions_view import SessionsViewModal
 from agent_recall.cli.tui.ui.styles import APP_CSS
 from agent_recall.cli.tui.views import DashboardPanels, build_dashboard_panels, build_sources_data
 from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
-from agent_recall.cli.tui.widgets import InteractiveSourcesWidget, InteractiveTimelineWidget
+from agent_recall.cli.tui.widgets import (
+    InteractiveKnowledgeWidget,
+    InteractiveSourcesWidget,
+    InteractiveTimelineWidget,
+)
 from agent_recall.ralph.iteration_store import IterationReport, IterationReportStore
-from agent_recall.storage.files import FileStorage
+from agent_recall.storage.files import FileStorage, KnowledgeTier
 
 
 class AgentRecallTextualApp(
@@ -143,6 +147,7 @@ class AgentRecallTextualApp(
         self._highlighted_suggestion_index: int | None = None
         self._interactive_sources_widget: InteractiveSourcesWidget | None = None
         self._interactive_timeline_widget: InteractiveTimelineWidget | None = None
+        self._interactive_knowledge_widget: InteractiveKnowledgeWidget | None = None
         self.tui_widget_visibility: dict[str, bool] = {}
         self.tui_banner_size: str = "normal"
         self._last_layout_signature: tuple[str, tuple[tuple[str, bool], ...]] | None = None
@@ -346,6 +351,17 @@ class AgentRecallTextualApp(
             id="dashboard_timeline_interactive",
         )
 
+    def _build_interactive_knowledge_widget(self) -> InteractiveKnowledgeWidget:
+        files = self._dashboard_context.get_files()
+        return InteractiveKnowledgeWidget(
+            files,
+            on_edit=self._handle_knowledge_edit,
+            id="dashboard_knowledge_interactive",
+        )
+
+    def _handle_knowledge_edit(self, tier: KnowledgeTier, entry: Any, new_text: str) -> None:
+        self._append_activity(f"Edited {tier.value} entry: {new_text[:50]}...")
+
     def _open_iteration_detail(self, report: IterationReport) -> None:
         report_store = IterationReportStore(self._dashboard_context.agent_dir / "ralph")
         diff_text = report_store.load_diff_for_iteration(report.iteration) or ""
@@ -388,12 +404,8 @@ class AgentRecallTextualApp(
             self._mount_all_view(dashboard, panels)
         elif self.current_view == "knowledge":
             if self._is_widget_visible("knowledge"):
-                dashboard.mount(
-                    Static(
-                        self._build_view_detail_panel("knowledge"),
-                        id="dashboard_knowledge",
-                    )
-                )
+                self._interactive_knowledge_widget = self._build_interactive_knowledge_widget()
+                dashboard.mount(self._interactive_knowledge_widget)
         elif self.current_view == "timeline":
             if self._is_widget_visible("timeline"):
                 self._interactive_timeline_widget = self._build_interactive_timeline_widget()
@@ -453,10 +465,14 @@ class AgentRecallTextualApp(
         if self.current_view == "knowledge":
             if not self._is_widget_visible("knowledge"):
                 return False
-            return self._update_static_widget(
-                "#dashboard_knowledge",
-                self._build_view_detail_panel("knowledge"),
-            )
+            try:
+                widget = self.query_one(
+                    "#dashboard_knowledge_interactive", InteractiveKnowledgeWidget
+                )
+                widget.refresh_entries()
+                return True
+            except Exception:
+                return False
         if self.current_view == "timeline":
             if not self._is_widget_visible("timeline"):
                 return False

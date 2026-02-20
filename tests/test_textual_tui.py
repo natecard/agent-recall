@@ -2191,3 +2191,240 @@ def test_prd_select_modal_has_correct_bindings():
     assert "escape" in binding_keys
     assert "space" in binding_keys
     assert "enter" in binding_keys
+
+
+def test_interactive_knowledge_widget_loads_entries():
+    """Test that InteractiveKnowledgeWidget loads entries from tier files."""
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    from agent_recall.cli.tui.widgets import InteractiveKnowledgeWidget
+    from agent_recall.storage.files import FileStorage, KnowledgeTier
+
+    with TemporaryDirectory() as tmpdir:
+        agent_dir = Path(tmpdir)
+        files = FileStorage(agent_dir)
+
+        files.write_tier(
+            KnowledgeTier.GUARDRAILS,
+            "# Guardrails\n\n- [GOTCHA] Test guardrail entry\n",
+        )
+        files.write_tier(
+            KnowledgeTier.STYLE,
+            "# Style Guide\n\n- [PATTERN] Test style entry\n",
+        )
+
+        widget = InteractiveKnowledgeWidget(files)
+        widget._load_entries()
+
+        assert len(widget._entries) == 2
+        guardrail_entry = next(e for e in widget._entries if e.tier == KnowledgeTier.GUARDRAILS)
+        assert guardrail_entry.entry.kind == "GOTCHA"
+        assert "Test guardrail" in (guardrail_entry.entry.text or "")
+
+        style_entry = next(e for e in widget._entries if e.tier == KnowledgeTier.STYLE)
+        assert style_entry.entry.kind == "PATTERN"
+
+
+def test_interactive_knowledge_widget_search_filters():
+    """Test that search filters entries correctly."""
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    from agent_recall.cli.tui.widgets import InteractiveKnowledgeWidget
+    from agent_recall.storage.files import FileStorage, KnowledgeTier
+
+    with TemporaryDirectory() as tmpdir:
+        agent_dir = Path(tmpdir)
+        files = FileStorage(agent_dir)
+
+        files.write_tier(
+            KnowledgeTier.GUARDRAILS,
+            "# Guardrails\n\n- [GOTCHA] Alpha entry\n- [GOTCHA] Beta entry\n",
+        )
+
+        widget = InteractiveKnowledgeWidget(files)
+        widget._load_entries()
+
+        widget._search_query = "alpha"
+        widget._filtered_entries = [
+            e for e in widget._entries if "alpha" in (e.entry.text or "").lower()
+        ]
+
+        assert len(widget._filtered_entries) == 1
+        assert "Alpha" in (widget._filtered_entries[0].entry.text or "")
+
+
+def test_interactive_knowledge_widget_edit_writes_back():
+    """Test that editing an entry writes back to the tier file."""
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    from agent_recall.cli.tui.widgets import InteractiveKnowledgeWidget
+    from agent_recall.storage.files import FileStorage, KnowledgeTier
+
+    with TemporaryDirectory() as tmpdir:
+        agent_dir = Path(tmpdir)
+        files = FileStorage(agent_dir)
+
+        files.write_tier(
+            KnowledgeTier.GUARDRAILS,
+            "# Guardrails\n\n- [GOTCHA] Original text\n",
+        )
+
+        widget = InteractiveKnowledgeWidget(files)
+        widget._load_entries()
+
+        entry = widget._entries[0]
+        widget._write_edit(entry, "Updated text")
+
+        content = files.read_tier(KnowledgeTier.GUARDRAILS)
+        assert "Updated text" in content
+        assert "Original text" not in content
+
+
+def test_interactive_knowledge_widget_empty_tiers():
+    """Test that widget handles empty tier files gracefully."""
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    from agent_recall.cli.tui.widgets import InteractiveKnowledgeWidget
+    from agent_recall.storage.files import FileStorage
+
+    with TemporaryDirectory() as tmpdir:
+        agent_dir = Path(tmpdir)
+        files = FileStorage(agent_dir)
+
+        widget = InteractiveKnowledgeWidget(files)
+        widget._load_entries()
+
+        assert widget._entries == []
+        assert widget._filtered_entries == []
+
+
+def test_interactive_knowledge_widget_delete_marks_entry():
+    """Test that 'd' key marks an entry for deletion with visual indicator."""
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    from agent_recall.cli.tui.widgets import InteractiveKnowledgeWidget
+    from agent_recall.storage.files import FileStorage, KnowledgeTier
+
+    with TemporaryDirectory() as tmpdir:
+        agent_dir = Path(tmpdir)
+        files = FileStorage(agent_dir)
+
+        files.write_tier(
+            KnowledgeTier.GUARDRAILS,
+            "# Guardrails\n\n- [GOTCHA] Entry one\n- [GOTCHA] Entry two\n",
+        )
+
+        widget = InteractiveKnowledgeWidget(files)
+        widget._load_entries()
+
+        assert len(widget._entries) == 2
+        entry = widget._entries[0]
+        entry_key = (entry.tier, entry.line_index)
+
+        assert entry_key not in widget._pending_deletions
+        widget._pending_deletions.add(entry_key)
+        assert entry_key in widget._pending_deletions
+
+
+def test_interactive_knowledge_widget_execute_deletion():
+    """Test that confirming deletions removes entries from tier file."""
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    from agent_recall.cli.tui.widgets import InteractiveKnowledgeWidget
+    from agent_recall.storage.files import FileStorage, KnowledgeTier
+
+    with TemporaryDirectory() as tmpdir:
+        agent_dir = Path(tmpdir)
+        files = FileStorage(agent_dir)
+
+        files.write_tier(
+            KnowledgeTier.GUARDRAILS,
+            "# Guardrails\n\n- [GOTCHA] Entry one\n- [GOTCHA] Entry two\n",
+        )
+
+        widget = InteractiveKnowledgeWidget(files)
+        widget._load_entries()
+
+        entry = widget._entries[0]
+        widget._pending_deletions.add((entry.tier, entry.line_index))
+
+        widget._execute_deletions()
+
+        content = files.read_tier(KnowledgeTier.GUARDRAILS)
+        assert "Entry one" not in content
+        assert "Entry two" in content
+
+
+def test_interactive_knowledge_widget_cancel_clears_pending():
+    """Test that Escape clears pending deletions without writing."""
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    from agent_recall.cli.tui.widgets import InteractiveKnowledgeWidget
+    from agent_recall.storage.files import FileStorage, KnowledgeTier
+
+    with TemporaryDirectory() as tmpdir:
+        agent_dir = Path(tmpdir)
+        files = FileStorage(agent_dir)
+
+        files.write_tier(
+            KnowledgeTier.GUARDRAILS,
+            "# Guardrails\n\n- [GOTCHA] Entry one\n- [GOTCHA] Entry two\n",
+        )
+
+        widget = InteractiveKnowledgeWidget(files)
+        widget._load_entries()
+
+        entry = widget._entries[0]
+        widget._pending_deletions.add((entry.tier, entry.line_index))
+        assert len(widget._pending_deletions) == 1
+
+        widget._pending_deletions.clear()
+
+        assert len(widget._pending_deletions) == 0
+
+        content = files.read_tier(KnowledgeTier.GUARDRAILS)
+        assert "Entry one" in content
+
+
+def test_interactive_knowledge_widget_delete_multiple_entries():
+    """Test deleting multiple entries from same or different tiers."""
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    from agent_recall.cli.tui.widgets import InteractiveKnowledgeWidget
+    from agent_recall.storage.files import FileStorage, KnowledgeTier
+
+    with TemporaryDirectory() as tmpdir:
+        agent_dir = Path(tmpdir)
+        files = FileStorage(agent_dir)
+
+        files.write_tier(
+            KnowledgeTier.GUARDRAILS,
+            "# Guardrails\n\n- [GOTCHA] Alpha\n- [GOTCHA] Beta\n",
+        )
+        files.write_tier(
+            KnowledgeTier.STYLE,
+            "# Style\n\n- [PATTERN] Gamma\n",
+        )
+
+        widget = InteractiveKnowledgeWidget(files)
+        widget._load_entries()
+
+        for entry in widget._entries:
+            widget._pending_deletions.add((entry.tier, entry.line_index))
+
+        widget._execute_deletions()
+
+        guardrails_content = files.read_tier(KnowledgeTier.GUARDRAILS)
+        style_content = files.read_tier(KnowledgeTier.STYLE)
+
+        assert "Alpha" not in guardrails_content
+        assert "Beta" not in guardrails_content
+        assert "Gamma" not in style_content

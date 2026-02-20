@@ -14,7 +14,7 @@
   "items": [
     {
       "id": "AR-260220-01",
-      "priority": 3,
+      "priority": 2,
       "title": "TUI: Enhance Iteration Diff Viewer UI",
       "description": "The Iteration Diff Viewer needs UI improvements: the file tree panel should be resizable, and the title must display the current iteration or commit information to provide context.",
       "user_story": "As a developer using the TUI, I want to clearly see the iteration identifier and resize the file tree in the Iteration Diff Viewer so I can easily contextualize and review code changes.",
@@ -57,7 +57,7 @@
     },
     {
       "id": "AR-260220-03",
-      "priority": 2,
+      "priority": 1,
       "title": "TUI: Standardize CSS Spacing",
       "description": "Make the CSS consistent across the entire TUI. Standardize spacing, padding, margin, and gaps to use one of 3 values: 2, 4, 8. Use simple class names for these and apply them consistently across all files containing CSS styling.",
       "user_story": "As a developer, I want standardized CSS spacing across the TUI to ensure visual consistency and make adding new UI components simpler.",
@@ -84,26 +84,26 @@
       "description": "Expand the view:knowledge panel from a read-only static renderer into a fully interactive browser. Users should be able to fuzzy-search entries inline, edit individual knowledge items in-place, and mark entries for deletion — all without leaving the TUI. Changes must write back to the underlying KnowledgeTier files so they are persisted between sessions.",
       "user_story": "As a developer using agent-recall, I want to browse, filter, and edit my knowledge base directly from the TUI view:knowledge panel so I can curate what the agent learns without switching to a text editor.",
       "steps": [
-        "Add a fuzzy search overlay to InteractiveKnowledgeWidget that activates on '/' keypress, filters visible entries in real time, and resets on Escape",
-        "Add an inline edit mode triggered by 'e' on a selected knowledge entry that opens an in-panel text input pre-populated with the entry content",
-        "On edit confirm (Enter), write the updated content back to the correct KnowledgeTier file via FileStorage",
-        "Add a 'd' keybinding to mark an entry for deletion with a visual strikethrough indicator; execute all pending deletions on 'D' confirm or cancel on Escape",
-        "Add keybinding help footer to the widget listing '/' search, 'e' edit, 'd' delete, 'D' confirm delete, 'Escape' cancel",
-        "Wire the widget into the existing view:knowledge panel in the dashboard — the panel should switch from static render to the new interactive widget when knowledge data is present",
-        "Add unit tests covering search filtering, edit write-back, and deletion logic"
+        "[DONE] Add a fuzzy search overlay to InteractiveKnowledgeWidget that activates on '/' keypress, filters visible entries in real time, and resets on Escape",
+        "[DONE] Add an inline edit mode triggered by 'e' on a selected knowledge entry that opens an in-panel text input pre-populated with the entry content",
+        "[DONE] On edit confirm (Enter), write the updated content back to the correct KnowledgeTier file via FileStorage",
+        "[DONE] Add a 'd' keybinding to mark an entry for deletion with a visual strikethrough indicator; execute all pending deletions on 'D' confirm or cancel on Escape",
+        "[DONE] Add keybinding help footer to the widget listing '/' search, 'e' edit, 'd' delete, 'D' confirm delete, 'Escape' cancel",
+        "[DONE] Wire the widget into the existing view:knowledge panel in the dashboard — the panel should switch from static render to the new interactive widget when knowledge data is present",
+        "[DONE] Add unit tests covering search filtering, edit write-back, and deletion logic"
       ],
       "acceptance_criteria": [
-        "Pressing '/' in view:knowledge opens a search bar; typing filters visible entries without triggering a full dashboard refresh",
-        "Pressing 'e' on a selected entry opens an editable field; confirming with Enter writes the change to the correct KnowledgeTier file on disk",
-        "Pressing 'd' marks an entry visually; pressing 'D' removes it from the file; pressing Escape cancels without writing",
-        "The widget degrades gracefully when knowledge tiers are empty — no crash, shows 'No knowledge entries' placeholder",
-        "All existing TUI keyboard shortcuts continue to function without conflict when the knowledge widget is not in focus"
+        "[DONE] Pressing '/' in view:knowledge opens a search bar; typing filters visible entries without triggering a full dashboard refresh",
+        "[DONE] Pressing 'e' on a selected entry opens an editable field; confirming with Enter writes the change to the correct KnowledgeTier file on disk",
+        "[DONE] Pressing 'd' marks an entry visually; pressing 'D' removes it from the file; pressing Escape cancels without writing",
+        "[DONE] The widget degrades gracefully when knowledge tiers are empty — no crash, shows 'No knowledge entries' placeholder",
+        "[DONE] All existing TUI keyboard shortcuts continue to function without conflict when the knowledge widget is not in focus"
       ],
       "validation_commands": [
         "uv run pytest tests/ -k knowledge_inspector -v",
         "uv run agent-recall open"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-260220-05",
