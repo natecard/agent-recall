@@ -55,3 +55,9 @@
 - [PATTERN] Implement minimal CLI slices with focused tests.
 - [PATTERN] Leverage existing sync infrastructure for new actions.
 - [PATTERN] Verify existing implementation and validation before code changes.
+- [PATTERN] Enhance existing views/modals with new data parameters.
+- [PATTERN] Grep codebase for related terms before targeted edits.
+- [PATTERN] Run full gate first, then patch failing assertions.
+- [PATTERN] Use focused command construction tests.
+- [PATTERN] Separate dynamic content from static Panel wrapper.
+- [PATTERN] Check if sidebar_children or main_children are empty before creating containers.

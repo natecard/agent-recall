@@ -11,7 +11,7 @@ APP_CSS = """
         height: 100%;
     }
     #dashboard {
-        height: 1fr;
+        height: auto;
         overflow: auto;
         min-height: 0;
     }
@@ -98,18 +98,18 @@ APP_CSS = """
         padding: 0 1;
     }
     #activity {
-        height: 10;
-        min-height: 4;
+        height: 1fr;
+        min-height: 8;
         overflow: auto;
     }
     #activity.terminal-expanded {
-        height: 14;
+        min-height: 12;
     }
     #activity.ralph-focused {
-        height: 12;
+        min-height: 10;
     }
     #activity.ralph-focused.terminal-expanded {
-        height: 15;
+        min-height: 13;
     }
     #activity.console-focused {
         height: 1fr;
