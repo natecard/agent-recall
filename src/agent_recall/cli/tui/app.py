@@ -665,7 +665,6 @@ class AgentRecallTextualApp(
             "theme": "theme",
             "layout": "layout",
             "view:overview": "view:overview",
-            "view:sources": "view:sources",
             "view:llm": "view:llm",
             "view:knowledge": "view:knowledge",
             "view:settings": "view:settings",
@@ -708,7 +707,6 @@ class AgentRecallTextualApp(
             self._append_activity("")
             self._append_activity("[bold cyan]Views[/bold cyan]")
             self._append_activity("  /view:overview      - Overview dashboard")
-            self._append_activity("  /view:sources       - Source connectivity status")
             self._append_activity("  /view:llm           - LLM configuration")
             self._append_activity("  /view:knowledge     - Knowledge base")
             self._append_activity("  /view:timeline      - Iteration timeline")

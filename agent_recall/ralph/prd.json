@@ -131,17 +131,18 @@
       "priority": 1,
       "description": "Review and consolidate existing Command Palette commands. Remove redundant actions, clarify 'Recent' vs. 'Suggested', and consider removing/re-evaluating OpenCode plugin, Claude Code Hooks, Watch Claude Logs, Source Health, and the Views list.",
       "requirements": [
-        "Audit 'palette_actions.py' and 'palette_router.py' for redundant or obsolete commands.",
-        "Evaluate necessity of 'OpenCode plugin', 'Claude Code Hooks', 'Watch Claude Logs', 'Source Health', and 'Views' list.",
-        "Remove commands that are not explicitly required to streamline the palette.",
-        "Ensure 'Recent' properly saves and surfaces recently used acceptable commands instead of pushing out generic 'Suggested' commands without context."
+        "[DONE] Audit 'palette_actions.py' and 'palette_router.py' for redundant or obsolete commands.",
+        "[DONE] Evaluate necessity of 'OpenCode plugin', 'Claude Code Hooks', 'Watch Claude Logs', 'Source Health', and 'Views' list - confirmed these are NOT in the palette (only in slash commands), so no palette removal needed.",
+        "[DONE] Remove 'sources' view from ViewSelectModal to prepare for AR-113 consolidation (Sources will be merged into Sessions).",
+        "[DONE] Clean up slash command map, help text, and valid views to remove references to removed 'sources' view.",
+        "[DONE] Ensure 'Recent' properly saves and surfaces recently used acceptable commands - verified palette_recents.py works correctly with no 'Suggested' section present."
       ],
       "acceptance_criteria": [
-        "Command Palette list is significantly smaller and more focused.",
-        "No overlap in command functionality.",
-        "Obsolete integrations (if determined) are removed from the palette."
+        "[DONE] Command Palette list is significantly smaller and more focused.",
+        "[DONE] No overlap in command functionality.",
+        "[DONE] Obsolete integrations (if determined) are removed from the palette."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-110",

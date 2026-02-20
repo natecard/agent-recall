@@ -18,7 +18,7 @@ class _DummyApp:
     def _refresh_dashboard_panel(self) -> None:
         self.refresh_count += 1
 
-    def _run_backend_command(self, command: str) -> None:
+    def _run_backend_command(self, command: str, bypass_local: bool = False) -> None:
         self.backend_commands.append(command)
 
     def action_open_setup_modal(self) -> None:
@@ -73,13 +73,13 @@ def test_local_router_settings_preferences_commands() -> None:
 def test_local_router_view_and_menu_commands() -> None:
     app = _DummyApp()
 
-    assert handle_local_command(app, "view sources") is True
-    assert app.current_view == "sources"
-    assert app.status == "View: sources"
+    assert handle_local_command(app, "view timeline") is True
+    assert app.current_view == "timeline"
+    assert app.status == "View: timeline"
     assert app.refresh_count == 1
 
-    assert handle_local_command(app, "menu timeline") is True
-    assert app.current_view == "timeline"
+    assert handle_local_command(app, "menu overview") is True
+    assert app.current_view == "overview"
     assert app.refresh_count == 2
 
 
