@@ -21,3 +21,15 @@
 - [PATTERN] Verified existing implementation before assuming bugs - core functionality was already correct, only test coverage was missing.
 - [PATTERN] Check if sidebar_children or main_children are empty before creating containers. Use a single full-width container when only one column has content. Skip mounting entirely if both are empty.
 - [PATTERN] Checked existing implementation first - discovered most items mentioned in PRD were already NOT in palette, only needed cleanup of sources view.
+- [PATTERN] Prioritize minimal CLI slices with focused tests for reliable validation.
+- [PATTERN] Verify test coverage before assuming missing functionality.
+- [PATTERN] Favor dynamic CSS class updates over static assignments.
+- [PATTERN] Skip container mounting when both sidebar and main content are empty.
+- [PATTERN] Use single full-width container when only one column has content.
+- [PATTERN] Leverage existing infrastructure before building new solutions.
+- [PATTERN] Check existing scripts before implementing new logic.
+- [PATTERN] Prefer Rich markup for consistent heading styles.
+- [PATTERN] Target small, focused edits for acceptance criteria.
+- [PATTERN] Use a single source of truth for command mapping.
+- [PATTERN] Separate dynamic and static Panel content.
+- [PATTERN] Reuse existing interfaces for consistent abstraction.

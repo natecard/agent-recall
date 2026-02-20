@@ -13,3 +13,4 @@
 - [GOTCHA] Implementation was already complete - on_key and _move_highlight methods already existed with correct logic matching Command Palette pattern. Only test coverage was missing.
 - [GOTCHA] When all widgets in a column (sidebar or main) are hidden, the empty Vertical container was still being created with width: 1fr or width: 44, consuming layout space unnecessarily.
 - [GOTCHA] Test _DummyApp._run_backend_command was missing bypass_local parameter - fixed pre-existing test bug discovered during validation.
+- [GOTCHA] Sandboxed uv execution required setting UV_CACHE_DIR=.uv-cache because ~/.cache/uv is not writable in this environment.

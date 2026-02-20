@@ -243,7 +243,11 @@ def test_tui_ralph_run_streams_shell_loop_with_configured_agent_cmd(tmp_path, mo
     assert captured_cmd[0] == str(fake_script)
     assert "--agent-cmd" in captured_cmd
     agent_cmd = captured_cmd[captured_cmd.index("--agent-cmd") + 1]
-    assert agent_cmd == "codex exec --model gpt-5.3-codex -"
+    assert (
+        agent_cmd
+        == """codex --ask-for-approval never exec --sandbox
+         danger-full-access --model gpt-5.3-codex -"""
+    )
     assert "--max-iterations" in captured_cmd
     assert captured_cmd[captured_cmd.index("--max-iterations") + 1] == "3"
     assert "--compact-mode" in captured_cmd

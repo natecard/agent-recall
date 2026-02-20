@@ -90,12 +90,16 @@ def test_cli_ralph_set_agent_rejects_invalid() -> None:
 
 def test_build_agent_cmd_from_ralph_config_with_model() -> None:
     cmd = build_agent_cmd_from_ralph_config({"coding_cli": "codex", "cli_model": "gpt-5.3-codex"})
-    assert cmd == "codex exec --model gpt-5.3-codex -"
+    assert (
+        cmd
+        == """codex --ask-for-approval never exec
+         --sandbox danger-full-access --model gpt-5.3-codex -"""
+    )
 
 
 def test_build_agent_cmd_from_ralph_config_codex_without_model() -> None:
     cmd = build_agent_cmd_from_ralph_config({"coding_cli": "codex"})
-    assert cmd == "codex exec -"
+    assert cmd == "codex --ask-for-approval never exec --sandbox danger-full-access -"
 
 
 def test_build_agent_cmd_from_ralph_config_opencode_with_model() -> None:
@@ -363,7 +367,11 @@ def test_ralph_run_loop_uses_codex_exec(monkeypatch) -> None:
         assert exit_code == 0
         assert recorded == [
             "/usr/bin/codex",
+            "--ask-for-approval",
+            "never",
             "exec",
+            "--sandbox",
+            "danger-full-access",
             "--model",
             "gpt-5.3-codex",
             "Work on PRD item T-3: Test 3",
@@ -372,9 +380,74 @@ def test_ralph_run_loop_uses_codex_exec(monkeypatch) -> None:
             str(event.get("line") or "") for event in events if event.get("event") == "output_line"
         ]
         assert any(
-            "codex exec --model gpt-5.3-codex Work on PRD item T-3: Test 3" in line
+            """codex --ask-for-approval never exec --sandbox danger-full-access
+             --model gpt-5.3-codex Work on PRD item T-3: Test 3"""
+            in line
             for line in output_lines
         )
+
+
+def test_ralph_run_loop_uses_codex_exec_without_model(monkeypatch) -> None:
+    """_run_agent_subprocess omits --model when no model is configured."""
+    import asyncio
+
+    from agent_recall.ralph.loop import RalphLoop
+    from agent_recall.storage.files import FileStorage
+    from agent_recall.storage.sqlite import SQLiteStorage
+
+    class _FakeStdout:
+        def __init__(self) -> None:
+            self._lines = [b"ok\n", b""]
+
+        async def readline(self) -> bytes:
+            return self._lines.pop(0)
+
+    class _FakeProc:
+        def __init__(self) -> None:
+            self.stdout = _FakeStdout()
+
+        async def wait(self) -> int:
+            return 0
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        agent_dir = Path(".agent")
+        storage = SQLiteStorage(agent_dir / "state.db")
+        files = FileStorage(agent_dir)
+        loop = RalphLoop(agent_dir, storage, files)
+
+        recorded: list[str] = []
+
+        async def _fake_create_subprocess_exec(*cmd, **_kwargs):  # noqa: ANN002, ANN003
+            recorded.extend(str(part) for part in cmd)
+            return _FakeProc()
+
+        monkeypatch.setattr("agent_recall.ralph.loop.shutil.which", lambda _bin: "/usr/bin/codex")
+        monkeypatch.setattr(
+            "agent_recall.ralph.loop.asyncio.create_subprocess_exec",
+            _fake_create_subprocess_exec,
+        )
+
+        exit_code = asyncio.run(
+            loop._run_agent_subprocess(  # noqa: SLF001
+                coding_cli="codex",
+                cli_model=None,
+                item_title="No Model",
+                iteration=2,
+                item_id="T-4",
+            )
+        )
+
+        assert exit_code == 0
+        assert recorded == [
+            "/usr/bin/codex",
+            "--ask-for-approval",
+            "never",
+            "exec",
+            "--sandbox",
+            "danger-full-access",
+            "Work on PRD item T-4: No Model",
+        ]
 
 
 def test_ralph_run_shell_mode_streams_via_shared_pipeline(monkeypatch) -> None:

@@ -24,7 +24,7 @@ It differs from the generic loop by enforcing per-iteration memory evolution in:
 
 ```bash
 ./agent_recall/scripts/ralph-agent-recall-once.sh \
-  --agent-cmd 'codex exec --prompt-file {prompt_file}' \
+  --agent-cmd 'codex --ask-for-approval never exec --sandbox danger-full-access -' \
   --validate-cmd 'uv run pytest && uv run ruff check . && uv run ty check'
 ```
 
@@ -32,7 +32,7 @@ It differs from the generic loop by enforcing per-iteration memory evolution in:
 
 ```bash
 ./agent_recall/scripts/ralph-agent-recall-loop.sh \
-  --agent-cmd 'codex exec --prompt-file {prompt_file}' \
+  --agent-cmd 'codex --ask-for-approval never exec --sandbox danger-full-access -' \
   --validate-cmd 'uv run pytest && uv run ruff check . && uv run ty check' \
   --max-iterations 20
 ```

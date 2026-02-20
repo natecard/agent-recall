@@ -247,7 +247,7 @@ def build_agent_cmd_from_ralph_config(ralph_config: dict[str, Any]) -> str | Non
     if coding_cli == "codex":
         # Codex CLI no longer supports --print; use non-interactive exec and read
         # the generated prompt from stdin (the shell loop already redirects stdin).
-        parts = [binary, "exec"]
+        parts = [binary, "--ask-for-approval", "never", "exec", "--sandbox", "danger-full-access"]
         if cli_model and model_flag:
             parts.extend([model_flag, cli_model])
         parts.append("-")

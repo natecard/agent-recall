@@ -206,7 +206,14 @@ class RalphLoop:
 
         prompt = f"Work on PRD item {item_id}: {item_title}"
         if coding_cli == "codex":
-            cmd = [resolved, "exec"]
+            cmd = [
+                resolved,
+                "--ask-for-approval",
+                "never",
+                "exec",
+                "--sandbox",
+                "danger-full-access",
+            ]
             if cli_model:
                 cmd.extend(["--model", cli_model])
             cmd.append(prompt)
