@@ -594,14 +594,12 @@ def test_dashboard_mount_skips_hidden_widgets() -> None:
         "sources": False,
         "timeline": True,
         "ralph": True,
-        "llm": True,
         "settings": True,
     }
     cast(Any, app)._build_overview_row = lambda panels: None
     panels = DashboardPanels(
         header=Panel("header"),
         knowledge=Panel("knowledge"),
-        llm=Panel("llm"),
         sources=Panel("sources"),
         sources_compact=Panel("sources_compact"),
         settings=Panel("settings"),
@@ -636,13 +634,11 @@ def test_all_view_handles_empty_sidebar_gracefully() -> None:
         "sources": False,
         "timeline": True,
         "ralph": True,
-        "llm": False,
         "settings": False,
     }
     panels = DashboardPanels(
         header=Panel("header"),
         knowledge=Panel("knowledge"),
-        llm=Panel("llm"),
         sources=Panel("sources"),
         sources_compact=Panel("sources_compact"),
         settings=Panel("settings"),
@@ -676,13 +672,11 @@ def test_all_view_handles_empty_main_gracefully() -> None:
         "sources": True,
         "timeline": False,
         "ralph": True,
-        "llm": True,
         "settings": True,
     }
     panels = DashboardPanels(
         header=Panel("header"),
         knowledge=Panel("knowledge"),
-        llm=Panel("llm"),
         sources=Panel("sources"),
         sources_compact=Panel("sources_compact"),
         settings=Panel("settings"),
@@ -716,13 +710,11 @@ def test_all_view_handles_all_hidden_gracefully() -> None:
         "sources": False,
         "timeline": False,
         "ralph": False,
-        "llm": False,
         "settings": False,
     }
     panels = DashboardPanels(
         header=Panel("header"),
         knowledge=Panel("knowledge"),
-        llm=Panel("llm"),
         sources=Panel("sources"),
         sources_compact=Panel("sources_compact"),
         settings=Panel("settings"),
@@ -755,7 +747,6 @@ def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) ->
         "sources": True,
         "timeline": True,
         "ralph": True,
-        "llm": True,
         "settings": True,
     }
     app.tui_banner_size = "normal"
@@ -767,7 +758,6 @@ def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) ->
     panels = DashboardPanels(
         header=Panel("header"),
         knowledge=Panel("knowledge"),
-        llm=Panel("llm"),
         sources=Panel("sources"),
         sources_compact=Panel("sources_compact"),
         settings=Panel("settings"),

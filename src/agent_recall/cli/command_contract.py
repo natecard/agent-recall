@@ -118,7 +118,7 @@ def get_command_contract() -> list[CommandContract]:
             aliases=("menu",),
             description="Switch TUI dashboard views",
             surfaces=("tui",),
-            notes="Views: overview, llm, knowledge, settings, timeline, console, all.",
+            notes="Views: overview, knowledge, settings, timeline, console, all.",
         ),
         CommandContract(
             command="settings",

@@ -14,7 +14,6 @@ class ViewSelectModal(ModalScreen[str | None]):
 
     VIEWS = [
         ("overview", "Overview - High-level repository status"),
-        ("llm", "LLM - Provider and model configuration"),
         ("knowledge", "Knowledge - Base artifacts and indexing"),
         ("settings", "Settings - Runtime and interface settings"),
         ("timeline", "Timeline - Iteration outcomes and summaries"),

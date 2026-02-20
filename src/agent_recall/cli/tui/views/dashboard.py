@@ -16,7 +16,6 @@ from agent_recall.cli.banner import BannerRenderer
 from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
 from agent_recall.cli.tui.widgets import (
     KnowledgeWidget,
-    LLMConfigWidget,
     RalphStatusWidget,
     SettingsWidget,
     SourcesWidget,
@@ -32,7 +31,6 @@ from agent_recall.storage.models import LLMConfig
 class DashboardPanels:
     header: Panel | None
     knowledge: Panel
-    llm: Panel
     sources: Panel
     sources_compact: Panel
     settings: Panel
@@ -170,6 +168,9 @@ def build_dashboard_panels(
 
     _ = widget_visibility
 
+    _ = llm_config
+    _ = api_key_set_display
+
     knowledge_widget = KnowledgeWidget(
         repo_name=repo_name,
         stats=stats,
@@ -182,11 +183,6 @@ def build_dashboard_panels(
         guardrails_text=guardrails,
         style_text=style,
         recent_text=recent,
-    )
-    llm_widget = LLMConfigWidget(
-        llm_config=llm_config,
-        api_key_set_display=api_key_set_display,
-        view=view,
     )
     sources_widget = SourcesWidget(
         source_table=source_table,
@@ -240,7 +236,6 @@ def build_dashboard_panels(
         )
 
     knowledge_panel = knowledge_widget.render(detail=view == "knowledge")
-    llm_panel = llm_widget.render()
     sources_panel = sources_widget.render()
     sources_compact_panel = sources_compact_widget.render()
     settings_panel = settings_widget.render()
@@ -264,7 +259,6 @@ def build_dashboard_panels(
     return DashboardPanels(
         header=header_panel,
         knowledge=knowledge_panel,
-        llm=llm_panel,
         sources=sources_panel,
         sources_compact=sources_compact_panel,
         settings=settings_panel,
@@ -436,19 +430,14 @@ def build_tui_dashboard(
     elif view == "ralph":
         if visibility.get("ralph", True):
             renderables.append(panels.ralph)
-    elif view == "llm":
-        if visibility.get("llm", True):
-            renderables.append(panels.llm)
     elif view == "settings":
         if visibility.get("settings", True):
             renderables.append(panels.settings)
     elif view == "console":
         pass
     elif view == "all":
-        if visibility.get("knowledge", True) or visibility.get("llm", True):
-            left = panels.knowledge if visibility.get("knowledge", True) else panels.llm
-            right = panels.llm if visibility.get("llm", True) else panels.knowledge
-            renderables.append(_two_panel_row(left, right))
+        if visibility.get("knowledge", True):
+            renderables.append(panels.knowledge)
         if visibility.get("sources", True) or visibility.get("settings", True):
             left = panels.sources if visibility.get("sources", True) else panels.settings
             right = panels.settings if visibility.get("settings", True) else panels.sources

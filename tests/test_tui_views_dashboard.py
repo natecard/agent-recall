@@ -122,7 +122,6 @@ def test_build_dashboard_panels_for_all_view() -> None:
     assert panels.sources.title == "Session Sources"
     assert panels.settings.title == "Settings"
     assert panels.timeline.title == "Iteration Timeline"
-    assert panels.llm.title == "LLM Configuration"
 
 
 def test_build_dashboard_without_slash_console() -> None:

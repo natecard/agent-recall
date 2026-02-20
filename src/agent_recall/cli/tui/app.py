@@ -401,9 +401,6 @@ class AgentRecallTextualApp(
         elif self.current_view == "ralph":
             if self._is_widget_visible("ralph"):
                 dashboard.mount(Static(panels.ralph, id="dashboard_ralph"))
-        elif self.current_view == "llm":
-            if self._is_widget_visible("llm"):
-                dashboard.mount(Static(panels.llm, id="dashboard_llm"))
         elif self.current_view == "settings":
             if self._is_widget_visible("settings"):
                 dashboard.mount(Static(panels.settings, id="dashboard_settings"))
@@ -450,7 +447,6 @@ class AgentRecallTextualApp(
             return (
                 self._update_static_widget("#dashboard_knowledge", panels.knowledge)
                 and self._update_static_widget("#dashboard_sources", panels.sources)
-                and self._update_static_widget("#dashboard_llm", panels.llm)
                 and self._update_static_widget("#dashboard_settings", panels.settings)
                 and self._update_static_widget("#dashboard_timeline", panels.timeline)
             )
@@ -476,10 +472,6 @@ class AgentRecallTextualApp(
             if not self._is_widget_visible("ralph"):
                 return False
             return self._update_static_widget("#dashboard_ralph", panels.ralph)
-        if self.current_view == "llm":
-            if not self._is_widget_visible("llm"):
-                return False
-            return self._update_static_widget("#dashboard_llm", panels.llm)
         if self.current_view == "settings":
             if not self._is_widget_visible("settings"):
                 return False
@@ -558,8 +550,6 @@ class AgentRecallTextualApp(
             sidebar_children.append(Static(panels.knowledge, id="dashboard_knowledge"))
         if self._is_widget_visible("sources"):
             sidebar_children.append(Static(panels.sources, id="dashboard_sources"))
-        if self._is_widget_visible("llm"):
-            sidebar_children.append(Static(panels.llm, id="dashboard_llm"))
         if self._is_widget_visible("settings"):
             sidebar_children.append(Static(panels.settings, id="dashboard_settings"))
         main_children: list[Static] = []

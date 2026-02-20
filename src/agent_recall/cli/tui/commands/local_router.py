@@ -66,7 +66,6 @@ def handle_local_command(app, raw: str) -> bool:
     if action in {"view", "menu"}:
         valid = {
             "overview",
-            "llm",
             "knowledge",
             "settings",
             "timeline",

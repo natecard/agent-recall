@@ -47,3 +47,11 @@
 - [PATTERN] Validate with full test suite after patching expectations.
 - [PATTERN] Verify existing implementation & validation before code changes.
 - [PATTERN] Implement minimal CLI slices for focused validation.
+- [PATTERN] Enhance existing views/modals with new data parameters instead of creating new ones.
+- [PATTERN] Patch failing test expectations before runtime code modifications.
+- [PATTERN] Run full gate runs before patching expectations.
+- [PATTERN] Update PRD state when implementation already meets requirements.
+- [PATTERN] Prioritize focused command construction tests for CLI validation.
+- [PATTERN] Implement minimal CLI slices with focused tests.
+- [PATTERN] Leverage existing sync infrastructure for new actions.
+- [PATTERN] Verify existing implementation and validation before code changes.
