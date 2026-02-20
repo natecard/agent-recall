@@ -439,9 +439,6 @@ def build_tui_dashboard(
     elif view == "llm":
         if visibility.get("llm", True):
             renderables.append(panels.llm)
-    elif view == "sources":
-        if visibility.get("sources", True):
-            renderables.append(panels.sources)
     elif view == "settings":
         if visibility.get("settings", True):
             renderables.append(panels.settings)

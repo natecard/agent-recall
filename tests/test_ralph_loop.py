@@ -268,6 +268,52 @@ def test_ralph_loop_marks_passed_item_steps_done(tmp_path: Path) -> None:
     assert steps[2] == "[DONE] Existing done"
 
 
+def test_ralph_loop_promotes_target_item_to_passes_true_when_all_steps_done(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "agent_recall" / "ralph"
+    agent_dir = tmp_path / ".agent"
+    ralph_dir.mkdir(parents=True, exist_ok=True)
+    agent_dir.mkdir(parents=True, exist_ok=True)
+
+    (ralph_dir / "prd.json").write_text(
+        """{
+  "project": "Ralph Test",
+  "items": [
+    {
+      "id": "RLPH-001",
+      "priority": 1,
+      "title": "First",
+      "steps": ["Plan", "Implement"],
+      "passes": false
+    }
+  ]
+}
+"""
+    )
+    (ralph_dir / "progress.txt").write_text("# Progress\n")
+    (ralph_dir / "agent-prompt.md").write_text("# Task\n")
+    (agent_dir / "RULES.md").write_text("# Rules\n")
+    (agent_dir / "GUARDRAILS.md").write_text("# Guardrails\n")
+    (agent_dir / "STYLE.md").write_text("# Style\n")
+    (agent_dir / "RECENT.md").write_text("# Recent\n")
+
+    agent_cmd = (
+        'jq \'(.items[] | select(.id=="RLPH-001") | .steps) = '
+        '["[DONE] Plan", "[DONE] Implement"]\' '
+        "agent_recall/ralph/prd.json > agent_recall/ralph/prd.json.tmp "
+        "&& mv agent_recall/ralph/prd.json.tmp agent_recall/ralph/prd.json"
+    )
+
+    result = _run_loop(tmp_path, "--validate-cmd", "false", agent_cmd=agent_cmd)
+    assert result.returncode == 2
+    assert (
+        "Promoted PRD item RLPH-001 to passes=true because all steps are [DONE]." in result.stdout
+    )
+
+    payload = json.loads((ralph_dir / "prd.json").read_text(encoding="utf-8"))
+    item = next(entry for entry in payload["items"] if entry["id"] == "RLPH-001")
+    assert item.get("passes") is True
+
+
 def test_ralph_loop_supports_external_repo_layout_with_custom_paths(tmp_path: Path) -> None:
     spec_dir = tmp_path / "spec"
     logs_dir = tmp_path / "logs"

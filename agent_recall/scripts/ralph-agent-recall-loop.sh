@@ -1054,6 +1054,67 @@ mark_done_steps_for_passed_items() {
   fi
 }
 
+promote_item_pass_if_all_steps_done() {
+  local item_id="$1"
+  local tmp_file="$RUNTIME_DIR/prd-pass.tmp.json"
+  local before_hash
+  local after_hash
+
+  if [[ -z $item_id ]]; then
+    return 0
+  fi
+
+  before_hash="$(file_hash "$PRD_FILE")"
+  jq --arg item_id "$item_id" '
+    .items |= map(
+      if .id == $item_id
+        and (.passes != true)
+        and (.steps | type == "array")
+        and ((.steps | length) > 0)
+        and (.steps | all(type == "string" and test("^\\s*\\[DONE\\]")))
+      then
+        .passes = true
+      else .
+      end
+    )
+  ' "$PRD_FILE" >"$tmp_file" \
+    || {
+      echo "Warning: failed to infer passes=true from [DONE] steps for item $item_id." >&2
+      rm -f "$tmp_file"
+      return 0
+    }
+
+  mv "$tmp_file" "$PRD_FILE"
+  after_hash="$(file_hash "$PRD_FILE")"
+  if [[ $before_hash != "$after_hash" ]]; then
+    echo "Promoted PRD item $item_id to passes=true because all steps are [DONE]."
+  fi
+}
+
+warn_if_target_item_not_marked_passed() {
+  local item_id="$1"
+  local work_mode="$2"
+  local agent_exit="$3"
+  local validation_exit="$4"
+
+  if [[ $work_mode != "feature" ]]; then
+    return 0
+  fi
+  if [[ -z $item_id ]]; then
+    return 0
+  fi
+  if [[ $agent_exit -ne 0 || $validation_exit -ne 0 ]]; then
+    return 0
+  fi
+
+  local passed_value
+  passed_value="$(jq -r --arg item_id "$item_id" '.items[]? | select(.id == $item_id) | (.passes == true)' "$PRD_FILE" | head -n 1)"
+  if [[ $passed_value != "true" ]]; then
+    echo "Warning: target PRD item $item_id remains passes=false after successful validation."
+    echo "         If this item is complete, set passes=true and mark completed steps with [DONE]."
+  fi
+}
+
 refresh_context_after_compaction() {
   local iteration="$1"
   local item_id="$2"
@@ -1137,6 +1198,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   REMAINING="$(remaining_count)"
   WORK_MODE="feature"
   NEXT_ITEM=""
+  SELECTED_ITEM=""
   UNPASSED_ITEMS="[]"
   FOCUS_ITEMS="[]"
   ALL_PRD_REVIEW="[]"
@@ -1164,22 +1226,17 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
       echo "Unable to build focus PRD slice while work remains." >&2
       exit 1
     fi
-    NEXT_ITEM='{"id":"AGENT-SELECTED","priority":null,"title":"Agent-selected highest-priority item for this iteration","passes":false}'
+    SELECTED_ITEM="$(next_item_json)"
+    if [[ -z $SELECTED_ITEM ]]; then
+      echo "Unable to determine next target PRD item while work remains." >&2
+      exit 1
+    fi
+    NEXT_ITEM="$SELECTED_ITEM"
   fi
   ALL_PRD_REVIEW="$(all_items_for_regrade_json)"
 
-  ITERATION_ITEM_ID=""
-  ITERATION_ITEM_TITLE=""
-  if [[ $WORK_MODE == "feature" ]]; then
-    SELECTED_ITEM="$(next_item_json)"
-    if [[ -n $SELECTED_ITEM ]]; then
-      ITERATION_ITEM_ID="$(printf '%s\n' "$SELECTED_ITEM" | jq -r '.id // empty')"
-      ITERATION_ITEM_TITLE="$(printf '%s\n' "$SELECTED_ITEM" | jq -r '.title // .description // empty')"
-    fi
-  else
-    ITERATION_ITEM_ID="$(printf '%s\n' "$NEXT_ITEM" | jq -r '.id // empty')"
-    ITERATION_ITEM_TITLE="$(printf '%s\n' "$NEXT_ITEM" | jq -r '.title // .description // empty')"
-  fi
+  ITERATION_ITEM_ID="$(printf '%s\n' "$NEXT_ITEM" | jq -r '.id // empty')"
+  ITERATION_ITEM_TITLE="$(printf '%s\n' "$NEXT_ITEM" | jq -r '.title // .description // empty')"
 
   PROMPT_FILE="$RUNTIME_DIR/prompt-${i}.md"
   AGENT_LOG="$RUNTIME_DIR/agent-${i}.log"
@@ -1193,7 +1250,7 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     CURRENT_REPORT_PATH=".agent/ralph/iterations/current.json"
     TEMPLATE_ITEM_ID="$(printf '%s\n' "$NEXT_ITEM" | jq -r '.id // "AGENT-SELECTED"')"
     TEMPLATE_ITEM_TITLE="$(printf '%s\n' "$NEXT_ITEM" | jq -r '.title // .description // "Agent-selected highest-priority item for this iteration"')"
-    TEMPLATE_DESCRIPTION="$(printf '%s\n' "$NEXT_ITEM" | jq -r '.description // .user_story // "Select one unpassed PRD item and complete the smallest viable slice."')"
+    TEMPLATE_DESCRIPTION="$(printf '%s\n' "$NEXT_ITEM" | jq -r '.description // .user_story // "Complete the primary target item for this iteration with the smallest viable slice."')"
     TEMPLATE_VALIDATION_COMMAND="$VALIDATE_CMD"
     if [[ -z $TEMPLATE_VALIDATION_COMMAND ]]; then
       TEMPLATE_VALIDATION_COMMAND="(none provided; loop runs post-iteration validation if configured)"
@@ -1301,32 +1358,33 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
     echo "## Agent Recall Directives"
     echo "The directives in this section override any conflicting instructions above."
     if [[ $WORK_MODE == "feature" ]]; then
-      echo "1. Select one item from the Focus PRD Slice and treat it as your only implementation target."
-      echo "2. Before finishing, re-evaluate and regrade priorities for remaining unpassed items using the Full PRD Priority Review list."
-      echo "3. Work ONLY on your selected item; do not start a second feature."
+      echo "1. Primary implementation target for this iteration: $ITERATION_ITEM_ID — $ITERATION_ITEM_TITLE."
+      echo "2. Work ONLY on this target item; do not start a second feature."
+      echo "3. If this target item is completed, set its passes field to true in $PRD_FILE."
+      echo "4. Before finishing, re-evaluate and regrade priorities for remaining unpassed items using the Full PRD Priority Review list."
     else
       echo "1. Work ONLY on the stabilization item for this iteration."
       echo "2. Keep changes scoped; do not start a second feature."
       echo "3. Keep priority assignments coherent for any remaining PRD items using the Full PRD Priority Review list."
     fi
-    echo "4. RULES.md is user-authored policy. Follow it as highest-precedence project instruction unless it conflicts with system safety constraints."
-    echo "5. Do not request missing placeholders; use the provided report path: $CURRENT_REPORT_PATH."
-    echo "6. Update $PRD_FILE for completed work and priority regrading."
-    echo "   For completed items, prefix completed step entries in the steps array with [DONE]."
-    echo "7. Treat generated memory files as read-only; do NOT edit $GUARDRAILS_FILE, $STYLE_FILE, or $RECENT_FILE (system updates them from iteration reports)."
+    echo "5. RULES.md is user-authored policy. Follow it as highest-precedence project instruction unless it conflicts with system safety constraints."
+    echo "6. Do not request missing placeholders; use the provided report path: $CURRENT_REPORT_PATH."
+    echo "7. Update $PRD_FILE for completed work and priority regrading."
+    echo "   For completed items, set passes=true and prefix completed step entries in steps with [DONE]."
+    echo "8. Treat generated memory files as read-only; do NOT edit $GUARDRAILS_FILE, $STYLE_FILE, or $RECENT_FILE (system updates them from iteration reports)."
     if [[ -n $VALIDATE_CMD ]]; then
-      echo "8. Run validation and ensure it passes before committing."
+      echo "9. Run validation and ensure it passes before committing."
     else
-      echo "8. Run available local checks before committing."
+      echo "9. Run available local checks before committing."
     fi
-    echo "9. Make one commit for this iteration and include 'RALPH' in the message."
-    echo "10. If all PRD work is complete and no further work remains, print exactly:"
+    echo "10. Make one commit for this iteration and include 'RALPH' in the message."
+    echo "11. If all PRD work is complete and no further work remains, print exactly:"
     printf '   %s\n' "$COMPLETE_MARKER"
     if [[ -n $ALT_COMPLETE_MARKER ]]; then
-      echo "11. Alternate completion marker accepted by the loop:"
+      echo "12. Alternate completion marker accepted by the loop:"
       printf '   %s\n' "$ALT_COMPLETE_MARKER"
     fi
-    echo "12. If blocked and cannot proceed safely, print exactly:"
+    echo "13. If blocked and cannot proceed safely, print exactly:"
     printf '   %s\n' "$ABORT_MARKER"
   } >"$PROMPT_FILE"
 
@@ -1379,7 +1437,9 @@ for ((i = 1; i <= MAX_ITERATIONS; i++)); do
   VALIDATION_HINT="$(extract_validation_hint "$i")"
 
   finalize_iteration "$i" "$LAST_VALIDATE_EXIT" "$VALIDATION_HINT"
+  promote_item_pass_if_all_steps_done "$ITERATION_ITEM_ID"
   mark_done_steps_for_passed_items
+  warn_if_target_item_not_marked_passed "$ITERATION_ITEM_ID" "$WORK_MODE" "$AGENT_EXIT" "$LAST_VALIDATE_EXIT"
 
   HAS_COMPLETE=0
   if [[ $AGENT_OUTPUT_MODE == "stream-json" ]]; then

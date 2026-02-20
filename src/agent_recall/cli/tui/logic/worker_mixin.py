@@ -159,21 +159,31 @@ class WorkerMixin:
                 _, initial_filter = context.split(":", 1)
 
             if isinstance(result, tuple) and len(result) == 2:
-                _sources_raw, sessions_raw = result
+                sources_raw, sessions_raw = result
+                sources_data = sources_raw if isinstance(sources_raw, list) else []
                 sessions_data = sessions_raw if isinstance(sessions_raw, list) else []
             else:
+                sources_data = []
                 sessions_data = []
 
-            # Ensure type safety for the modal
             typed_sessions: list[dict[str, Any]] = []
             for s in sessions_data:
                 if isinstance(s, dict):
                     typed_sessions.append({str(k): v for k, v in s.items()})
 
+            typed_sources: list[dict[str, Any]] = []
+            for src in sources_data:
+                if isinstance(src, dict):
+                    typed_sources.append({str(k): v for k, v in src.items()})
+
             self.status = "Sessions & Sources"
             self._append_activity(f"Loaded {len(typed_sessions)} session(s).")
             self.push_screen(
-                SessionsViewModal(sessions=typed_sessions, initial_filter=initial_filter),
+                SessionsViewModal(
+                    sessions=typed_sessions,
+                    sources=typed_sources,
+                    initial_filter=initial_filter,
+                ),
                 self._apply_sessions_view_modal_result,
             )
             self._refresh_dashboard_panel()

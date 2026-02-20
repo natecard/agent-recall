@@ -3,13 +3,17 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from rich.text import Text
 from textual import events
 from textual.widgets import Log, OptionList
 from textual.widgets.option_list import Option
 
 from agent_recall.cli.tui.constants import _LOADING_FRAMES
 from agent_recall.cli.tui.logic.debug_log import _write_debug_log
-from agent_recall.cli.tui.logic.text_sanitizers import _sanitize_activity_fragment
+from agent_recall.cli.tui.logic.text_sanitizers import (
+    _activity_line_theme_style,
+    _sanitize_activity_fragment,
+)
 
 
 class ActivityMixin:
@@ -202,7 +206,15 @@ class ActivityMixin:
         payload = clean if clean.endswith(("\n", "\r")) else f"{clean}\n"
         try:
             activity_widget = self.query_one("#activity_log", Log)
-            activity_widget.write(payload, scroll_end=self._activity_follow_tail)
+            for fragment in payload.splitlines(keepends=True):
+                style_name = _activity_line_theme_style(fragment)
+                if style_name:
+                    activity_widget.write(
+                        Text(fragment, style=style_name),
+                        scroll_end=self._activity_follow_tail,
+                    )
+                else:
+                    activity_widget.write(fragment, scroll_end=self._activity_follow_tail)
         except Exception:  # noqa: BLE001
             pass
         self._refresh_activity_panel()

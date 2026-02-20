@@ -1,4 +1,5 @@
 from agent_recall.cli.tui.logic.text_sanitizers import (
+    _activity_line_theme_style,
     _clean_optional_text,
     _sanitize_activity_fragment,
     _source_checkbox_id,
@@ -6,6 +7,7 @@ from agent_recall.cli.tui.logic.text_sanitizers import (
 )
 
 __all__ = [
+    "_activity_line_theme_style",
     "_clean_optional_text",
     "_sanitize_activity_fragment",
     "_source_checkbox_id",

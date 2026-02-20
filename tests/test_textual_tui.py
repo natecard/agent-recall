@@ -10,6 +10,7 @@ from rich.panel import Panel
 
 from agent_recall.cli.tui import (
     AgentRecallTextualApp,
+    _activity_line_theme_style,
     _build_command_suggestions,
     _clean_optional_text,
     _is_knowledge_run_command,
@@ -164,6 +165,44 @@ def test_sanitize_activity_fragment_strips_terminal_control_sequences() -> None:
     assert cleaned == "hello\nab!link"
     assert "\x1b" not in cleaned
     assert "\x08" not in cleaned
+
+
+def test_activity_line_theme_style_classifies_diff_hunk_lines() -> None:
+    assert _activity_line_theme_style("+ added line") == "success"
+    assert _activity_line_theme_style("- removed line") == "error"
+    assert _activity_line_theme_style("│ + framed added line") == "success"
+    assert _activity_line_theme_style("│ - framed removed line") == "error"
+    assert _activity_line_theme_style("+++ b/src/file.py") is None
+    assert _activity_line_theme_style("--- a/src/file.py") is None
+    assert _activity_line_theme_style("context line") is None
+
+
+def test_append_activity_applies_theme_styles_for_diff_hunks(monkeypatch) -> None:
+    from rich.text import Text
+
+    app = _build_test_app()
+
+    class _DummyLog:
+        def __init__(self) -> None:
+            self.writes: list[object] = []
+
+        def write(self, payload: object, *, scroll_end: bool) -> None:
+            _ = scroll_end
+            self.writes.append(payload)
+
+    dummy_log = _DummyLog()
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: dummy_log)
+    monkeypatch.setattr(app, "_refresh_activity_panel", lambda: None)
+
+    app._append_activity("+ added")
+    app._append_activity("- removed")
+    app._append_activity("plain context")
+
+    assert isinstance(dummy_log.writes[0], Text)
+    assert dummy_log.writes[0].style == "success"
+    assert isinstance(dummy_log.writes[1], Text)
+    assert dummy_log.writes[1].style == "error"
+    assert isinstance(dummy_log.writes[2], str)
 
 
 def test_sync_activity_layout_console_view() -> None:

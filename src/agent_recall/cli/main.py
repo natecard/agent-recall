@@ -898,7 +898,7 @@ def _handle_tui_view_command(raw: str, current_view: str) -> tuple[bool, str, li
             current_view,
             [
                 f"[dim]Current view: {current_view}[/dim]",
-                "[dim]Available views: overview, sources, llm, "
+                "[dim]Available views: overview, llm, "
                 "knowledge, settings, timeline, ralph, console, all[/dim]",
             ],
         )

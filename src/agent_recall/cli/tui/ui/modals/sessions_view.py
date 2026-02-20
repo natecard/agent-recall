@@ -6,13 +6,21 @@ from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
+from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, OptionList, Static
+from textual.widgets import Button, DataTable, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 
 class SessionsViewModal(ModalScreen[dict[str, object] | None]):
     """An interactive modal replacing the text-based console output for Sessions/Sources."""
+
+    class SourceSyncRequested(Message):
+        """Emitted when a source sync is requested."""
+
+        def __init__(self, source_name: str) -> None:
+            super().__init__()
+            self.source_name = source_name
 
     BINDINGS = [
         Binding("escape", "dismiss(None)", "Close"),
@@ -21,12 +29,15 @@ class SessionsViewModal(ModalScreen[dict[str, object] | None]):
     def __init__(
         self,
         sessions: list[dict[str, object]],
+        sources: list[dict[str, object]] | None = None,
         initial_filter: str = "",
     ):
         super().__init__()
         self.sessions = sessions
+        self.sources = sources or []
         self.initial_filter = initial_filter
         self.filter_query = initial_filter
+        self._syncing_sources: set[str] = set()
 
     def compose(self) -> ComposeResult:
         with Container(id="modal_overlay"):
@@ -36,6 +47,13 @@ class SessionsViewModal(ModalScreen[dict[str, object] | None]):
                     "Browse all discovered agent conversations across enabled sources",
                     classes="modal_subtitle",
                 )
+
+                if self.sources:
+                    yield Static("[bold]Sources[/bold]", classes="section_header")
+                    yield DataTable(id="sources_table")
+                    yield Static(id="sources_status")
+
+                yield Static("[bold]Conversations[/bold]", classes="section_header")
                 yield Input(
                     placeholder="Filter by title, source, or session ID...",
                     id="sessions_view_filter",
@@ -51,6 +69,65 @@ class SessionsViewModal(ModalScreen[dict[str, object] | None]):
             filter_input.value = self.initial_filter
         filter_input.focus()
         self._rebuild_options()
+        self._build_sources_table()
+
+    def _build_sources_table(self) -> None:
+        if not self.sources:
+            return
+        try:
+            table = self.query_one("#sources_table", DataTable)
+            table.add_columns("Source", "Status", "Sessions", "Action")
+
+            for source in self.sources:
+                name = str(source.get("name", "unknown"))
+                available = bool(source.get("available", False))
+                sessions = int(source.get("count", 0))  # type: ignore[arg-type]
+                error = source.get("error")
+
+                if error:
+                    status_text = "[error]✗ Error[/error]"
+                elif available:
+                    status_text = "[success]✓ Available[/success]"
+                else:
+                    status_text = "[dim]- No sessions[/dim]"
+
+                button_label = "Syncing..." if name in self._syncing_sources else "Sync"
+                button_disabled = name in self._syncing_sources
+
+                sync_button = Button(
+                    button_label,
+                    id=f"sync_{name}",
+                    disabled=button_disabled,
+                    classes="sync-button",
+                )
+
+                table.add_row(
+                    name,
+                    status_text,
+                    str(sessions),
+                    sync_button,
+                    key=name,
+                )
+
+            status_widget = self.query_one("#sources_status", Static)
+            status_widget.update("[dim]Select a source to sync or browse conversations below[/dim]")
+        except Exception:
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "sessions_view_close":
+            self.dismiss(None)
+            return
+
+        button_id = event.button.id or ""
+        if button_id.startswith("sync_"):
+            source_name = button_id.replace("sync_", "")
+            if source_name in self._syncing_sources:
+                return
+            self._syncing_sources.add(source_name)
+            event.button.label = "Syncing..."
+            event.button.disabled = True
+            self.post_message(self.SourceSyncRequested(source_name))
 
     def on_key(self, event: events.Key) -> None:
         if event.key == "enter":
@@ -106,10 +183,6 @@ class SessionsViewModal(ModalScreen[dict[str, object] | None]):
             return
         self.filter_query = event.value
         self._rebuild_options()
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "sessions_view_close":
-            self.dismiss(None)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         if event.option_list.id == "sessions_view_list":

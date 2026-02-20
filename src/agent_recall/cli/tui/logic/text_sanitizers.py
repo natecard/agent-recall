@@ -5,6 +5,7 @@ from typing import Any
 
 _ANSI_ESCAPE_PATTERN = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 _OSC_ESCAPE_PATTERN = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
+_FRAME_PREFIX_CHARS = frozenset({"|", "│", "┃", "¦", "▏", "▕", "▌", "▍", "▎", "▐"})
 
 
 def _strip_rich_markup(text: str) -> str:
@@ -28,6 +29,20 @@ def _sanitize_activity_fragment(fragment: str) -> str:
             continue
         out.append(char)
     return "".join(out)
+
+
+def _activity_line_theme_style(line: str) -> str | None:
+    """Return semantic style key for activity lines that look like diff hunks."""
+    probe = line.lstrip()
+    while probe and probe[0] in _FRAME_PREFIX_CHARS:
+        probe = probe[1:].lstrip()
+    if not probe:
+        return None
+    if probe.startswith("+") and not probe.startswith("+++"):
+        return "success"
+    if probe.startswith("-") and not probe.startswith("---"):
+        return "error"
+    return None
 
 
 def _clean_optional_text(value: Any) -> str:

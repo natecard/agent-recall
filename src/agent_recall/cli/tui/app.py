@@ -34,6 +34,7 @@ from agent_recall.cli.tui.types import (
 )
 from agent_recall.cli.tui.ui.bindings import TUI_BINDINGS
 from agent_recall.cli.tui.ui.modals.iteration_detail import IterationDetailModal
+from agent_recall.cli.tui.ui.modals.sessions_view import SessionsViewModal
 from agent_recall.cli.tui.ui.styles import APP_CSS
 from agent_recall.cli.tui.views import DashboardPanels, build_dashboard_panels, build_sources_data
 from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
@@ -365,6 +366,12 @@ class AgentRecallTextualApp(
         """Handle sync button click from interactive sources widget."""
         self._run_source_sync(source_name)
 
+    def on_sessions_view_modal_source_sync_requested(
+        self, event: SessionsViewModal.SourceSyncRequested
+    ) -> None:
+        """Handle source sync request from SessionsViewModal."""
+        self._run_source_sync(event.source_name)
+
     def _mount_dashboard_widgets(self, dashboard: Vertical, panels: DashboardPanels) -> None:
         if panels.header is not None:
             classes = f"banner-{self.tui_banner_size}"
@@ -397,10 +404,6 @@ class AgentRecallTextualApp(
         elif self.current_view == "llm":
             if self._is_widget_visible("llm"):
                 dashboard.mount(Static(panels.llm, id="dashboard_llm"))
-        elif self.current_view == "sources":
-            if self._is_widget_visible("sources"):
-                self._interactive_sources_widget = self._build_interactive_sources_widget()
-                dashboard.mount(self._interactive_sources_widget)
         elif self.current_view == "settings":
             if self._is_widget_visible("settings"):
                 dashboard.mount(Static(panels.settings, id="dashboard_settings"))
@@ -477,20 +480,6 @@ class AgentRecallTextualApp(
             if not self._is_widget_visible("llm"):
                 return False
             return self._update_static_widget("#dashboard_llm", panels.llm)
-        if self.current_view == "sources":
-            if not self._is_widget_visible("sources"):
-                return False
-            # Update interactive sources widget instead of static
-            try:
-                widget = self.query_one("#dashboard_sources_interactive", InteractiveSourcesWidget)
-                sources_data, last_synced = build_sources_data(
-                    self._dashboard_context,
-                    all_cursor_workspaces=self.all_cursor_workspaces,
-                )
-                widget.update_sources(sources_data, last_synced)
-                return True
-            except Exception:
-                return False
         if self.current_view == "settings":
             if not self._is_widget_visible("settings"):
                 return False
@@ -510,7 +499,7 @@ class AgentRecallTextualApp(
         return False
 
     def _refresh_source_actions(self, source_names: list[str]) -> None:
-        if self.current_view not in {"sources", "all"}:
+        if self.current_view != "all":
             return
         if not source_names:
             return
