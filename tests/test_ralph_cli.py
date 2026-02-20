@@ -91,21 +91,14 @@ def test_cli_ralph_set_agent_rejects_invalid() -> None:
 def test_build_agent_cmd_from_ralph_config_with_model() -> None:
     cmd = build_agent_cmd_from_ralph_config({"coding_cli": "codex", "cli_model": "gpt-5.3-codex"})
     expected = (
-        "codex --ask-for-approval never exec --sandbox danger-full-access --model gpt-5.3-codex "
-        '--json - | jq -r \'if .type=="assistant" then (.message.content[]? | '
-        'select(.type=="text").text) elif .type=="result" then .result else empty end\''
+        "codex --ask-for-approval never exec --sandbox danger-full-access --model gpt-5.3-codex -"
     )
     assert cmd == expected
 
 
 def test_build_agent_cmd_from_ralph_config_codex_without_model() -> None:
     cmd = build_agent_cmd_from_ralph_config({"coding_cli": "codex"})
-    expected = (
-        "codex --ask-for-approval never exec --sandbox danger-full-access --json - | jq -r "
-        '\'if .type=="assistant" then (.message.content[]? | select(.type=="text").text) '
-        'elif .type=="result" then .result else empty end\''
-    )
-    assert cmd == expected
+    assert cmd == "codex --ask-for-approval never exec --sandbox danger-full-access -"
 
 
 def test_build_agent_cmd_from_ralph_config_opencode_with_model() -> None:
@@ -380,7 +373,6 @@ def test_ralph_run_loop_uses_codex_exec(monkeypatch) -> None:
             "danger-full-access",
             "--model",
             "gpt-5.3-codex",
-            "--json",
             "Work on PRD item T-3: Test 3",
         ]
         output_lines = [
@@ -388,7 +380,7 @@ def test_ralph_run_loop_uses_codex_exec(monkeypatch) -> None:
         ]
         expected = (
             "codex --ask-for-approval never exec --sandbox danger-full-access "
-            "--model gpt-5.3-codex --json Work on PRD item T-3: Test 3"
+            "--model gpt-5.3-codex Work on PRD item T-3: Test 3"
         )
         assert any(expected in line for line in output_lines)
 
@@ -452,7 +444,6 @@ def test_ralph_run_loop_uses_codex_exec_without_model(monkeypatch) -> None:
             "exec",
             "--sandbox",
             "danger-full-access",
-            "--json",
             "Work on PRD item T-4: No Model",
         ]
 

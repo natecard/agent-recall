@@ -280,13 +280,8 @@ def build_agent_cmd_from_ralph_config(ralph_config: dict[str, Any]) -> str | Non
         ]
         if cli_model and model_flag:
             parts.extend([model_flag, cli_model])
-        parts.extend(["--json", "-"])
-        codex_cmd = " ".join(shlex.quote(part) for part in parts)
-        jq_filter = (
-            'if .type=="assistant" then (.message.content[]? | select(.type=="text").text) '
-            'elif .type=="result" then .result else empty end'
-        )
-        return f"{codex_cmd} | jq -r {shlex.quote(jq_filter)}"
+        parts.append("-")
+        return " ".join(shlex.quote(part) for part in parts)
 
     parts = [binary, "--print"]
     if cli_model and model_flag:

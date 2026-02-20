@@ -39,3 +39,11 @@
 - [PATTERN] Use subprocess assertions for CLI command validation.
 - [PATTERN] Favor focused command construction tests.
 - [PATTERN] Validate with full suite after expectation patches.
+- [PATTERN] Patch failing test expectations before runtime changes.
+- [PATTERN] Run full gate runs to identify regressions early.
+- [PATTERN] Use subprocess assertions to validate CLI commands.
+- [PATTERN] Update PRD state when implementation matches requirements.
+- [PATTERN] Prioritize focused command construction tests.
+- [PATTERN] Validate with full test suite after patching expectations.
+- [PATTERN] Verify existing implementation & validation before code changes.
+- [PATTERN] Implement minimal CLI slices for focused validation.

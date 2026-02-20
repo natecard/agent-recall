@@ -180,50 +180,6 @@ class RalphLoop:
             },
         )
 
-    @staticmethod
-    def _extract_codex_display_lines(raw_line: str) -> list[str]:
-        stripped = raw_line.strip()
-        if not stripped:
-            return []
-        if not stripped.startswith("{"):
-            return [raw_line]
-
-        try:
-            payload = json.loads(raw_line)
-        except json.JSONDecodeError:
-            return [raw_line]
-        if not isinstance(payload, dict):
-            return []
-
-        event_type = str(payload.get("type") or "")
-        if event_type == "assistant":
-            message = payload.get("message")
-            if not isinstance(message, dict):
-                return []
-            content = message.get("content")
-            if not isinstance(content, list):
-                return []
-            lines: list[str] = []
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-                if str(block.get("type") or "") != "text":
-                    continue
-                text = str(block.get("text") or "").strip()
-                if text:
-                    lines.append(text)
-            return lines
-
-        if event_type == "result":
-            result = payload.get("result")
-            if isinstance(result, str):
-                result_text = result.strip()
-                if result_text:
-                    return [result_text]
-            return []
-
-        return []
-
     async def _run_agent_subprocess(
         self,
         *,
@@ -273,7 +229,6 @@ class RalphLoop:
             ]
             if cli_model:
                 cmd.extend(["--model", cli_model])
-            cmd.append("--json")
             cmd.append(prompt)
         else:
             cmd = [resolved, "--print", prompt]
@@ -314,19 +269,15 @@ class RalphLoop:
             if not raw:
                 break
             line = raw.decode("utf-8", errors="replace").rstrip("\n")
-            display_lines = (
-                self._extract_codex_display_lines(line) if coding_cli == "codex" else [line]
+            self._emit_progress(
+                progress_callback,
+                {
+                    "event": "output_line",
+                    "line": line,
+                    "iteration": iteration,
+                    "item_id": item_id,
+                },
             )
-            for display_line in display_lines:
-                self._emit_progress(
-                    progress_callback,
-                    {
-                        "event": "output_line",
-                        "line": display_line,
-                        "iteration": iteration,
-                        "item_id": item_id,
-                    },
-                )
 
         exit_code = await proc.wait()
         return exit_code

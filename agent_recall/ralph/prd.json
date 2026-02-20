@@ -81,7 +81,7 @@
       "id": "AR-260220-04",
       "priority": 2,
       "title": "Interactive Knowledge Inspector",
-      "description": "Expand the view:knowledge panel from a read-only static renderer into a fully interactive browser. Users should be able to fuzzy-search entries inline, edit individual knowledge items in-place, and mark entries for deletion \u2014 all without leaving the TUI. Changes must write back to the underlying KnowledgeTier files so they are persisted between sessions.",
+      "description": "Expand the view:knowledge panel from a read-only static renderer into a fully interactive browser. Users should be able to fuzzy-search entries inline, edit individual knowledge items in-place, and mark entries for deletion — all without leaving the TUI. Changes must write back to the underlying KnowledgeTier files so they are persisted between sessions.",
       "user_story": "As a developer using agent-recall, I want to browse, filter, and edit my knowledge base directly from the TUI view:knowledge panel so I can curate what the agent learns without switching to a text editor.",
       "steps": [
         "Add a fuzzy search overlay to InteractiveKnowledgeWidget that activates on '/' keypress, filters visible entries in real time, and resets on Escape",
@@ -89,14 +89,14 @@
         "On edit confirm (Enter), write the updated content back to the correct KnowledgeTier file via FileStorage",
         "Add a 'd' keybinding to mark an entry for deletion with a visual strikethrough indicator; execute all pending deletions on 'D' confirm or cancel on Escape",
         "Add keybinding help footer to the widget listing '/' search, 'e' edit, 'd' delete, 'D' confirm delete, 'Escape' cancel",
-        "Wire the widget into the existing view:knowledge panel in the dashboard \u2014 the panel should switch from static render to the new interactive widget when knowledge data is present",
+        "Wire the widget into the existing view:knowledge panel in the dashboard — the panel should switch from static render to the new interactive widget when knowledge data is present",
         "Add unit tests covering search filtering, edit write-back, and deletion logic"
       ],
       "acceptance_criteria": [
         "Pressing '/' in view:knowledge opens a search bar; typing filters visible entries without triggering a full dashboard refresh",
         "Pressing 'e' on a selected entry opens an editable field; confirming with Enter writes the change to the correct KnowledgeTier file on disk",
         "Pressing 'd' marks an entry visually; pressing 'D' removes it from the file; pressing Escape cancels without writing",
-        "The widget degrades gracefully when knowledge tiers are empty \u2014 no crash, shows 'No knowledge entries' placeholder",
+        "The widget degrades gracefully when knowledge tiers are empty — no crash, shows 'No knowledge entries' placeholder",
         "All existing TUI keyboard shortcuts continue to function without conflict when the knowledge widget is not in focus"
       ],
       "validation_commands": [
@@ -110,18 +110,18 @@
       "priority": 2,
       "title": "Ralph Forecasting Panel (view:forecast)",
       "description": "Surface the output of the existing ForecastGenerator and per-iteration cost data from IterationReportStore as a dedicated 'view:forecast' panel in the TUI dashboard. The panel should show predicted completion time for the current PRD queue, cumulative token cost vs budget, per-item cost history, and risk indicators for items that have a pattern of hard_failure outcomes.",
-      "user_story": "As a developer running Ralph loops, I want a live forecasting panel in the TUI so I can see projected cost, estimated time to completion, and which PRD items are at risk of repeated failure \u2014 all without running a separate CLI command.",
+      "user_story": "As a developer running Ralph loops, I want a live forecasting panel in the TUI so I can see projected cost, estimated time to completion, and which PRD items are at risk of repeated failure — all without running a separate CLI command.",
       "steps": [
         "Register 'forecast' as a new named view in the dashboard view registry alongside the existing 9 views (overview, knowledge, sources, etc.)",
         "Create a new ForecastWidget in src/agent_recall/cli/tui/widgets/forecast_widget.py that reads from IterationReportStore and ForecastGenerator",
-        "Display the following sections in the panel: (1) Queue summary \u2014 total items, completed, remaining, estimated iterations to completion; (2) Cost tracker \u2014 total spend, budget cap, projected overage; (3) Per-item cost table \u2014 item ID, title, token count, USD cost, outcome; (4) Risk table \u2014 items with 2+ consecutive failures flagged in yellow/red",
+        "Display the following sections in the panel: (1) Queue summary — total items, completed, remaining, estimated iterations to completion; (2) Cost tracker — total spend, budget cap, projected overage; (3) Per-item cost table — item ID, title, token count, USD cost, outcome; (4) Risk table — items with 2+ consecutive failures flagged in yellow/red",
         "Add 'F' as a hotkey alias for view:forecast in CommandsMixin and the Ctrl+P palette",
         "Auto-refresh the panel every 10 seconds when Ralph is actively running (detect via RalphStateManager.status == ENABLED)",
         "Expose the forecast view in the keybinding footer"
       ],
       "acceptance_criteria": [
         "Navigating to view:forecast renders without error even when no iterations have run yet (shows empty state)",
-        "The cost tracker reflects the same values as 'agent-recall ralph cost-report' \u2014 no divergence",
+        "The cost tracker reflects the same values as 'agent-recall ralph cost-report' — no divergence",
         "Items with 2+ consecutive hard_failure outcomes appear in the risk table with a red indicator",
         "The panel auto-refreshes every 10s when Ralph state is ENABLED; it does not poll when DISABLED",
         "Pressing 'F' or selecting 'Forecast' from the Ctrl+P palette navigates to view:forecast"
@@ -136,7 +136,7 @@
       "id": "AR-260220-06",
       "priority": 3,
       "title": "Session Curation Queue (view:queue)",
-      "description": "Expose the session curation queue as a first-class TUI view (view:queue). Ingested conversations awaiting approval before flowing into compact should appear as a scrollable list with per-entry approval, rejection, and label-edit actions \u2014 modelled after a 'git add -p' style workflow. Approved entries must be passed downstream to the compact pipeline; rejected entries must be discarded without affecting the knowledge base.",
+      "description": "Expose the session curation queue as a first-class TUI view (view:queue). Ingested conversations awaiting approval before flowing into compact should appear as a scrollable list with per-entry approval, rejection, and label-edit actions — modelled after a 'git add -p' style workflow. Approved entries must be passed downstream to the compact pipeline; rejected entries must be discarded without affecting the knowledge base.",
       "user_story": "As a developer, I want to review and approve individual ingested conversation chunks before they are compacted into my permanent knowledge base, so I stay in full control of what the agent learns.",
       "steps": [
         "Define a CurationQueueStore in src/agent_recall/storage/curation_queue.py that serialises pending chunks to .agent/curation_queue.json with fields: chunk_id, source, timestamp, content_preview (first 200 chars), proposed_label, status (pending/approved/rejected)",
@@ -173,7 +173,7 @@
         "As the user types, filter the deque buffer for lines containing the query (case-insensitive substring match); highlight matching substrings using Textual markup",
         "Display match count (e.g. '3/12 matches') in the search bar",
         "Enter or 'n' cycles forward through matches; 'N' cycles backward; Escape dismisses and restores full log view",
-        "The search overlay must not block other global keybindings (Ctrl+P palette, tab switching) \u2014 it should only capture alphanumeric input when active",
+        "The search overlay must not block other global keybindings (Ctrl+P palette, tab switching) — it should only capture alphanumeric input when active",
         "Add Ctrl+F to the keybinding help footer"
       ],
       "acceptance_criteria": [
@@ -199,8 +199,8 @@
       "steps": [
         "Define a HealthStatus enum (OK, DEGRADED, UNAVAILABLE) and a SourceHealthResult dataclass (status, latency_ms, last_seen_path, error_message) in src/agent_recall/ingest/health.py",
         "Add a check_health() -> SourceHealthResult method to the base ingester interface in src/agent_recall/ingest/base.py",
-        "Implement check_health() for each existing ingester (claude_code, cursor, file, etc.) \u2014 for file-based ingesters check path existence; for API-based ones attempt a lightweight HEAD/ping",
-        "Update InteractiveSourcesWidget to display a colored status indicator (\u25cf green / \u25cf yellow / \u25cf red) next to each source name reflecting the last known HealthResult",
+        "Implement check_health() for each existing ingester (claude_code, cursor, file, etc.) — for file-based ingesters check path existence; for API-based ones attempt a lightweight HEAD/ping",
+        "Update InteractiveSourcesWidget to display a colored status indicator (● green / ● yellow / ● red) next to each source name reflecting the last known HealthResult",
         "Add 'Ctrl+R' keybinding to re-run all health probes via WorkerMixin's worker thread; show a brief 'Checking...' spinner during the probe",
         "Persist the last health check result to .agent/source_health.json so it is available immediately on TUI start without re-probing",
         "Add the Ctrl+R hint to the sources view footer"
@@ -209,7 +209,7 @@
         "Each source in view:sources displays a color-coded health dot (green/yellow/red) based on the last health check result",
         "Pressing Ctrl+R in view:sources triggers a re-probe of all sources; the dots update when probes complete",
         "A 'Checking...' indicator is shown during an in-progress probe and disappears on completion",
-        "The health state is persisted between TUI sessions \u2014 the last known status is shown immediately on startup without waiting for a re-probe",
+        "The health state is persisted between TUI sessions — the last known status is shown immediately on startup without waiting for a re-probe",
         "Health check failures do not crash the TUI or block other panel interactions; errors are shown inline in the status indicator tooltip"
       ],
       "validation_commands": [
@@ -222,21 +222,21 @@
       "id": "AR-260220-09",
       "priority": 6,
       "title": "Timeline Iteration Annotations",
-      "description": "Extend the IterationDetailModal accessible from InteractiveTimelineWidget to allow the user to attach a short free-text annotation to any iteration. Annotations are stored as JSON sidecars next to the iteration diff files in .agent/ralph/iterations/. The timeline view renders an annotation indicator (\ud83d\udcdd) next to annotated iterations, and the modal displays the annotation text with an edit option.",
+      "description": "Extend the IterationDetailModal accessible from InteractiveTimelineWidget to allow the user to attach a short free-text annotation to any iteration. Annotations are stored as JSON sidecars next to the iteration diff files in .agent/ralph/iterations/. The timeline view renders an annotation indicator (📝) next to annotated iterations, and the modal displays the annotation text with an edit option.",
       "user_story": "As a developer reviewing past Ralph runs, I want to annotate specific iterations with notes about what I learned or why something failed, so I can build a retrospective knowledge trail directly inside the TUI.",
       "steps": [
         "Define an IterationAnnotation dataclass (iteration: int, text: str, created_at: datetime, updated_at: datetime) and add load_annotation / save_annotation methods to IterationReportStore",
         "Store annotations as .agent/ralph/iterations/{iteration:03d}.annotation.json sidecar files alongside the existing diff files",
         "Update IterationDetailModal to show the annotation text (or 'No annotation' placeholder) with an 'Add/Edit note' button (keybinding 'a')",
         "Pressing 'a' in the modal opens an inline text input; on confirm (Enter) the annotation is saved via save_annotation; on Escape the input is dismissed without saving",
-        "Update InteractiveTimelineWidget to render a \ud83d\udcdd indicator next to iterations that have a non-empty annotation",
+        "Update InteractiveTimelineWidget to render a 📝 indicator next to iterations that have a non-empty annotation",
         "The annotation indicator should also appear in the timeline's iteration list panel, not just inside the modal"
       ],
       "acceptance_criteria": [
         "Selecting an iteration in view:timeline and opening the detail modal shows any existing annotation or a 'No annotation' placeholder",
         "Pressing 'a' in the modal opens a text input; submitting it saves the annotation to the correct sidecar file",
         "After saving, the modal immediately reflects the new annotation text without requiring a TUI restart",
-        "Iterations with annotations display a \ud83d\udcdd indicator in the timeline list",
+        "Iterations with annotations display a 📝 indicator in the timeline list",
         "Annotation files are correctly named {iteration:03d}.annotation.json and stored alongside diff files",
         "Pressing Escape during text input cancels without overwriting an existing annotation"
       ],
@@ -256,7 +256,7 @@
         "Add a current_view: str property to the dashboard app that reflects the active named view (matches the existing view name registry)",
         "Refactor _build_command_suggestions in commands_mixin.py to accept an optional context_view: str parameter",
         "Define a VIEW_PRIORITY_MAP dict mapping view names to lists of action IDs that should be promoted to the top of the palette when that view is active",
-        "When Ctrl+P is pressed, pass self.current_view to _build_command_suggestions; promoted actions are prepended before the global list with a visual separator (e.g. a dim '\u2500\u2500 current view \u2500\u2500' label row)",
+        "When Ctrl+P is pressed, pass self.current_view to _build_command_suggestions; promoted actions are prepended before the global list with a visual separator (e.g. a dim '── current view ──' label row)",
         "Ensure the text search in the palette still searches the full global list regardless of the context filter",
         "Add view context labels to promoted actions (e.g. '[knowledge]' tag) to communicate why they appear at the top",
         "Update existing tests for command palette construction to cover context-aware promotion logic"
@@ -264,7 +264,7 @@
       "acceptance_criteria": [
         "Opening Ctrl+P while on view:knowledge shows knowledge actions (edit entries, compact, export) at the top before global actions",
         "Opening Ctrl+P while on view:ralph shows ralph actions (run loop, pause, view diff, select PRD items) at the top",
-        "Typing in the palette search box still returns global results \u2014 context promotion does not hide matching non-context actions",
+        "Typing in the palette search box still returns global results — context promotion does not hide matching non-context actions",
         "A visual separator is shown between context-promoted and global actions",
         "The palette behaves identically to the current implementation when on a view with no defined context priorities (e.g. view:console)",
         "All existing palette keyboard navigation (arrow keys, Enter, Escape) continues to work correctly"

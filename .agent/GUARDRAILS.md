@@ -15,3 +15,4 @@
 - [GOTCHA] Test _DummyApp._run_backend_command was missing bypass_local parameter - fixed pre-existing test bug discovered during validation.
 - [GOTCHA] Sandboxed uv execution required setting UV_CACHE_DIR=.uv-cache because ~/.cache/uv is not writable in this environment.
 - [GOTCHA] A few Ralph command tests used triple-quoted multiline literals while command builders/emitters intentionally output single-line command strings.
+- [GOTCHA] AR-260220-11 implementation and regression test were already present in the codebase, but the PRD item remained marked unpassed.
