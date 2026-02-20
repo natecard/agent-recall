@@ -150,15 +150,15 @@
       "priority": 1,
       "description": "The up and down arrow keys do not function as expected in the 'Select PRD' modal (`prd_select.py`).",
       "requirements": [
-        "Implement `on_key` event handler in `PRDSelectModal` to capture 'up' and 'down' key presses.",
-        "Route the arrow key events to modify the `highlighted` index of the `OptionList` (`#prd_select_list`), similar to the implementation in the Command Palette.",
-        "Ensure scrolling works seamlessly through the PRD options."
+        "[DONE] Implement `on_key` event handler in `PRDSelectModal` to capture 'up' and 'down' key presses.",
+        "[DONE] Route the arrow key events to modify the `highlighted` index of the `OptionList` (`#prd_select_list`), similar to the implementation in the Command Palette.",
+        "[DONE] Ensure scrolling works seamlessly through the PRD options."
       ],
       "acceptance_criteria": [
         "User can navigate the PRD list using up and down arrow keys.",
         "The selected/highlighted item updates visually."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-111",

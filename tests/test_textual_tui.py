@@ -22,7 +22,6 @@ from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
 
 
 def _build_test_app() -> AgentRecallTextualApp:
-
     def theme_defaults() -> tuple[list[str], str]:
         themes = ["dark+"]
         return (themes, "dark+")
@@ -1774,3 +1773,179 @@ def test_layout_modal_receives_updated_state_after_apply() -> None:
     )
     assert modal.widget_visibility == app.tui_widget_visibility
     assert modal.banner_size == app.tui_banner_size
+
+
+def test_prd_select_modal_move_highlight_logic(monkeypatch) -> None:
+    from agent_recall.cli.tui.ui.modals.prd_select import PRDSelectModal
+
+    prd_items = [
+        {"id": "AR-001", "title": "First Item", "priority": 1, "passes": False},
+        {"id": "AR-002", "title": "Second Item", "priority": 2, "passes": False},
+        {"id": "AR-003", "title": "Third Item", "priority": 3, "passes": True},
+    ]
+    modal = PRDSelectModal(prd_items=prd_items, selected_ids=[], max_iterations=10)
+
+    calls: list[tuple[str, int]] = []
+
+    class _FakeOption:
+        def __init__(self, disabled: bool = False):
+            self.disabled = disabled
+
+    class _FakeOptionList:
+        def __init__(self):
+            self._highlighted = 0
+            self.options = [_FakeOption(), _FakeOption(), _FakeOption()]
+
+        @property
+        def highlighted(self) -> int | None:
+            return self._highlighted
+
+        @highlighted.setter
+        def highlighted(self, value: int) -> None:
+            self._highlighted = value
+            calls.append(("set_highlighted", value))
+
+    fake_list = _FakeOptionList()
+    monkeypatch.setattr(modal, "query_one", lambda *_args, **_kwargs: fake_list)
+
+    modal._move_highlight(1)
+    assert fake_list._highlighted == 1
+    assert ("set_highlighted", 1) in calls
+
+    modal._move_highlight(1)
+    assert fake_list._highlighted == 2
+
+    modal._move_highlight(1)
+    assert fake_list._highlighted == 2
+
+
+def test_prd_select_modal_move_highlight_skips_disabled(monkeypatch) -> None:
+    from agent_recall.cli.tui.ui.modals.prd_select import PRDSelectModal
+
+    prd_items = [
+        {"id": "AR-001", "title": "First Item", "priority": 1, "passes": False},
+        {"id": "AR-002", "title": "Disabled Item", "priority": 2, "passes": False},
+        {"id": "AR-003", "title": "Third Item", "priority": 3, "passes": True},
+    ]
+    modal = PRDSelectModal(prd_items=prd_items, selected_ids=[], max_iterations=10)
+
+    class _FakeOption:
+        def __init__(self, disabled: bool = False):
+            self.disabled = disabled
+
+    class _FakeOptionList:
+        def __init__(self):
+            self._highlighted = 0
+            self.options = [_FakeOption(), _FakeOption(disabled=True), _FakeOption()]
+
+        @property
+        def highlighted(self) -> int | None:
+            return self._highlighted
+
+        @highlighted.setter
+        def highlighted(self, value: int) -> None:
+            self._highlighted = value
+
+    fake_list = _FakeOptionList()
+    monkeypatch.setattr(modal, "query_one", lambda *_args, **_kwargs: fake_list)
+
+    modal._move_highlight(1)
+    assert fake_list._highlighted == 2
+
+
+def test_prd_select_modal_move_highlight_from_none(monkeypatch) -> None:
+    from agent_recall.cli.tui.ui.modals.prd_select import PRDSelectModal
+
+    prd_items = [
+        {"id": "AR-001", "title": "First Item", "priority": 1, "passes": False},
+        {"id": "AR-002", "title": "Second Item", "priority": 2, "passes": False},
+    ]
+    modal = PRDSelectModal(prd_items=prd_items, selected_ids=[], max_iterations=10)
+
+    class _FakeOption:
+        def __init__(self, disabled: bool = False):
+            self.disabled = disabled
+
+    class _FakeOptionList:
+        def __init__(self):
+            self._highlighted: int | None = None
+            self.options = [_FakeOption(), _FakeOption()]
+
+        @property
+        def highlighted(self) -> int | None:
+            return self._highlighted
+
+        @highlighted.setter
+        def highlighted(self, value: int) -> None:
+            self._highlighted = value
+
+    fake_list = _FakeOptionList()
+    monkeypatch.setattr(modal, "query_one", lambda *_args, **_kwargs: fake_list)
+
+    modal._move_highlight(1)
+    assert fake_list._highlighted == 0
+
+    fake_list._highlighted = None
+    modal._move_highlight(-1)
+    assert fake_list._highlighted == 1
+
+
+def test_prd_select_modal_on_key_calls_move_highlight(monkeypatch) -> None:
+    from agent_recall.cli.tui.ui.modals.prd_select import PRDSelectModal
+
+    prd_items = [
+        {"id": "AR-001", "title": "First Item", "priority": 1, "passes": False},
+        {"id": "AR-002", "title": "Second Item", "priority": 2, "passes": False},
+    ]
+    modal = PRDSelectModal(prd_items=prd_items, selected_ids=[], max_iterations=10)
+
+    move_calls: list[int] = []
+
+    def fake_move_highlight(direction: int) -> None:
+        move_calls.append(direction)
+
+    monkeypatch.setattr(modal, "_move_highlight", fake_move_highlight)
+
+    class _FakeKeyEvent:
+        def __init__(self, key: str):
+            self.key = key
+            self._prevented = False
+            self._stopped = False
+
+        def prevent_default(self):
+            self._prevented = True
+
+        def stop(self):
+            self._stopped = True
+
+    up_event = _FakeKeyEvent("up")
+    modal.on_key(cast(Any, up_event))
+    assert move_calls == [-1]
+    assert up_event._prevented is True
+    assert up_event._stopped is True
+
+    move_calls.clear()
+    down_event = _FakeKeyEvent("down")
+    modal.on_key(cast(Any, down_event))
+    assert move_calls == [1]
+    assert down_event._prevented is True
+    assert down_event._stopped is True
+
+    move_calls.clear()
+    other_event = _FakeKeyEvent("a")
+    modal.on_key(cast(Any, other_event))
+    assert move_calls == []
+    assert other_event._prevented is False
+    assert other_event._stopped is False
+
+
+def test_prd_select_modal_has_correct_bindings():
+    from agent_recall.cli.tui.ui.modals.prd_select import PRDSelectModal
+
+    prd_items = [{"id": "AR-001", "title": "Test", "priority": 1, "passes": False}]
+    modal = PRDSelectModal(prd_items=prd_items, selected_ids=[], max_iterations=10)
+
+    binding_keys = {cast(Any, b).key for b in modal.BINDINGS}
+    assert "escape" in binding_keys
+    assert "space" in binding_keys
+    assert "enter" in binding_keys
