@@ -90,11 +90,10 @@ def test_cli_ralph_set_agent_rejects_invalid() -> None:
 
 def test_build_agent_cmd_from_ralph_config_with_model() -> None:
     cmd = build_agent_cmd_from_ralph_config({"coding_cli": "codex", "cli_model": "gpt-5.3-codex"})
-    assert (
-        cmd
-        == """codex --ask-for-approval never exec
-         --sandbox danger-full-access --model gpt-5.3-codex -"""
+    expected = (
+        "codex --ask-for-approval never exec --sandbox danger-full-access --model gpt-5.3-codex -"
     )
+    assert cmd == expected
 
 
 def test_build_agent_cmd_from_ralph_config_codex_without_model() -> None:
@@ -379,12 +378,11 @@ def test_ralph_run_loop_uses_codex_exec(monkeypatch) -> None:
         output_lines = [
             str(event.get("line") or "") for event in events if event.get("event") == "output_line"
         ]
-        assert any(
-            """codex --ask-for-approval never exec --sandbox danger-full-access
-             --model gpt-5.3-codex Work on PRD item T-3: Test 3"""
-            in line
-            for line in output_lines
+        expected = (
+            "codex --ask-for-approval never exec --sandbox danger-full-access "
+            "--model gpt-5.3-codex Work on PRD item T-3: Test 3"
         )
+        assert any(expected in line for line in output_lines)
 
 
 def test_ralph_run_loop_uses_codex_exec_without_model(monkeypatch) -> None:
