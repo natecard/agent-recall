@@ -57,7 +57,7 @@
     },
     {
       "id": "AR-260220-03",
-      "priority": 2,
+      "priority": 4,
       "title": "TUI: Standardize CSS Spacing",
       "description": "Make the CSS consistent across the entire TUI. Standardize spacing, padding, margin, and gaps to use one of 3 values: 2, 4, 8. Use simple class names for these and apply them consistently across all files containing CSS styling.",
       "user_story": "As a developer, I want standardized CSS spacing across the TUI to ensure visual consistency and make adding new UI components simpler.",
@@ -79,7 +79,7 @@
     },
     {
       "id": "AR-260220-04",
-      "priority": 1,
+      "priority": 2,
       "title": "Interactive Knowledge Inspector",
       "description": "Expand the view:knowledge panel from a read-only static renderer into a fully interactive browser. Users should be able to fuzzy-search entries inline, edit individual knowledge items in-place, and mark entries for deletion \u2014 all without leaving the TUI. Changes must write back to the underlying KnowledgeTier files so they are persisted between sessions.",
       "user_story": "As a developer using agent-recall, I want to browse, filter, and edit my knowledge base directly from the TUI view:knowledge panel so I can curate what the agent learns without switching to a text editor.",
@@ -282,10 +282,10 @@
       "description": "The up and down arrow keys currently do not function correctly when navigating within the interactive iterations views. Users are unable to scroll or select items using the keyboard as expected.",
       "user_story": "As a TUI user, I want the arrow keys to work seamlessly in the interactive iterations views so I can navigate through iterations without taking my hands off the keyboard.",
       "steps": [
-        "Identify the widget responsible for the interactive iterations view (likely `InteractiveTimelineWidget` or related list view).",
-        "Inspect the key binding and focus management logic for arrow keys within this widget.",
-        "Implement or fix the `on_key` or `BINDINGS` handlers to properly intercept arrow keys and update the focused or highlighted item.",
-        "Ensure the view scrolls automatically if the newly selected item is out of the current viewport."
+        "[DONE] Identify the widget responsible for the interactive iterations view (likely `InteractiveTimelineWidget` or related list view).",
+        "[DONE] Inspect the key binding and focus management logic for arrow keys within this widget.",
+        "[DONE] Implement or fix the `on_key` or `BINDINGS` handlers to properly intercept arrow keys and update the focused or highlighted item.",
+        "[DONE] Ensure the view scrolls automatically if the newly selected item is out of the current viewport."
       ],
       "acceptance_criteria": [
         "Pressing the Down arrow key moves the selection/focus to the next item in the iteration view.",
@@ -297,11 +297,11 @@
         "uv run pytest tests/ -k iteration_view -v",
         "uv run agent-recall open"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-260220-12",
-      "priority": 2,
+      "priority": 3,
       "title": "TUI: Remove Non-Functional LLM View Option",
       "description": "There is currently an option to select an 'LLM view' in the UI, but selecting it results in no view being displayed. Since this view is not functional or required, the option should be completely removed from the UI.",
       "user_story": "As a TUI user, I want the UI to only present functional view options, so I don't get confused by selecting an 'LLM view' that doesn't actually exist.",
