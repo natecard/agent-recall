@@ -494,6 +494,126 @@ def test_dashboard_mount_skips_hidden_widgets() -> None:
     assert "dashboard_header" in mounted_ids
 
 
+def test_all_view_handles_empty_sidebar_gracefully() -> None:
+    """Verify 'all' view doesn't collapse when sidebar widgets are hidden."""
+    app = _build_test_app()
+    app.current_view = "all"
+    app.tui_banner_size = "normal"
+    app.tui_widget_visibility = {
+        "knowledge": False,
+        "sources": False,
+        "timeline": True,
+        "ralph": True,
+        "llm": False,
+        "settings": False,
+    }
+    panels = DashboardPanels(
+        header=Panel("header"),
+        knowledge=Panel("knowledge"),
+        llm=Panel("llm"),
+        sources=Panel("sources"),
+        sources_compact=Panel("sources_compact"),
+        settings=Panel("settings"),
+        timeline=Panel("timeline"),
+        ralph=Panel("ralph"),
+        slash_console=None,
+        source_names=[],
+    )
+
+    class _FakeDashboard:
+        def __init__(self) -> None:
+            self.mounted: list[object] = []
+
+        def mount(self, widget: object) -> None:
+            self.mounted.append(widget)
+
+    dashboard = _FakeDashboard()
+    app._mount_dashboard_widgets(cast(Any, dashboard), panels)
+    mounted_ids = {getattr(widget, "id", None) for widget in dashboard.mounted}
+    assert "dashboard_all_grid" not in mounted_ids
+    assert "dashboard_all_fullwidth" in mounted_ids
+
+
+def test_all_view_handles_empty_main_gracefully() -> None:
+    """Verify 'all' view doesn't collapse when main widgets are hidden."""
+    app = _build_test_app()
+    app.current_view = "all"
+    app.tui_banner_size = "normal"
+    app.tui_widget_visibility = {
+        "knowledge": True,
+        "sources": True,
+        "timeline": False,
+        "ralph": True,
+        "llm": True,
+        "settings": True,
+    }
+    panels = DashboardPanels(
+        header=Panel("header"),
+        knowledge=Panel("knowledge"),
+        llm=Panel("llm"),
+        sources=Panel("sources"),
+        sources_compact=Panel("sources_compact"),
+        settings=Panel("settings"),
+        timeline=Panel("timeline"),
+        ralph=Panel("ralph"),
+        slash_console=None,
+        source_names=[],
+    )
+
+    class _FakeDashboard:
+        def __init__(self) -> None:
+            self.mounted: list[object] = []
+
+        def mount(self, widget: object) -> None:
+            self.mounted.append(widget)
+
+    dashboard = _FakeDashboard()
+    app._mount_dashboard_widgets(cast(Any, dashboard), panels)
+    mounted_ids = {getattr(widget, "id", None) for widget in dashboard.mounted}
+    assert "dashboard_all_grid" not in mounted_ids
+    assert "dashboard_all_fullwidth" in mounted_ids
+
+
+def test_all_view_handles_all_hidden_gracefully() -> None:
+    """Verify 'all' view doesn't mount anything when all widgets are hidden."""
+    app = _build_test_app()
+    app.current_view = "all"
+    app.tui_banner_size = "normal"
+    app.tui_widget_visibility = {
+        "knowledge": False,
+        "sources": False,
+        "timeline": False,
+        "ralph": False,
+        "llm": False,
+        "settings": False,
+    }
+    panels = DashboardPanels(
+        header=Panel("header"),
+        knowledge=Panel("knowledge"),
+        llm=Panel("llm"),
+        sources=Panel("sources"),
+        sources_compact=Panel("sources_compact"),
+        settings=Panel("settings"),
+        timeline=Panel("timeline"),
+        ralph=Panel("ralph"),
+        slash_console=None,
+        source_names=[],
+    )
+
+    class _FakeDashboard:
+        def __init__(self) -> None:
+            self.mounted: list[object] = []
+
+        def mount(self, widget: object) -> None:
+            self.mounted.append(widget)
+
+    dashboard = _FakeDashboard()
+    app._mount_dashboard_widgets(cast(Any, dashboard), panels)
+    mounted_ids = {getattr(widget, "id", None) for widget in dashboard.mounted}
+    assert "dashboard_all_grid" not in mounted_ids
+    assert "dashboard_all_fullwidth" not in mounted_ids
+
+
 def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) -> None:
     app = _build_test_app()
     app.current_view = "overview"

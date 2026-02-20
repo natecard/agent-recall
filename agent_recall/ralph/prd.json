@@ -184,16 +184,16 @@
       "priority": 1,
       "description": "When configuring the layout via the Layout Customiser, unchecking widgets (like terminal/console) causes the remaining active widgets to fail to render properly or be pushed out of view.",
       "requirements": [
-        "Investigate `_build_overview_layout` in `dashboard.py` and `_mount_dashboard_widgets` in `app.py`.",
-        "Ensure that when a layout changes, the terminal panel or other components do not aggressively consume infinite space (`1fr`), forcing other panels to collapse.",
-        "Ensure `dashboard_all_grid` and `dashboard_overview_row` structures handle missing child panels gracefully."
+        "[DONE] Investigate `_build_overview_layout` in `dashboard.py` and `_mount_dashboard_widgets` in `app.py`.",
+        "[DONE] Ensure that when a layout changes, the terminal panel or other components do not aggressively consume infinite space (`1fr`), forcing other panels to collapse.",
+        "[DONE] Ensure `dashboard_all_grid` and `dashboard_overview_row` structures handle missing child panels gracefully."
       ],
       "acceptance_criteria": [
-        "Toggling widgets off correctly reallocates space to remaining visible widgets.",
-        "Toggling widgets on makes them appear immediately without breaking the layout.",
-        "The console/terminal does not unfairly consume all available screen real estate when other panels are active."
+        "[DONE] Toggling widgets off correctly reallocates space to remaining visible widgets.",
+        "[DONE] Toggling widgets on makes them appear immediately without breaking the layout.",
+        "[DONE] The console/terminal does not unfairly consume all available screen real estate when other panels are active."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-113",

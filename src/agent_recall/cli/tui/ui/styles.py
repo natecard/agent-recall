@@ -46,6 +46,14 @@ APP_CSS = """
         height: 1fr;
         min-height: 18;
     }
+    #dashboard_all_fullwidth {
+        width: 100%;
+        height: auto;
+        min-height: 0;
+    }
+    #dashboard_all_fullwidth > * {
+        width: 100%;
+    }
     #dashboard_ralph {
         width: 100%;
         height: auto;

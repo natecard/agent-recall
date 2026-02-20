@@ -541,10 +541,18 @@ class AgentRecallTextualApp(
             sidebar_children.append(Static(panels.llm, id="dashboard_llm"))
         if self._is_widget_visible("settings"):
             sidebar_children.append(Static(panels.settings, id="dashboard_settings"))
-        sidebar = Vertical(*sidebar_children, id="dashboard_all_sidebar")
         main_children: list[Static] = []
         if self._is_widget_visible("timeline"):
             main_children.append(Static(panels.timeline, id="dashboard_timeline"))
+        if not sidebar_children and not main_children:
+            return
+        if sidebar_children and not main_children:
+            dashboard.mount(Vertical(*sidebar_children, id="dashboard_all_fullwidth"))
+            return
+        if not sidebar_children and main_children:
+            dashboard.mount(Vertical(*main_children, id="dashboard_all_fullwidth"))
+            return
+        sidebar = Vertical(*sidebar_children, id="dashboard_all_sidebar")
         main = Vertical(*main_children, id="dashboard_all_main")
         grid = Vertical(
             sidebar,
