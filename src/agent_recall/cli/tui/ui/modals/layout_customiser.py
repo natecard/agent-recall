@@ -81,7 +81,7 @@ class LayoutCustomiserModal(ModalScreen[dict[str, Any] | None]):
         error_widget = self.query_one("#layout_error", Static)
         banner_value = self.query_one("#layout_banner_size", Select).value
         if banner_value == Select.BLANK:
-            error_widget.update("[red]Select a banner size[/red]")
+            error_widget.update("[error]Select a banner size[/error]")
             return
 
         widgets: dict[str, bool] = {}

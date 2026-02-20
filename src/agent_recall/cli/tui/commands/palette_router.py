@@ -51,6 +51,9 @@ def handle_palette_action(app, action_id: str | None) -> None:
     if action_id == "run:select":
         app.action_open_session_run_modal()
         return
+    if action_id == "sessions":
+        app.action_open_sessions_view_modal()
+        return
     if action_id == "quit":
         app.action_request_quit()
         return
@@ -69,7 +72,6 @@ def handle_palette_action(app, action_id: str | None) -> None:
         "ralph-disable": "ralph disable",
         "ralph-status": "ralph status",
         "ralph-select": "ralph select",
-        "sessions": "sessions",
     }
     command = command_by_action.get(action_id)
     if command:

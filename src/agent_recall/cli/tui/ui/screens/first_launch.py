@@ -99,7 +99,7 @@ class FirstLaunchScreen(Screen[None]):
     def _show_error(self) -> None:
         error_widget = self.query_one("#first_launch_error", Static)
         manual_msg = f"\n{DELTA_MANUAL_INSTALL_URL}"
-        error_widget.update(f"[red]{self._error}{manual_msg}[/red]")
+        error_widget.update(f"[error]{self._error}{manual_msg}[/error]")
         error_widget.display = True
 
     def _start_download(self) -> None:

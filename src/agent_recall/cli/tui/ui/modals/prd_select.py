@@ -129,7 +129,7 @@ class PRDSelectModal(ModalScreen[dict[str, Any] | None]):
         ordered_selection = [x for x in ordered_selection if x]
         if ordered_selection and len(ordered_selection) > self.max_iterations:
             self.query_one("#prd_select_status", Static).update(
-                f"[red]Selected {len(ordered_selection)} PRDs exceeds max_iterations "
+                f"[error]Selected {len(ordered_selection)} PRDs exceeds max_iterations "
                 f"({self.max_iterations}). Select at most {self.max_iterations}.[/red]"
             )
             return
@@ -181,11 +181,11 @@ class PRDSelectModal(ModalScreen[dict[str, Any] | None]):
         self.query_one("#prd_select_status", Static).update(
             f"[dim]{len(visible_items)} shown · {len(self.selected_prd_ids)} selected"
             f"{limit_hint}{empty_hint} · Space toggles, Enter applies[/dim]"
-            + ("" if count_ok else " [red]· Exceeds limit![/red]")
+            + ("" if count_ok else " [error]· Exceeds limit![/error]")
         )
 
     def _line_for_prd_item(self, item: dict[str, Any], selected: bool) -> str:
-        marker = "[green]✓[/green]" if selected else "[dim]○[/dim]"
+        marker = "[success]✓[/success]" if selected else "[dim]○[/dim]"
         title = str(item.get("title") or "Untitled")
         item_id = str(item.get("id") or "-")
         priority = int(item.get("priority") or 0)

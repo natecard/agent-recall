@@ -22,13 +22,14 @@ from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
 
 
 def _build_test_app() -> AgentRecallTextualApp:
+
     def theme_defaults() -> tuple[list[str], str]:
         themes = ["dark+"]
-        return themes, "dark+"
+        return (themes, "dark+")
 
     def discover_models(*_args: object, **_kwargs: object) -> tuple[list[str], str | None]:
         models = ["gpt-test"]
-        return models, None
+        return (models, None)
 
     class _ThemeManager:
         def get_theme_name(self) -> str:
@@ -85,7 +86,6 @@ def _build_test_app() -> AgentRecallTextualApp:
         ralph_enabled=False,
         ralph_running=False,
     )
-
     return AgentRecallTextualApp(
         render_dashboard=lambda *_args, **_kwargs: "",
         dashboard_context=dashboard_context,
@@ -103,12 +103,12 @@ def _build_test_app() -> AgentRecallTextualApp:
         providers=[],
         list_prd_items_for_picker=None,
         cli_commands=[],
+        get_sources_and_sessions_for_tui=lambda a, b: ([], []),
     )
 
 
 def test_build_command_suggestions_excludes_slash_variants() -> None:
     suggestions = _build_command_suggestions(["status", "config setup", "sync"])
-
     assert "status" in suggestions
     assert "config setup" in suggestions
     assert "sync" in suggestions
@@ -160,11 +160,11 @@ def test_clean_optional_text_handles_none_variants() -> None:
 
 
 def test_sanitize_activity_fragment_strips_terminal_control_sequences() -> None:
-    raw = "\x1b[7mhello\x1b[0m\rabc\b!\x1b]8;;https://example.com\x07link\x1b]8;;\x07"
+    raw = "\x1b[7mhello\x1b[0m\rabc\x08!\x1b]8;;https://example.com\x07link\x1b]8;;\x07"
     cleaned = _sanitize_activity_fragment(raw)
     assert cleaned == "hello\nab!link"
     assert "\x1b" not in cleaned
-    assert "\b" not in cleaned
+    assert "\x08" not in cleaned
 
 
 def test_palette_cli_command_redundancy_filter() -> None:
@@ -193,7 +193,6 @@ def test_tui_ralph_run_streams_shell_loop_with_configured_agent_cmd(tmp_path, mo
     monkeypatch.chdir(tmp_path)
     agent_dir = tmp_path / ".agent"
     (agent_dir / "ralph").mkdir(parents=True)
-
     config = {
         "ralph": {
             "enabled": True,
@@ -211,17 +210,11 @@ def test_tui_ralph_run_streams_shell_loop_with_configured_agent_cmd(tmp_path, mo
     )
     fake_script = tmp_path / "ralph-agent-recall-loop.sh"
     fake_script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
-
     app = _build_test_app()
-
     captured_activity: list[str] = []
     captured_cmd: list[str] = []
     worker_result: dict[str, object] = {}
-
-    monkeypatch.setattr(
-        "agent_recall.cli.ralph.get_default_script_path",
-        lambda: fake_script,
-    )
+    monkeypatch.setattr("agent_recall.cli.ralph.get_default_script_path", lambda: fake_script)
     monkeypatch.setenv("AGENT_RECALL_RALPH_STREAM_DEBUG", "0")
     monkeypatch.setattr(
         "agent_recall.cli.tui.logic.ralph_mixin.run_streaming_command",
@@ -237,7 +230,7 @@ def test_tui_ralph_run_streams_shell_loop_with_configured_agent_cmd(tmp_path, mo
     dummy_widget = type("DummyWidget", (), {"display": False})()
     monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: dummy_widget)
 
-    def _run_worker_inline(fn, **_kwargs):  # noqa: ANN001
+    def _run_worker_inline(fn, **_kwargs):
         worker_result.update(fn())
 
         class _Worker:
@@ -246,9 +239,7 @@ def test_tui_ralph_run_streams_shell_loop_with_configured_agent_cmd(tmp_path, mo
         return _Worker()
 
     monkeypatch.setattr(app, "run_worker", _run_worker_inline)
-
     app.action_run_ralph_loop()
-
     assert captured_cmd
     assert captured_cmd[0] == str(fake_script)
     assert "--agent-cmd" in captured_cmd
@@ -271,7 +262,6 @@ def test_tui_ralph_run_uses_settings_transport_override(tmp_path, monkeypatch) -
     monkeypatch.chdir(tmp_path)
     agent_dir = tmp_path / ".agent"
     (agent_dir / "ralph").mkdir(parents=True)
-
     config = {"ralph": {"enabled": True, "coding_cli": "codex", "max_iterations": 1}}
     (agent_dir / "config.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
     (agent_dir / "ralph" / "prd.json").write_text(
@@ -279,11 +269,9 @@ def test_tui_ralph_run_uses_settings_transport_override(tmp_path, monkeypatch) -
     )
     fake_script = tmp_path / "ralph-agent-recall-loop.sh"
     fake_script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
-
     app = _build_test_app()
     app.ralph_agent_transport = "auto"
     captured_cmd: list[str] = []
-
     monkeypatch.setattr("agent_recall.cli.ralph.get_default_script_path", lambda: fake_script)
     monkeypatch.setenv("AGENT_RECALL_RALPH_STREAM_DEBUG", "0")
     monkeypatch.setattr(
@@ -299,7 +287,7 @@ def test_tui_ralph_run_uses_settings_transport_override(tmp_path, monkeypatch) -
     dummy_widget = type("DummyWidget", (), {"display": False})()
     monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: dummy_widget)
 
-    def _run_worker_inline(fn, **_kwargs):  # noqa: ANN001
+    def _run_worker_inline(fn, **_kwargs):
         fn()
 
         class _Worker:
@@ -308,9 +296,7 @@ def test_tui_ralph_run_uses_settings_transport_override(tmp_path, monkeypatch) -
         return _Worker()
 
     monkeypatch.setattr(app, "run_worker", _run_worker_inline)
-
     app.action_run_ralph_loop()
-
     assert "--agent-transport" in captured_cmd
     assert captured_cmd[captured_cmd.index("--agent-transport") + 1] == "auto"
 
@@ -321,17 +307,13 @@ def test_tui_successful_ralph_run_clears_selected_prd_ids(tmp_path, monkeypatch)
     agent_dir.mkdir(parents=True)
     config_path = agent_dir / "config.yaml"
     config_path.write_text(
-        yaml.safe_dump({"ralph": {"selected_prd_ids": ["AR-1", "AR-2"]}}),
-        encoding="utf-8",
+        yaml.safe_dump({"ralph": {"selected_prd_ids": ["AR-1", "AR-2"]}}), encoding="utf-8"
     )
-
     app = _build_test_app()
     captured_activity: list[str] = []
     monkeypatch.setattr(app, "_append_activity", lambda line: captured_activity.append(line))
     monkeypatch.setattr(app, "_refresh_dashboard_panel", lambda: None)
-
     app._handle_worker_success("ralph_run", {"exit_code": 0})
-
     payload = cast(dict[str, Any], yaml.safe_load(config_path.read_text(encoding="utf-8")) or {})
     ralph_cfg = cast(dict[str, Any], payload.get("ralph") or {})
     assert ralph_cfg.get("selected_prd_ids") is None
@@ -346,17 +328,13 @@ def test_tui_unsuccessful_ralph_run_keeps_selected_prd_ids(tmp_path, monkeypatch
     agent_dir.mkdir(parents=True)
     config_path = agent_dir / "config.yaml"
     config_path.write_text(
-        yaml.safe_dump({"ralph": {"selected_prd_ids": ["AR-1", "AR-2"]}}),
-        encoding="utf-8",
+        yaml.safe_dump({"ralph": {"selected_prd_ids": ["AR-1", "AR-2"]}}), encoding="utf-8"
     )
-
     app = _build_test_app()
     captured_activity: list[str] = []
     monkeypatch.setattr(app, "_append_activity", lambda line: captured_activity.append(line))
     monkeypatch.setattr(app, "_refresh_dashboard_panel", lambda: None)
-
     app._handle_worker_success("ralph_run", {"exit_code": 2})
-
     payload = cast(dict[str, Any], yaml.safe_load(config_path.read_text(encoding="utf-8")) or {})
     ralph_cfg = cast(dict[str, Any], payload.get("ralph") or {})
     assert ralph_cfg.get("selected_prd_ids") == ["AR-1", "AR-2"]
@@ -379,7 +357,7 @@ def test_activity_scroll_keys_work_without_active_worker(monkeypatch) -> None:
             return int(self.scroll_y) >= int(self.max_scroll_y)
 
         def scroll_to(self, *, x: int, y: int, animate: bool, force: bool) -> None:
-            _ = animate, force
+            _ = (animate, force)
             self.scroll_x = x
             self.scroll_y = y
 
@@ -401,12 +379,10 @@ def test_activity_scroll_keys_work_without_active_worker(monkeypatch) -> None:
 
     widget = _DummyActivityWidget()
     monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: widget)
-
     app._worker_context.clear()
     app.on_key(cast(Any, _FakeKeyEvent("up")))
     assert widget.scroll_y == 7
     assert app._activity_follow_tail is False
-
     event = _FakeKeyEvent("end")
     app.on_key(cast(Any, event))
     assert widget.scroll_y == widget.max_scroll_y
@@ -435,7 +411,6 @@ def test_selecting_source_sync_option_runs_sync(monkeypatch) -> None:
         option = _Option()
 
     app.on_option_list_option_selected(cast(Any, _Event()))
-
     assert captured == ["cursor"]
 
 
@@ -470,14 +445,9 @@ def test_layout_modal_updates_visibility_and_banner(monkeypatch) -> None:
 
     app._layout_module = None
     monkeypatch.setattr(app, "_load_layout_module", lambda: _LayoutModule)
-
     app._apply_layout_modal_result(
-        {
-            "widgets": {"knowledge": False, "sources": True},
-            "banner_size": "compact",
-        }
+        {"widgets": {"knowledge": False, "sources": True}, "banner_size": "compact"}
     )
-
     assert app.tui_widget_visibility["knowledge"] is False
     assert app.tui_widget_visibility["sources"] is True
     assert app.tui_banner_size == "compact"
@@ -496,9 +466,7 @@ def test_dashboard_mount_skips_hidden_widgets() -> None:
         "llm": True,
         "settings": True,
     }
-
     cast(Any, app)._build_overview_row = lambda panels: None
-
     panels = DashboardPanels(
         header=Panel("header"),
         knowledge=Panel("knowledge"),
@@ -520,9 +488,7 @@ def test_dashboard_mount_skips_hidden_widgets() -> None:
             self.mounted.append(widget)
 
     dashboard = _FakeDashboard()
-
     app._mount_dashboard_widgets(cast(Any, dashboard), panels)
-
     mounted_ids = {getattr(widget, "id", None) for widget in dashboard.mounted}
     assert "dashboard_knowledge" not in mounted_ids
     assert "dashboard_sources" not in mounted_ids
@@ -547,7 +513,6 @@ def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) ->
         tuple(sorted(app.tui_widget_visibility.items())),
     )
     app._layout_module = None
-
     panels = DashboardPanels(
         header=Panel("header"),
         knowledge=Panel("knowledge"),
@@ -565,11 +530,11 @@ def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) ->
         def __init__(self) -> None:
             self.remove_children_calls = 0
 
-        def remove_children(self):  # noqa: ANN204
+        def remove_children(self):
             self.remove_children_calls += 1
 
             class _Awaitable:
-                def __await__(self):  # noqa: ANN204
+                def __await__(self):
                     if False:
                         yield None
                     return None
@@ -599,29 +564,21 @@ def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) ->
         return by_selector[selector]
 
     monkeypatch.setattr(
-        "agent_recall.cli.tui.app.build_dashboard_panels",
-        lambda *args, **kwargs: panels,
+        "agent_recall.cli.tui.app.build_dashboard_panels", lambda *args, **kwargs: panels
     )
     monkeypatch.setattr(app, "query_one", _query_one)
     monkeypatch.setattr(app, "_sync_runtime_theme", lambda: None)
     monkeypatch.setattr(app, "_refresh_activity_panel", lambda: None)
-
     app._refresh_dashboard_panel()
     app._refresh_dashboard_panel()
-
     assert dashboard.remove_children_calls == 0
-
     assert app._last_layout_signature is not None
-
-    # Header updates only when Ralph status changes; with stable context we get 1 update
     assert len(header.updates) == 1
     assert isinstance(header.updates[0], Panel)
     assert header.updates[0].renderable == "header"
-
     assert len(knowledge.updates) == 2
     assert isinstance(knowledge.updates[0], Panel)
     assert knowledge.updates[0].renderable == "knowledge"
-
     assert len(sources.updates) == 2
     assert isinstance(sources.updates[0], Panel)
     assert sources.updates[0].renderable == "sources_compact"
@@ -631,7 +588,6 @@ def test_tui_ralph_run_falls_back_to_python_loop_when_script_missing(tmp_path, m
     monkeypatch.chdir(tmp_path)
     agent_dir = tmp_path / ".agent"
     (agent_dir / "ralph").mkdir(parents=True)
-
     config = {
         "ralph": {
             "enabled": True,
@@ -647,7 +603,6 @@ def test_tui_ralph_run_falls_back_to_python_loop_when_script_missing(tmp_path, m
     (agent_dir / "ralph" / "prd.json").write_text(
         '{"items":[{"id":"AR-1","title":"One","passes":false}]}', encoding="utf-8"
     )
-
     app = _build_test_app()
     captured_activity: list[str] = []
     worker_result: dict[str, object] = {}
@@ -676,16 +631,14 @@ def test_tui_ralph_run_falls_back_to_python_loop_when_script_missing(tmp_path, m
     monkeypatch.setattr(app, "call_from_thread", lambda fn, *args: fn(*args))
     monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: _DummyWidget())
     monkeypatch.setattr(
-        "agent_recall.cli.ralph.get_default_script_path",
-        lambda: tmp_path / "missing-script.sh",
+        "agent_recall.cli.ralph.get_default_script_path", lambda: tmp_path / "missing-script.sh"
     )
     monkeypatch.setattr(
-        "agent_recall.cli.ralph.get_ralph_components",
-        lambda: (agent_dir, object(), object()),
+        "agent_recall.cli.ralph.get_ralph_components", lambda: (agent_dir, object(), object())
     )
     monkeypatch.setattr("agent_recall.ralph.loop.RalphLoop", _FakeLoop)
 
-    def _run_worker_inline(fn, **_kwargs):  # noqa: ANN001
+    def _run_worker_inline(fn, **_kwargs):
         worker_result.update(fn())
 
         class _Worker:
@@ -694,9 +647,7 @@ def test_tui_ralph_run_falls_back_to_python_loop_when_script_missing(tmp_path, m
         return _Worker()
 
     monkeypatch.setattr(app, "run_worker", _run_worker_inline)
-
     app.action_run_ralph_loop()
-
     assert any("Falling back to built-in loop mode." in line for line in captured_activity)
     assert any("fallback line" in line for line in captured_activity)
     assert worker_result["exit_code"] == 0
@@ -730,15 +681,12 @@ def test_cli_input_handles_slash_command_refresh(monkeypatch) -> None:
         return _FakeSuggestions()
 
     monkeypatch.setattr(app, "query_one", _mock_query_one)
-
-    # Mock the backend command runner to capture what command would be run
     monkeypatch.setattr(app, "_run_backend_command", lambda cmd: captured_command.append(cmd))
 
     class _Submitted:
         value = "/refresh"
 
     app.on_input_submitted(cast(Any, _Submitted()))
-
     assert any("> /refresh" in line for line in captured_activity)
     assert captured_command == ["status"]
 
@@ -774,7 +722,6 @@ def test_cli_input_handles_help_command(monkeypatch) -> None:
         value = "/help"
 
     app.on_input_submitted(cast(Any, _Submitted()))
-
     assert any("Available slash commands:" in line for line in captured_activity)
     assert any("/quit" in line for line in captured_activity)
     assert any("/refresh" in line for line in captured_activity)
@@ -811,7 +758,6 @@ def test_cli_input_handles_unknown_command(monkeypatch) -> None:
         value = "/unknowncmd"
 
     app.on_input_submitted(cast(Any, _Submitted()))
-
     assert any("Unknown command: /unknowncmd" in line for line in captured_activity)
 
 
@@ -846,7 +792,6 @@ def test_cli_input_requires_slash_prefix(monkeypatch) -> None:
         value = "status"
 
     app.on_input_submitted(cast(Any, _Submitted()))
-
     assert any("> status" in line for line in captured_activity)
     assert any("Commands must start with /" in line for line in captured_activity)
 
@@ -865,9 +810,7 @@ def test_cli_input_focus_action(monkeypatch) -> None:
 
     fake_input = _FakeInput()
     monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: fake_input)
-
     app.action_focus_cli_input()
-
     assert fake_input.focused is True
     assert fake_input.value == "/"
     assert fake_input.cursor_position == 1
@@ -925,11 +868,9 @@ def test_context_aware_dashboard_ralph_disabled() -> None:
         ralph_enabled=False,
         ralph_running=False,
     )
-
     panels = build_dashboard_panels(context, view="overview")
     assert panels.knowledge is not None
     assert panels.sources_compact is not None
-    # When Ralph disabled, we should have knowledge and sources panels
     assert "Knowledge" in str(panels.knowledge.title)
     assert "Sources" in str(panels.sources_compact.title)
 
@@ -986,7 +927,6 @@ def test_context_aware_dashboard_ralph_enabled_running() -> None:
         ralph_enabled=True,
         ralph_running=True,
     )
-
     panels = build_dashboard_panels(context, view="overview")
     assert panels.ralph is not None
     assert panels.timeline is not None
@@ -1046,7 +986,6 @@ def test_context_aware_dashboard_ralph_enabled_idle() -> None:
         ralph_enabled=True,
         ralph_running=False,
     )
-
     panels = build_dashboard_panels(context, view="overview")
     assert panels.ralph is not None
     assert panels.knowledge is not None
@@ -1089,7 +1028,6 @@ def test_context_aware_dashboard_header_badge_ralph_enabled() -> None:
         total_tokens: int = 0
         total_cost_usd: float = 0.0
 
-    # Test with Ralph enabled and running
     context_running = DashboardRenderContext(
         console=Console(width=120, record=True),
         theme_manager=_ThemeManager(),
@@ -1109,15 +1047,12 @@ def test_context_aware_dashboard_header_badge_ralph_enabled() -> None:
         ralph_enabled=True,
         ralph_running=True,
     )
-
     panels_running = build_dashboard_panels(context_running, view="overview")
     assert panels_running.header is not None
     header_content = panels_running.header.renderable
     assert isinstance(header_content, Group)
     status_line_text = header_content.renderables[0]
     assert "Ralph Active" in str(status_line_text)
-
-    # Test with Ralph enabled but idle
     context_idle = DashboardRenderContext(
         console=Console(width=120, record=True),
         theme_manager=_ThemeManager(),
@@ -1137,7 +1072,6 @@ def test_context_aware_dashboard_header_badge_ralph_enabled() -> None:
         ralph_enabled=True,
         ralph_running=False,
     )
-
     panels_idle = build_dashboard_panels(context_idle, view="overview")
     assert panels_idle.header is not None
     header_content_idle = panels_idle.header.renderable
@@ -1152,11 +1086,8 @@ def test_filter_command_suggestions_prefix_match() -> None:
 
     commands = ["/refresh", "/ralph-run", "/ralph-enable", "/run", "/help"]
     suggestions = filter_command_suggestions("/r", commands, max_results=8)
-
-    # Should include /refresh, /ralph-run, /ralph-enable, /run
     assert "/refresh" in suggestions
     assert "/run" in suggestions
-    # Prefix matches should come before substring matches
     assert (
         suggestions.index("/refresh") < suggestions.index("/help")
         if "/help" in suggestions
@@ -1170,7 +1101,6 @@ def test_filter_command_suggestions_includes_layout() -> None:
 
     commands = ["/layout", "/settings", "/help"]
     suggestions = filter_command_suggestions("/l", commands, max_results=8)
-
     assert "/layout" in suggestions
 
 
@@ -1191,7 +1121,6 @@ def test_filter_command_suggestions_max_results() -> None:
         "/cmd10",
     ]
     suggestions = filter_command_suggestions("/cmd", commands, max_results=8)
-
     assert len(suggestions) <= 8
 
 
@@ -1201,7 +1130,6 @@ def test_filter_command_suggestions_no_slash_prefix() -> None:
 
     commands = ["/refresh", "/help"]
     suggestions = filter_command_suggestions("refresh", commands)
-
     assert suggestions == []
 
 
@@ -1211,7 +1139,6 @@ def test_filter_command_suggestions_empty_input() -> None:
 
     commands = ["/refresh", "/help"]
     suggestions = filter_command_suggestions("", commands)
-
     assert suggestions == []
 
 
@@ -1252,8 +1179,6 @@ def test_cli_autocomplete_shows_suggestions_on_input(monkeypatch) -> None:
         value = "/r"
 
     app.on_input_changed(cast(Any, _Changed()))
-
-    # Suggestions should be visible and have matching commands
     assert fake_suggestions.display is True
     assert len(fake_suggestions.options) > 0
 
@@ -1275,12 +1200,8 @@ def test_cli_autocomplete_esc_dismisses_suggestions(monkeypatch) -> None:
         return fake_suggestions
 
     monkeypatch.setattr(app, "query_one", _mock_query_one)
-
     app._suggestions_visible = True
-
-    # Test _hide_suggestions directly
     app._hide_suggestions()
-
     assert fake_suggestions.display is False
     assert app._suggestions_visible is False
 
@@ -1329,13 +1250,9 @@ def test_cli_autocomplete_tab_completes_suggestion(monkeypatch) -> None:
         return fake_suggestions
 
     monkeypatch.setattr(app, "query_one", _mock_query_one)
-
     app._suggestions_visible = True
     app._highlighted_suggestion_index = 0
-
-    # Test _apply_suggestion directly
     app._apply_suggestion()
-
     assert fake_input.value == "/refresh"
     assert fake_input.cursor_position == len("/refresh")
     assert app._suggestions_visible is False
@@ -1349,18 +1266,14 @@ def test_interactive_sources_widget_displays_sources() -> None:
         {"name": "cursor", "status": "available", "sessions": 5, "available": True},
         {"name": "codex", "status": "empty", "sessions": 0, "available": False},
     ]
-
     sync_calls: list[str] = []
 
     def on_sync(name: str) -> None:
         sync_calls.append(name)
 
     widget = InteractiveSourcesWidget(
-        sources=sources,
-        on_sync=on_sync,
-        last_synced="2024-01-15 10:30 UTC",
+        sources=sources, on_sync=on_sync, last_synced="2024-01-15 10:30 UTC"
     )
-
     assert widget.sources == sources
     assert widget.last_synced == "2024-01-15 10:30 UTC"
     assert widget.on_sync == on_sync
@@ -1370,22 +1283,12 @@ def test_interactive_sources_widget_mark_sync_complete() -> None:
     """Test that mark_sync_complete updates widget state correctly."""
     from agent_recall.cli.tui.widgets import InteractiveSourcesWidget
 
-    sources = [
-        {"name": "cursor", "status": "available", "sessions": 5, "available": True},
-    ]
-
+    sources = [{"name": "cursor", "status": "available", "sessions": 5, "available": True}]
     widget = InteractiveSourcesWidget(
-        sources=sources,
-        on_sync=lambda _name: None,
-        last_synced="2024-01-15 10:30 UTC",
+        sources=sources, on_sync=lambda _name: None, last_synced="2024-01-15 10:30 UTC"
     )
-
-    # Simulate a sync in progress
     widget._syncing_sources.add("cursor")
-
-    # Mark as complete with success
     widget.mark_sync_complete("cursor", success=True)
-
     assert "cursor" not in widget._syncing_sources
 
 
@@ -1393,22 +1296,12 @@ def test_interactive_sources_widget_mark_sync_complete_failure() -> None:
     """Test that mark_sync_complete handles failure case."""
     from agent_recall.cli.tui.widgets import InteractiveSourcesWidget
 
-    sources = [
-        {"name": "cursor", "status": "available", "sessions": 5, "available": True},
-    ]
-
+    sources = [{"name": "cursor", "status": "available", "sessions": 5, "available": True}]
     widget = InteractiveSourcesWidget(
-        sources=sources,
-        on_sync=lambda _name: None,
-        last_synced="2024-01-15 10:30 UTC",
+        sources=sources, on_sync=lambda _name: None, last_synced="2024-01-15 10:30 UTC"
     )
-
-    # Simulate a sync in progress
     widget._syncing_sources.add("cursor")
-
-    # Mark as complete with failure
     widget.mark_sync_complete("cursor", success=False)
-
     assert "cursor" not in widget._syncing_sources
 
 
@@ -1416,23 +1309,15 @@ def test_interactive_sources_widget_update_sources() -> None:
     """Test that update_sources refreshes the sources data."""
     from agent_recall.cli.tui.widgets import InteractiveSourcesWidget
 
-    initial_sources = [
-        {"name": "cursor", "status": "available", "sessions": 5, "available": True},
-    ]
-
+    initial_sources = [{"name": "cursor", "status": "available", "sessions": 5, "available": True}]
     widget = InteractiveSourcesWidget(
-        sources=initial_sources,
-        on_sync=lambda _name: None,
-        last_synced="2024-01-15 10:30 UTC",
+        sources=initial_sources, on_sync=lambda _name: None, last_synced="2024-01-15 10:30 UTC"
     )
-
     new_sources = [
         {"name": "cursor", "status": "available", "sessions": 10, "available": True},
         {"name": "codex", "status": "available", "sessions": 3, "available": True},
     ]
-
     widget.update_sources(new_sources, "2024-01-15 11:00 UTC")
-
     assert widget.sources == new_sources
     assert widget.last_synced == "2024-01-15 11:00 UTC"
 
@@ -1448,7 +1333,7 @@ def test_build_sources_data_returns_correct_format() -> None:
         source_name = "cursor"
 
         def discover_sessions(self) -> list[object]:
-            return [object(), object(), object()]  # 3 sessions
+            return [object(), object(), object()]
 
     class _MockStorage:
         def get_last_processed_at(self) -> None:
@@ -1481,9 +1366,7 @@ def test_build_sources_data_returns_correct_format() -> None:
         is_interactive_terminal=lambda: False,
         help_lines_provider=lambda: [],
     )
-
     sources_data, last_synced = build_sources_data(context, all_cursor_workspaces=False)
-
     assert len(sources_data) == 1
     assert sources_data[0]["name"] == "cursor"
     assert sources_data[0]["sessions"] == 3
@@ -1517,18 +1400,10 @@ def test_open_iteration_detail_builds_modal(monkeypatch) -> None:
         def load_diff_for_iteration(self, _iteration: int) -> str:
             return "diff --git a/file b/file"
 
-    monkeypatch.setattr(
-        "agent_recall.cli.tui.app.IterationDetailModal",
-        _FakeModal,
-    )
-    monkeypatch.setattr(
-        "agent_recall.cli.tui.app.IterationReportStore",
-        _FakeStore,
-    )
+    monkeypatch.setattr("agent_recall.cli.tui.app.IterationDetailModal", _FakeModal)
+    monkeypatch.setattr("agent_recall.cli.tui.app.IterationReportStore", _FakeStore)
     monkeypatch.setattr(app, "push_screen", _capture_push)
-
     app._open_iteration_detail(cast(Any, _FakeReport()))
-
     screen = captured.get("screen")
     assert isinstance(screen, _FakeModal)
     assert screen.kwargs["title"] == "Iteration 5 Detail"
@@ -1541,7 +1416,6 @@ def test_slash_command_map_includes_ralph_and_view_select() -> None:
     """Test that hyphenated Ralph slash commands are mapped correctly."""
     app = _build_test_app()
     command_map = app._build_slash_command_map()
-
     assert command_map.get("ralph-view-diff") == "ralph-view-diff"
     assert command_map.get("ralph-notifications") == "ralph-notifications"
     assert command_map.get("ralph-terminal") == "ralph-terminal"
@@ -1552,7 +1426,6 @@ def test_slash_command_aliases() -> None:
     """Test that short aliases work correctly."""
     app = _build_test_app()
     command_map = app._build_slash_command_map()
-
     assert command_map.get("diff") == "ralph-view-diff"
     assert command_map.get("run-select") == "run:select"
     assert command_map.get("select") == "run:select"
@@ -1561,20 +1434,15 @@ def test_slash_command_aliases() -> None:
 def test_help_output_is_grouped_by_category(monkeypatch) -> None:
     """Test that /help output shows commands grouped by category."""
     app = _build_test_app()
-
     activity_calls: list[str] = []
     monkeypatch.setattr(app, "_append_activity", activity_calls.append)
-
     app._handle_slash_command("help")
-
     help_text = "\n".join(activity_calls)
-
     assert "Core" in help_text
     assert "Views" in help_text
     assert "Ralph" in help_text
     assert "Settings" in help_text
     assert "System" in help_text
-
     assert "ralph-view-diff" in help_text
     assert "ralph-notifications" in help_text
     assert "ralph-terminal" in help_text
@@ -1586,7 +1454,6 @@ def test_cli_input_placeholder_updated() -> None:
 
     app_file = Path(__file__).parent.parent / "src" / "agent_recall" / "cli" / "tui" / "app.py"
     content = app_file.read_text()
-
     assert 'placeholder="/ command  ·  Ctrl+P for palette"' in content
     assert "Type /help for commands" not in content
 
@@ -1596,7 +1463,6 @@ def test_get_all_cli_commands_includes_ralph_slash_commands() -> None:
     from agent_recall.cli.tui.commands.help_text import get_all_cli_commands
 
     commands = get_all_cli_commands()
-
     assert "/ralph-view-diff" in commands
     assert "/diff" in commands
     assert "/ralph-notifications" in commands
@@ -1608,14 +1474,10 @@ def test_parse_diff_stats_counts_correctly() -> None:
     """Test that parse_diff_stats correctly counts added/deleted lines."""
     from agent_recall.cli.tui.widgets.diff_summary import parse_diff_stats
 
-    diff_text = """diff --git a/file1.py b/file1.py
---- a/file1.py
-+++ b/file1.py
-@@ -1,3 +1,4 @@
- line1
-+line2
--line3
-"""
+    diff_text = (
+        "diff --git a/file1.py b/file1.py\n--- a/file1.py\n+++ b/file1.py\n"
+        "@@ -1,3 +1,4 @@\n line1\n+line2\n-line3\n"
+    )
     total_added, total_deleted, per_file = parse_diff_stats(diff_text)
     assert total_added == 1
     assert total_deleted == 1
@@ -1626,20 +1488,14 @@ def test_parse_diff_stats_multiple_files() -> None:
     """Test that parse_diff_stats handles multiple files."""
     from agent_recall.cli.tui.widgets.diff_summary import parse_diff_stats
 
-    diff_text = """diff --git a/src/main.py b/src/main.py
---- a/src/main.py
-+++ b/src/main.py
-@@ -1,2 +1,3 @@
- existing
-+new line
--another
-diff --git a/tests/test_main.py b/tests/test_main.py
---- a/tests/test_main.py
-+++ b/tests/test_main.py
-@@ -1,1 +1,2 @@
- test1
-+test2
-"""
+    diff_text = (
+        "diff --git a/src/main.py b/src/main.py\n--- a/src/main.py\n+++ b/src/main.py\n"
+        "@@ -1,2 +1,3 @@\n existing\n+new line\n-another\n"
+        "diff --git a/tests/test_main.py b/tests/test_main.py\n"
+        "--- a/tests/test_main.py\n"
+        "+++ b/tests/test_main.py\n"
+        "@@ -1,1 +1,2 @@\n test1\n+test2\n"
+    )
     total_added, total_deleted, per_file = parse_diff_stats(diff_text)
     assert total_added == 2
     assert total_deleted == 1
@@ -1660,10 +1516,7 @@ def test_parse_diff_stats_ignores_headers() -> None:
     """Test that +++ and --- headers are not counted as changes."""
     from agent_recall.cli.tui.widgets.diff_summary import parse_diff_stats
 
-    diff_text = """diff --git a/file.py b/file.py
---- a/file.py
-+++ b/file.py
-"""
+    diff_text = "diff --git a/file.py b/file.py\n--- a/file.py\n+++ b/file.py\n"
     total_added, total_deleted, per_file = parse_diff_stats(diff_text)
     assert total_added == 0
     assert total_deleted == 0
@@ -1675,13 +1528,11 @@ def test_diff_summary_widget_renders_placeholder_when_no_diff(tmp_path) -> None:
 
     widget = DiffSummaryWidget(agent_dir=tmp_path)
     panel = widget.render()
-
     assert "No diff available" in str(panel.renderable)
 
 
 def test_diff_view_not_in_local_router_valid_views() -> None:
     """Test that 'diff' is NOT a valid view (consolidated into ralph-view-diff)."""
-
     valid_views = {
         "overview",
         "sources",
@@ -1693,7 +1544,6 @@ def test_diff_view_not_in_local_router_valid_views() -> None:
         "console",
         "all",
     }
-
     assert "diff" not in valid_views
 
 
@@ -1703,7 +1553,6 @@ def test_iteration_history_palette_action_exists() -> None:
 
     actions = get_palette_actions()
     action_ids = [a.action_id for a in actions]
-
     assert "ralph-view-diff" in action_ids
     assert "view:diff" not in action_ids
 
@@ -1724,7 +1573,6 @@ def test_palette_recents_load_reads_json_file(tmp_path: Path) -> None:
 
     recents_file = tmp_path / "palette_recents.json"
     recents_file.write_text(json.dumps(["setup", "sync", "status"]))
-
     result = load_recents(tmp_path)
     assert result == ["setup", "sync", "status"]
 
@@ -1735,7 +1583,6 @@ def test_palette_recents_load_handles_malformed_json(tmp_path: Path) -> None:
 
     recents_file = tmp_path / "palette_recents.json"
     recents_file.write_text("not valid json")
-
     result = load_recents(tmp_path)
     assert result == []
 
@@ -1748,7 +1595,6 @@ def test_palette_recents_load_respects_max_items(tmp_path: Path) -> None:
 
     recents_file = tmp_path / "palette_recents.json"
     recents_file.write_text(json.dumps(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]))
-
     result = load_recents(tmp_path, max_items=5)
     assert result == ["a", "b", "c", "d", "e"]
 
@@ -1760,7 +1606,6 @@ def test_palette_recents_record_writes_file(tmp_path: Path) -> None:
     from agent_recall.cli.tui.commands.palette_recents import record_recent
 
     record_recent(tmp_path, "setup")
-
     recents_file = tmp_path / "palette_recents.json"
     assert recents_file.exists()
     data = json.loads(recents_file.read_text())
@@ -1776,7 +1621,6 @@ def test_palette_recents_record_prepends_and_deduplicates(tmp_path: Path) -> Non
     record_recent(tmp_path, "setup")
     record_recent(tmp_path, "sync")
     record_recent(tmp_path, "setup")
-
     recents_file = tmp_path / "palette_recents.json"
     data = json.loads(recents_file.read_text())
     assert data == ["setup", "sync"]
@@ -1790,7 +1634,6 @@ def test_palette_recents_record_trims_to_max_items(tmp_path: Path) -> None:
 
     for i in range(10):
         record_recent(tmp_path, f"action-{i}")
-
     recents_file = tmp_path / "palette_recents.json"
     data = json.loads(recents_file.read_text())
     assert len(data) == 8
@@ -1804,7 +1647,6 @@ def test_command_palette_shows_recents_at_top() -> None:
     actions = get_palette_actions()
     modal = CommandPaletteModal(actions, recents=["setup", "sync", "status"], config_dir=None)
     modal.query_text = ""
-
     assert modal.recents == ["setup", "sync", "status"]
 
 
@@ -1815,7 +1657,6 @@ def test_command_palette_hides_recents_when_filtering() -> None:
     actions = get_palette_actions()
     modal = CommandPaletteModal(actions, recents=["setup", "sync"], config_dir=None)
     modal.query_text = "sync"
-
     assert modal.recents == ["setup", "sync"]
     assert modal.query_text == "sync"
 
@@ -1827,7 +1668,6 @@ def test_command_palette_caps_groups_at_five_when_unfiltered() -> None:
     actions = get_palette_actions()
     modal = CommandPaletteModal(actions, recents=[], config_dir=None)
     modal.query_text = ""
-
     assert modal.query_text == ""
 
 
@@ -1838,7 +1678,6 @@ def test_command_palette_removes_cap_when_filtering() -> None:
     actions = get_palette_actions()
     modal = CommandPaletteModal(actions, recents=[], config_dir=None)
     modal.query_text = "view"
-
     assert modal.query_text == "view"
 
 
@@ -1849,7 +1688,6 @@ def test_command_palette_group_order_is_correct() -> None:
     actions = get_palette_actions()
     modal = CommandPaletteModal(actions, recents=[], config_dir=None)
     modal.query_text = ""
-
     assert modal.query_text == ""
 
 
@@ -1870,15 +1708,9 @@ def test_layout_modal_prepopulates_with_current_state() -> None:
         "settings": True,
     }
     current_banner = "compact"
-
-    modal = LayoutCustomiserModal(
-        widget_visibility=current_visibility,
-        banner_size=current_banner,
-    )
-
+    modal = LayoutCustomiserModal(widget_visibility=current_visibility, banner_size=current_banner)
     assert modal.widget_visibility == current_visibility
     assert modal.banner_size == normalize_banner_size(current_banner)
-
     expected_keys = {key for key, _ in LAYOUT_WIDGETS}
     assert set(modal.widget_visibility.keys()) == expected_keys
 
@@ -1891,15 +1723,9 @@ def test_layout_modal_accepts_partial_visibility() -> None:
     )
 
     partial_visibility = {"knowledge": False, "sources": True}
-
-    modal = LayoutCustomiserModal(
-        widget_visibility=partial_visibility,
-        banner_size="normal",
-    )
-
+    modal = LayoutCustomiserModal(widget_visibility=partial_visibility, banner_size="normal")
     assert modal.widget_visibility["knowledge"] is False
     assert modal.widget_visibility["sources"] is True
-
     for key, _ in LAYOUT_WIDGETS:
         if key not in partial_visibility:
             assert modal.widget_visibility.get(key, True) is True
@@ -1917,18 +1743,12 @@ def test_layout_changes_apply_immediately(monkeypatch) -> None:
         "settings": True,
     }
     app.tui_banner_size = "normal"
-
     refresh_calls: list[str] = []
     monkeypatch.setattr(app, "_refresh_dashboard_panel", lambda: refresh_calls.append("refresh"))
     monkeypatch.setattr(app, "_apply_tui_layout_settings", lambda: refresh_calls.append("persist"))
-
     app._apply_layout_modal_result(
-        {
-            "widgets": {"knowledge": False, "sources": False},
-            "banner_size": "compact",
-        }
+        {"widgets": {"knowledge": False, "sources": False}, "banner_size": "compact"}
     )
-
     assert app.tui_widget_visibility["knowledge"] is False
     assert app.tui_widget_visibility["sources"] is False
     assert app.tui_banner_size == "compact"
@@ -1949,11 +1769,8 @@ def test_layout_modal_receives_updated_state_after_apply() -> None:
         "settings": True,
     }
     app.tui_banner_size = "compact"
-
     modal = LayoutCustomiserModal(
-        widget_visibility=app.tui_widget_visibility,
-        banner_size=app.tui_banner_size,
+        widget_visibility=app.tui_widget_visibility, banner_size=app.tui_banner_size
     )
-
     assert modal.widget_visibility == app.tui_widget_visibility
     assert modal.banner_size == app.tui_banner_size

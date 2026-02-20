@@ -40,7 +40,7 @@ class ThemePickerModal(ModalScreen[dict[str, str] | None]):
         options = [
             Option(
                 (
-                    f"{theme_name} [green]✓ Current[/green]"
+                    f"{theme_name} [success]✓ Current[/success]"
                     if theme_name == self.current_theme
                     else theme_name
                 ),

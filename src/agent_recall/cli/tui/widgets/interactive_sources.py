@@ -4,11 +4,19 @@ from collections.abc import Callable
 from typing import Any
 
 from textual.containers import Vertical
+from textual.message import Message
 from textual.widgets import Button, DataTable, Static
 
 
 class InteractiveSourcesWidget(Vertical):
     """Interactive sources widget with DataTable and sync buttons."""
+
+    class SourceSelected(Message):
+        """Emitted when a source row is selected."""
+
+        def __init__(self, source_name: str) -> None:
+            super().__init__()
+            self.source_name = source_name
 
     DEFAULT_CSS = """
     InteractiveSourcesWidget {
@@ -89,6 +97,7 @@ class InteractiveSourcesWidget(Vertical):
                 f"[{status_style}]{status_text}[/{status_style}]",
                 str(sessions),
                 sync_button,
+                key=name,
             )
 
         yield table
@@ -99,6 +108,7 @@ class InteractiveSourcesWidget(Vertical):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle sync button presses."""
+        event.stop()
         button_id = event.button.id
         if not button_id or not button_id.startswith("sync_"):
             return
@@ -112,6 +122,12 @@ class InteractiveSourcesWidget(Vertical):
 
         # Call the sync callback
         self.on_sync(source_name)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handle clicking a row in the sources table."""
+        if not event.row_key or not event.row_key.value:
+            return
+        self.post_message(self.SourceSelected(str(event.row_key.value)))
 
     def _update_button_state(self, source_name: str, syncing: bool) -> None:
         """Update the button state for a source."""
@@ -136,10 +152,10 @@ class InteractiveSourcesWidget(Vertical):
         try:
             status = self.query_one("#sources_status", Static)
             if success:
-                msg = f"[green]✓ {source_name} synced[/green]"
+                msg = f"[success]✓ {source_name} synced[/success]"
                 status.update(f"{msg} | [dim]Last Synced:[/dim] {self.last_synced}")
             else:
-                msg = f"[red]✗ {source_name} sync failed[/red]"
+                msg = f"[error]✗ {source_name} sync failed[/error]"
                 status.update(f"{msg} | [dim]Last Synced:[/dim] {self.last_synced}")
         except Exception:
             # Widget not mounted yet or status not found
@@ -186,6 +202,7 @@ class InteractiveSourcesWidget(Vertical):
                     f"[{status_style}]{status_text}[/{status_style}]",
                     str(sessions),
                     sync_button,
+                    key=name,
                 )
 
             self.mount(new_table)

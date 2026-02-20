@@ -60,6 +60,10 @@ class AgentRecallTextualApp(
         dashboard_context: DashboardRenderContext,
         execute_command: ExecuteCommandFn,
         list_sessions_for_picker: ListSessionsForPickerFn,
+        get_sources_and_sessions_for_tui: Callable[
+            [int, bool], tuple[list[dict[str, object]], list[dict[str, object]]]
+        ],
+        get_session_detail_for_tui: Callable[[str, str, bool], Any | None] | None = None,
         list_prd_items_for_picker: ListPrdItemsForPickerFn | None = None,
         run_setup_payload: Callable[[dict[str, object]], tuple[bool, list[str]]],
         run_model_config: Callable[
@@ -89,6 +93,8 @@ class AgentRecallTextualApp(
         self._dashboard_context = dashboard_context
         self._execute_command = execute_command
         self._list_sessions_for_picker = list_sessions_for_picker
+        self._get_sources_and_sessions_for_tui = get_sources_and_sessions_for_tui
+        self._get_session_detail_for_tui = get_session_detail_for_tui
         self._list_prd_items_for_picker = list_prd_items_for_picker
         self._run_setup_payload = run_setup_payload
         self._run_model_config = run_model_config

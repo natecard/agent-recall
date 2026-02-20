@@ -120,7 +120,7 @@ class SessionRunModal(ModalScreen[dict[str, Any] | None]):
         ordered_selection = [item for item in ordered_selection if item]
         if not ordered_selection:
             self.query_one("#run_sessions_status", Static).update(
-                "[red]Select at least one conversation.[/red]"
+                "[error]Select at least one conversation.[/error]"
             )
             return
         self.dismiss({"session_ids": ordered_selection})
@@ -170,7 +170,7 @@ class SessionRunModal(ModalScreen[dict[str, Any] | None]):
         )
 
     def _line_for_session(self, session: dict[str, Any], selected: bool) -> str:
-        marker = "[green]✓[/green]" if selected else "[dim]○[/dim]"
+        marker = "[success]✓[/success]" if selected else "[dim]○[/dim]"
         title = str(session.get("title") or "Untitled conversation")
         started = str(session.get("started") or "-")
         message_count = int(session.get("message_count", 0))

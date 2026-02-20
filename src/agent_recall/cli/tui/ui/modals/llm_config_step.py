@@ -153,23 +153,23 @@ class LLMConfigStepModal(ModalScreen[dict[str, Any] | None]):
         err = self.query_one("#model_error", Static)
         provider = self.query_one("#model_provider", Select).value
         if provider == Select.BLANK:
-            err.update("[red]Provider required[/red]")
+            err.update("[error]Provider required[/error]")
             return
         try:
             temp = float(self.query_one("#model_temperature", Input).value)
         except ValueError:
-            err.update("[red]Invalid temperature[/red]")
+            err.update("[error]Invalid temperature[/error]")
             return
         if temp < 0.0 or temp > 2.0:
-            err.update("[red]Temperature 0.0-2.0[/red]")
+            err.update("[error]Temperature 0.0-2.0[/error]")
             return
         try:
             tokens = int(self.query_one("#model_max_tokens", Input).value)
         except ValueError:
-            err.update("[red]Invalid max tokens[/red]")
+            err.update("[error]Invalid max tokens[/error]")
             return
         if tokens <= 0:
-            err.update("[red]Max tokens > 0[/red]")
+            err.update("[error]Max tokens > 0[/error]")
             return
 
         self.dismiss(
@@ -236,7 +236,7 @@ class LLMConfigStepModal(ModalScreen[dict[str, Any] | None]):
 
         status = self.query_one("#model_discovery_status", Static)
         status.update(
-            f"[green]{len(models)} models[/green]"
+            f"[success]{len(models)} models[/success]"
             if models
-            else f"[yellow]{err_msg or 'No models'}[/yellow]"
+            else f"[warning]{err_msg or 'No models'}[/warning]"
         )

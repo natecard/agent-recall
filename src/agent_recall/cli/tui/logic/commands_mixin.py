@@ -221,6 +221,40 @@ class CommandsMixin:
         )
         self._worker_context[id(worker)] = "prd_picker"
 
+    def action_open_sessions_view_modal(self: Any, initial_filter: str = "") -> None:
+        self.status = "Loading sessions"
+        self._append_activity("Loading sessions for view...")
+        worker = self.run_worker(
+            lambda: self._get_sources_and_sessions_for_tui(200, self.all_cursor_workspaces),
+            thread=True,
+            group="tui-ops",
+            exclusive=True,
+            exit_on_error=False,
+        )
+        self._worker_context[id(worker)] = f"sessions_view:{initial_filter}"
+
+    def _apply_sessions_view_modal_result(self: Any, result: dict[str, object] | None) -> None:
+        if not result:
+            return
+
+        session_id = result.get("session_id")
+        source = result.get("source")
+        if not session_id or not source:
+            return
+
+        self.status = "Loading session..."
+        self._append_activity(f"Loading {source} session details...")
+        worker = self.run_worker(
+            lambda: self._get_session_detail_for_tui(
+                str(source), str(session_id), self.all_cursor_workspaces
+            ),
+            thread=True,
+            group="tui-ops",
+            exclusive=True,
+            exit_on_error=False,
+        )
+        self._worker_context[id(worker)] = f"session_detail:{source}:{session_id}"
+
     def action_open_diff_viewer(self: Any) -> None:
         self.status = "Loading diff"
         self._append_activity("Loading latest iteration diff...")

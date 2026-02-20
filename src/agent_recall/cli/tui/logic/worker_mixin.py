@@ -5,10 +5,13 @@ from typing import Any, cast
 from textual.worker import Worker, WorkerState
 
 from agent_recall.cli.tui.logic.text_sanitizers import _strip_rich_markup
+from agent_recall.cli.tui.ui.modals.conversation_detail import ConversationDetailModal
 from agent_recall.cli.tui.ui.modals.prd_select import PRDSelectModal
 from agent_recall.cli.tui.ui.modals.session_run import SessionRunModal
+from agent_recall.cli.tui.ui.modals.sessions_view import SessionsViewModal
 from agent_recall.cli.tui.ui.screens.diff_screen import DiffScreen, IterationMetadata
 from agent_recall.cli.tui.ui.screens.first_launch import DeltaDownloadComplete
+from agent_recall.ingest.base import RawSession
 
 
 class WorkerMixin:
@@ -138,6 +141,41 @@ class WorkerMixin:
                 and self._interactive_sources_widget is not None
             ):
                 self._interactive_sources_widget.mark_sync_complete(source_name, success=True)
+            self._refresh_dashboard_panel()
+            return
+
+        if context.startswith("session_detail"):
+            if result:
+                self.push_screen(ConversationDetailModal(session=cast(RawSession, result)))
+            else:
+                self.status = "Error loading session"
+                self._append_activity("Session transcript could not be found or parsed.")
+            self._refresh_dashboard_panel()
+            return
+
+        if context.startswith("sessions_view"):
+            initial_filter = ""
+            if ":" in context:
+                _, initial_filter = context.split(":", 1)
+
+            if isinstance(result, tuple) and len(result) == 2:
+                _sources_raw, sessions_raw = result
+                sessions_data = sessions_raw if isinstance(sessions_raw, list) else []
+            else:
+                sessions_data = []
+
+            # Ensure type safety for the modal
+            typed_sessions: list[dict[str, Any]] = []
+            for s in sessions_data:
+                if isinstance(s, dict):
+                    typed_sessions.append({str(k): v for k, v in s.items()})
+
+            self.status = "Sessions & Sources"
+            self._append_activity(f"Loaded {len(typed_sessions)} session(s).")
+            self.push_screen(
+                SessionsViewModal(sessions=typed_sessions, initial_filter=initial_filter),
+                self._apply_sessions_view_modal_result,
+            )
             self._refresh_dashboard_panel()
             return
 

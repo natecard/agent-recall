@@ -110,8 +110,8 @@ APP_CSS = """
         background: rgba(0, 0, 0, 0.30);
     }
     #palette_card {
-        width: 74%;
-        max-width: 94;
+        width: 90%;
+        max-width: 200;
         height: auto;
         max-height: 78%;
         padding: 0 2;
@@ -120,8 +120,8 @@ APP_CSS = """
         overflow: auto;
     }
     #modal_card {
-        width: 64%;
-        max-width: 84;
+        width: 90%;
+        max-width: 200;
         height: auto;
         max-height: 82%;
         padding: 0 1;
@@ -131,6 +131,15 @@ APP_CSS = """
     }
     .layout_modal {
         max-width: 72;
+    }
+    .modal_wide {
+        width: 90%;
+        max-width: 200;
+        overflow: hidden;
+    }
+    #sessions_view_list {
+        height: 1fr;
+        margin-bottom: 1;
     }
     .modal_compact {
         width: 52%;

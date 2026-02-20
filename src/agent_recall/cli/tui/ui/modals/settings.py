@@ -89,17 +89,17 @@ class SettingsModal(ModalScreen[dict[str, Any] | None]):
         view_widget = self.query_one("#settings_view", Select)
         selected_view = view_widget.value
         if selected_view == Select.BLANK:
-            error_widget.update("[red]View selection is required[/red]")
+            error_widget.update("[error]View selection is required[/error]")
             return
 
         transport_widget = self.query_one("#settings_ralph_transport", Select)
         transport_value = transport_widget.value
         if transport_value == Select.BLANK:
-            error_widget.update("[red]Ralph transport selection is required[/red]")
+            error_widget.update("[error]Ralph transport selection is required[/error]")
             return
         ralph_agent_transport = str(transport_value).strip().lower()
         if ralph_agent_transport not in {"pipe", "auto", "pty"}:
-            error_widget.update("[red]Invalid Ralph transport selection[/red]")
+            error_widget.update("[error]Invalid Ralph transport selection[/error]")
             return
 
         self.dismiss(

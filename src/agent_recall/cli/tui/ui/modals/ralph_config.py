@@ -161,19 +161,19 @@ class RalphConfigModal(ModalScreen[dict[str, Any] | None]):
         try:
             max_iter = int(self.query_one("#ralph_max_iterations", Input).value)
         except ValueError:
-            error_w.update("[red]Max iterations must be an integer[/red]")
+            error_w.update("[error]Max iterations must be an integer[/error]")
             return
         if max_iter < 1:
-            error_w.update("[red]Max iterations must be >= 1[/red]")
+            error_w.update("[error]Max iterations must be >= 1[/error]")
             return
 
         try:
             sleep_sec = int(self.query_one("#ralph_sleep_seconds", Input).value)
         except ValueError:
-            error_w.update("[red]Sleep seconds must be an integer[/red]")
+            error_w.update("[error]Sleep seconds must be an integer[/error]")
             return
         if sleep_sec < 0:
-            error_w.update("[red]Sleep seconds must be >= 0[/red]")
+            error_w.update("[error]Sleep seconds must be >= 0[/error]")
             return
 
         compact_widget = self.query_one("#ralph_compact_mode", Select)

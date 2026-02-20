@@ -56,13 +56,13 @@ class DiffSummaryWidget:
         for filename, added, deleted in per_file:
             truncated = self._truncate_filename(filename)
             file_signifier = "[dim cyan][F][/dim cyan]"
-            added_str = f"[green]+{added}[/green]" if added > 0 else ""
-            deleted_str = f"[red]-{deleted}[/red]" if deleted > 0 else ""
+            added_str = f"[success]+{added}[/success]" if added > 0 else ""
+            deleted_str = f"[error]-{deleted}[/error]" if deleted > 0 else ""
             table.add_row(f"{file_signifier} {truncated}", added_str, deleted_str)
 
         header = (
-            f"[bold][green]+{total_added}[/green]  "
-            f"[red]-{total_deleted}[/red]  "
+            f"[bold][success]+{total_added}[/success]  "
+            f"[error]-{total_deleted}[/error]  "
             f"{len(per_file)} files changed[/bold]"
         )
 

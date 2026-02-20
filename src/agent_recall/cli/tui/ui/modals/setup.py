@@ -68,7 +68,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
 
         repository_verified = bool(self.query_one("#setup_repository_verified", Checkbox).value)
         if not repository_verified:
-            status.update("[red]Repository must be confirmed[/red]")
+            status.update("[error]Repository must be confirmed[/error]")
             return
 
         selected_agents: list[str] = []
@@ -77,7 +77,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             if checkbox.value:
                 selected_agents.append(source.name)
         if not selected_agents:
-            status.update("[red]Choose at least one agent source[/red]")
+            status.update("[error]Choose at least one agent source[/error]")
             return
 
         self.dismiss(

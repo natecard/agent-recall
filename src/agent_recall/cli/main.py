@@ -2541,6 +2541,99 @@ def _list_sessions_for_tui_picker(
     return prepared
 
 
+def _get_sources_and_sessions_for_tui(
+    max_sessions: int = 200,
+    *,
+    all_cursor_workspaces: bool = False,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    ensure_initialized()
+    storage = get_storage()
+    files = get_files()
+    selected_sources = _get_repo_selected_sources(files)
+    ingesters = _filter_ingesters_by_sources(
+        get_default_ingesters(cursor_all_workspaces=all_cursor_workspaces),
+        selected_sources,
+    )
+
+    # Gather sources status
+    sources_data: list[dict[str, object]] = []
+    for ingester in ingesters:
+        try:
+            sessions = ingester.discover_sessions()
+            available = len(sessions) > 0
+            if available:
+                location = str(sessions[0].resolve())
+            else:
+                hint = resolve_source_location_hint(ingester)
+                location = str(hint) if hint else "Unknown"
+            sources_data.append(
+                {
+                    "name": ingester.source_name,
+                    "available": available,
+                    "location": location,
+                    "count": len(sessions),
+                    "error": None,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            sources_data.append(
+                {
+                    "name": ingester.source_name,
+                    "available": False,
+                    "location": None,
+                    "count": 0,
+                    "error": str(exc),
+                }
+            )
+
+    auto_sync = AutoSync(storage, files, llm=None, ingesters=ingesters)
+    results = auto_sync.list_sessions(max_sessions=max_sessions)
+    sessions = results.get("sessions", [])
+
+    sessions_data: list[dict[str, object]] = []
+    for row in sessions:
+        title = str(row.get("title") or "").strip() or "Untitled conversation"
+        sessions_data.append(
+            {
+                "source": str(row.get("source") or ""),
+                "session_id": str(row.get("session_id") or ""),
+                "title": title,
+                "started": _format_session_time(row.get("started_at")),
+                "message_count": int(row.get("message_count", 0)),
+                "processed": bool(row.get("processed")),
+            }
+        )
+    return sources_data, sessions_data
+
+
+def _get_session_detail_for_tui(
+    source: str,
+    session_id: str,
+    all_cursor_workspaces: bool = False,
+) -> Any | None:
+    ensure_initialized()
+    files = get_files()
+    selected_sources = _get_repo_selected_sources(files)
+    ingesters = _filter_ingesters_by_sources(
+        get_default_ingesters(cursor_all_workspaces=all_cursor_workspaces),
+        selected_sources,
+    )
+    for ingester in ingesters:
+        if str(ingester.source_name) == str(source):
+            try:
+                paths = ingester.discover_sessions()
+                for path in paths:
+                    try:
+                        extracted = ingester.get_session_id(path)
+                        if str(extracted) == str(session_id):
+                            return ingester.parse_session(path)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+    return None
+
+
 def _get_theme_defaults_for_tui() -> tuple[list[str], str]:
     current_theme = DEFAULT_THEME
     if AGENT_DIR.exists():
@@ -2715,6 +2808,19 @@ def tui(
             list_sessions_for_picker=(
                 lambda max_items, include_all_cursor: _list_sessions_for_tui_picker(
                     max_items,
+                    all_cursor_workspaces=include_all_cursor,
+                )
+            ),
+            get_sources_and_sessions_for_tui=(
+                lambda max_items, include_all_cursor: _get_sources_and_sessions_for_tui(
+                    max_items,
+                    all_cursor_workspaces=include_all_cursor,
+                )
+            ),
+            get_session_detail_for_tui=(
+                lambda source, session_id, include_all_cursor: _get_session_detail_for_tui(
+                    source,
+                    session_id,
                     all_cursor_workspaces=include_all_cursor,
                 )
             ),
