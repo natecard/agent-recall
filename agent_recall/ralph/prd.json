@@ -13,155 +13,6 @@
   },
   "items": [
     {
-      "id": "AR-108",
-      "title": "TUI: Remove CLI Commands from Command Palette",
-      "type": "polish",
-      "priority": 1,
-      "description": "The Command Palette currently lists raw CLI commands. Selecting them or typing them often results in errors like 'Commands must start with /', which is confusing. These should be removed to streamline the experience.",
-      "requirements": [
-        "[DONE] Remove the 'CLI Commands' section from the Command Palette logic.",
-        "[DONE] Ensure only valid TUI actions or slash commands are actionable from the palette.",
-        "[DONE] Fix the issue where selecting a command triggers a validation error about missing slash prefix."
-      ],
-      "acceptance_criteria": [
-        "[DONE] Command Palette no longer shows a 'CLI Commands' group.",
-        "[DONE] Selecting any remaining action works immediately.",
-        "[DONE] Typing a slash command works as expected."
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-104",
-      "title": "TUI: Unified History & Diff View",
-      "type": "feature",
-      "priority": 2,
-      "description": "Currently, there are disparate views for diffs ('Diff View', 'View Last Diff'). These should be consolidated into a single 'History' or 'Iterations' view that allows navigating through past Ralph iterations and viewing their respective diffs.",
-      "requirements": [
-        "[DONE] Combine 'Diff View' and 'View Last Diff' functionality.",
-        "[DONE] Implement navigation controls (Previous/Next Iteration) to browse history.",
-        "[DONE] Display the diff summary and file details for the selected iteration.",
-        "[DONE] Ensure the view state persists or resets logically when switching views."
-      ],
-      "acceptance_criteria": [
-        "[DONE] User can view a history of Ralph iterations.",
-        "[DONE] User can navigate backwards and forwards through the commit/iteration list.",
-        "[DONE] Selecting an iteration shows its diff and details.",
-        "[DONE] Redundant diff views are removed from the Command Palette and UI."
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-106",
-      "title": "TUI: Fix Banner Flashing",
-      "type": "bugfix",
-      "priority": 1,
-      "description": "The dashboard banner flashes every few seconds (likely on the refresh interval), indicating unnecessary full re-renders of the component or the entire dashboard.",
-      "requirements": [
-        "[DONE] Investigate the `_refresh_dashboard_panel` and `_update_dashboard_widgets` logic.",
-        "[DONE] Ensure that simple time updates in the banner do not trigger a full dashboard tear-down and re-mount.",
-        "[DONE] Optimize the Banner widget to update its content (text) in-place without replacing the widget itself.",
-        "[DONE] Verify that `_update_dashboard_widgets` returns `True` for routine updates."
-      ],
-      "acceptance_criteria": [
-        "[DONE] The banner time updates smoothly without flashing.",
-        "[DONE] The rest of the dashboard remains stable during time updates.",
-        "[DONE] CPU usage for TUI idle state is minimized."
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-105",
-      "title": "TUI: Fix Layout Customization",
-      "type": "polish",
-      "priority": 3,
-      "description": "The current layout customization options (visibility toggles) are confusing, do not reflect the actual current state of the UI, and do not offer meaningful control over the layout structure.",
-      "requirements": [
-        "[DONE] Ensure the 'Customise Layout' modal pre-populates with the *actual* current widget visibility and banner settings.",
-        "[DONE] Verify that applying changes immediately reflects in the dashboard without requiring a full reload or manual refresh.",
-        "[DONE] Ensure layout settings persist correctly across sessions.",
-        "[SKIPPED] Refactor layout options to be more intuitive, possibly introducing 'View Modes' (e.g., Focus, Overview, Debug) instead of just raw toggles - deferred as UX enhancement."
-      ],
-      "acceptance_criteria": [
-        "[DONE] Opening layout settings shows the correct current state.",
-        "[DONE] Changes to layout settings are applied immediately and visibly.",
-        "[DONE] Layout options are clear and easier to understand for the user."
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-107",
-      "title": "TUI: Fix Command Palette Truncation",
-      "type": "bugfix",
-      "priority": 2,
-      "description": "The Command Palette currently truncates the list of commands in each section (e.g., showing only 5 items). Users need to see the full list of available commands.",
-      "requirements": [
-        "[DONE] Remove the arbitrary limit (e.g., 5 items) on command groups in the Command Palette.",
-        "[DONE] Allow the `OptionList` to handle scrolling if the list is long.",
-        "[DONE] Ensure all available commands for each section are rendered and accessible."
-      ],
-      "acceptance_criteria": [
-        "[DONE] The Command Palette shows all commands in each section.",
-        "[DONE] No '... X more' truncation text is visible unless explicitly desired for very large lists (but prefer scroll).",
-        "[DONE] Users can scroll through the entire command list."
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-108",
-      "title": "TUI: Remove CLI Commands from Command Palette",
-      "type": "polish",
-      "priority": 2,
-      "description": "The Command Palette currently lists raw CLI commands. Selecting them or typing them often results in errors like 'Commands must start with /', which is confusing. These should be removed to streamline the experience.",
-      "requirements": [
-        "[DONE] Remove the 'CLI Commands' section from the Command Palette logic.",
-        "[DONE] Ensure only valid TUI actions or slash commands are actionable from the palette.",
-        "[DONE] Fix the issue where selecting a command triggers a validation error about missing slash prefix."
-      ],
-      "acceptance_criteria": [
-        "[DONE] Command Palette no longer shows a 'CLI Commands' group.",
-        "[DONE] Selecting any remaining action works immediately.",
-        "[DONE] Typing a slash command works as expected."
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-109",
-      "title": "TUI: Command Palette Cleanup & Consolidation",
-      "type": "polish",
-      "priority": 1,
-      "description": "Review and consolidate existing Command Palette commands. Remove redundant actions, clarify 'Recent' vs. 'Suggested', and consider removing/re-evaluating OpenCode plugin, Claude Code Hooks, Watch Claude Logs, Source Health, and the Views list.",
-      "requirements": [
-        "[DONE] Audit 'palette_actions.py' and 'palette_router.py' for redundant or obsolete commands.",
-        "[DONE] Evaluate necessity of 'OpenCode plugin', 'Claude Code Hooks', 'Watch Claude Logs', 'Source Health', and 'Views' list - confirmed these are NOT in the palette (only in slash commands), so no palette removal needed.",
-        "[DONE] Remove 'sources' view from ViewSelectModal to prepare for AR-113 consolidation (Sources will be merged into Sessions).",
-        "[DONE] Clean up slash command map, help text, and valid views to remove references to removed 'sources' view.",
-        "[DONE] Ensure 'Recent' properly saves and surfaces recently used acceptable commands - verified palette_recents.py works correctly with no 'Suggested' section present."
-      ],
-      "acceptance_criteria": [
-        "[DONE] Command Palette list is significantly smaller and more focused.",
-        "[DONE] No overlap in command functionality.",
-        "[DONE] Obsolete integrations (if determined) are removed from the palette."
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-110",
-      "title": "TUI: Fix Arrow Key Navigation in Select PRD Modal",
-      "type": "bugfix",
-      "priority": 1,
-      "description": "The up and down arrow keys do not function as expected in the 'Select PRD' modal (`prd_select.py`).",
-      "requirements": [
-        "[DONE] Implement `on_key` event handler in `PRDSelectModal` to capture 'up' and 'down' key presses.",
-        "[DONE] Route the arrow key events to modify the `highlighted` index of the `OptionList` (`#prd_select_list`), similar to the implementation in the Command Palette.",
-        "[DONE] Ensure scrolling works seamlessly through the PRD options."
-      ],
-      "acceptance_criteria": [
-        "User can navigate the PRD list using up and down arrow keys.",
-        "The selected/highlighted item updates visually."
-      ],
-      "passes": true
-    },
-    {
       "id": "AR-111",
       "title": "TUI: Enhance Iteration Diff Viewer UI",
       "type": "feature",
@@ -177,24 +28,6 @@
         "The top of the viewer clearly states which iteration/commit is being viewed."
       ],
       "passes": false
-    },
-    {
-      "id": "AR-112",
-      "title": "TUI: Fix Layout Widget Visibility Persistence",
-      "type": "bugfix",
-      "priority": 1,
-      "description": "When configuring the layout via the Layout Customiser, unchecking widgets (like terminal/console) causes the remaining active widgets to fail to render properly or be pushed out of view.",
-      "requirements": [
-        "[DONE] Investigate `_build_overview_layout` in `dashboard.py` and `_mount_dashboard_widgets` in `app.py`.",
-        "[DONE] Ensure that when a layout changes, the terminal panel or other components do not aggressively consume infinite space (`1fr`), forcing other panels to collapse.",
-        "[DONE] Ensure `dashboard_all_grid` and `dashboard_overview_row` structures handle missing child panels gracefully."
-      ],
-      "acceptance_criteria": [
-        "[DONE] Toggling widgets off correctly reallocates space to remaining visible widgets.",
-        "[DONE] Toggling widgets on makes them appear immediately without breaking the layout.",
-        "[DONE] The console/terminal does not unfairly consume all available screen real estate when other panels are active."
-      ],
-      "passes": true
     },
     {
       "id": "AR-113",
@@ -229,6 +62,204 @@
         "All spacing (padding, margin, gap) in the TUI uses the standardized values of 2, 4, or 8.",
         "Simple, standardized class names are used for spacing.",
         "No visual regressions introduced by the CSS standardization."
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-101",
+      "priority": 1,
+      "title": "Interactive Knowledge Inspector",
+      "description": "Expand the view:knowledge panel from a read-only static renderer into a fully interactive browser. Users should be able to fuzzy-search entries inline, edit individual knowledge items in-place, and mark entries for deletion — all without leaving the TUI. Changes must write back to the underlying KnowledgeTier files so they are persisted between sessions.",
+      "user_story": "As a developer using agent-recall, I want to browse, filter, and edit my knowledge base directly from the TUI view:knowledge panel so I can curate what the agent learns without switching to a text editor.",
+      "steps": [
+        "Add a fuzzy search overlay to InteractiveKnowledgeWidget that activates on '/' keypress, filters visible entries in real time, and resets on Escape",
+        "Add an inline edit mode triggered by 'e' on a selected knowledge entry that opens an in-panel text input pre-populated with the entry content",
+        "On edit confirm (Enter), write the updated content back to the correct KnowledgeTier file via FileStorage",
+        "Add a 'd' keybinding to mark an entry for deletion with a visual strikethrough indicator; execute all pending deletions on 'D' confirm or cancel on Escape",
+        "Add keybinding help footer to the widget listing '/' search, 'e' edit, 'd' delete, 'D' confirm delete, 'Escape' cancel",
+        "Wire the widget into the existing view:knowledge panel in the dashboard — the panel should switch from static render to the new interactive widget when knowledge data is present",
+        "Add unit tests covering search filtering, edit write-back, and deletion logic"
+      ],
+      "acceptance": [
+        "Pressing '/' in view:knowledge opens a search bar; typing filters visible entries without triggering a full dashboard refresh",
+        "Pressing 'e' on a selected entry opens an editable field; confirming with Enter writes the change to the correct KnowledgeTier file on disk",
+        "Pressing 'd' marks an entry visually; pressing 'D' removes it from the file; pressing Escape cancels without writing",
+        "The widget degrades gracefully when knowledge tiers are empty — no crash, shows 'No knowledge entries' placeholder",
+        "All existing TUI keyboard shortcuts continue to function without conflict when the knowledge widget is not in focus"
+      ],
+      "validation": [
+        "uv run pytest tests/ -k knowledge_inspector -v",
+        "uv run agent-recall open"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-102",
+      "priority": 2,
+      "title": "Ralph Forecasting Panel (view:forecast)",
+      "description": "Surface the output of the existing ForecastGenerator and per-iteration cost data from IterationReportStore as a dedicated 'view:forecast' panel in the TUI dashboard. The panel should show predicted completion time for the current PRD queue, cumulative token cost vs budget, per-item cost history, and risk indicators for items that have a pattern of hard_failure outcomes.",
+      "user_story": "As a developer running Ralph loops, I want a live forecasting panel in the TUI so I can see projected cost, estimated time to completion, and which PRD items are at risk of repeated failure — all without running a separate CLI command.",
+      "steps": [
+        "Register 'forecast' as a new named view in the dashboard view registry alongside the existing 9 views (overview, knowledge, sources, etc.)",
+        "Create a new ForecastWidget in src/agent_recall/cli/tui/widgets/forecast_widget.py that reads from IterationReportStore and ForecastGenerator",
+        "Display the following sections in the panel: (1) Queue summary — total items, completed, remaining, estimated iterations to completion; (2) Cost tracker — total spend, budget cap, projected overage; (3) Per-item cost table — item ID, title, token count, USD cost, outcome; (4) Risk table — items with 2+ consecutive failures flagged in yellow/red",
+        "Add 'F' as a hotkey alias for view:forecast in CommandsMixin and the Ctrl+P palette",
+        "Auto-refresh the panel every 10 seconds when Ralph is actively running (detect via RalphStateManager.status == ENABLED)",
+        "Expose the forecast view in the keybinding footer"
+      ],
+      "acceptance": [
+        "Navigating to view:forecast renders without error even when no iterations have run yet (shows empty state)",
+        "The cost tracker reflects the same values as 'agent-recall ralph cost-report' — no divergence",
+        "Items with 2+ consecutive hard_failure outcomes appear in the risk table with a red indicator",
+        "The panel auto-refreshes every 10s when Ralph state is ENABLED; it does not poll when DISABLED",
+        "Pressing 'F' or selecting 'Forecast' from the Ctrl+P palette navigates to view:forecast"
+      ],
+      "validation": [
+        "uv run pytest tests/ -k forecast_panel -v",
+        "uv run agent-recall open"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-103",
+      "priority": 3,
+      "title": "Session Curation Queue (view:queue)",
+      "description": "Expose the session curation queue as a first-class TUI view (view:queue). Ingested conversations awaiting approval before flowing into compact should appear as a scrollable list with per-entry approval, rejection, and label-edit actions — modelled after a 'git add -p' style workflow. Approved entries must be passed downstream to the compact pipeline; rejected entries must be discarded without affecting the knowledge base.",
+      "user_story": "As a developer, I want to review and approve individual ingested conversation chunks before they are compacted into my permanent knowledge base, so I stay in full control of what the agent learns.",
+      "steps": [
+        "Define a CurationQueueStore in src/agent_recall/storage/curation_queue.py that serialises pending chunks to .agent/curation_queue.json with fields: chunk_id, source, timestamp, content_preview (first 200 chars), proposed_label, status (pending/approved/rejected)",
+        "Wire the existing ingest pipeline to write newly ingested chunks to CurationQueueStore when curation mode is enabled in config (add 'curation_mode: true' flag under [storage] in config)",
+        "Create CurationQueueWidget in src/agent_recall/cli/tui/widgets/curation_queue.py rendering a paginated list of pending items with metadata",
+        "Add keybindings: 'y' approve, 'n' reject, 'e' edit proposed label, 'a' approve-all-visible, with a confirmation modal for approve-all",
+        "On approval, call the existing compact/storage pipeline to promote the chunk; on rejection, mark it rejected in the queue store and do not ingest",
+        "Register 'queue' as a named view in the dashboard and add 'Q' hotkey and Ctrl+P palette entry",
+        "Show a badge/count indicator on the dashboard status bar when there are pending curation items (e.g. '3 pending')"
+      ],
+      "acceptance": [
+        "When curation_mode is enabled, newly ingested sessions appear in view:queue as pending items before reaching the knowledge base",
+        "Pressing 'y' on an item approves it and removes it from the pending list; the chunk appears in the knowledge base after the next compact cycle",
+        "Pressing 'n' on an item rejects it; the chunk does not appear in any knowledge tier",
+        "Pressing 'e' opens an inline label editor; the edited label is used if the item is subsequently approved",
+        "The status bar shows a pending count badge when items are waiting; the badge clears when the queue is empty",
+        "The view renders correctly when the queue is empty with a 'No pending items' placeholder"
+      ],
+      "validation": [
+        "uv run pytest tests/ -k curation_queue -v",
+        "uv run agent-recall open"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-104",
+      "priority": 4,
+      "title": "Activity Log Fuzzy Search (Ctrl+F)",
+      "description": "Add an inline fuzzy-search overlay to the activity log panel that activates on Ctrl+F, searches across the in-memory deque buffer (up to 2000 entries), highlights matches, and scrolls to the first result. Subsequent presses of Enter/n cycle through matches; Escape dismisses the overlay and restores the normal log scroll position.",
+      "user_story": "As a developer monitoring a long-running Ralph session, I want to be able to quickly search the activity log by keyword so I can find specific events, errors, or outputs without scrolling manually.",
+      "steps": [
+        "Add a fuzzy_search_active: bool state flag and search_query: str to the activity panel state in ActivityMixin",
+        "On Ctrl+F, render a search bar widget at the bottom of the activity log panel (similar to the existing palette overlay pattern)",
+        "As the user types, filter the deque buffer for lines containing the query (case-insensitive substring match); highlight matching substrings using Textual markup",
+        "Display match count (e.g. '3/12 matches') in the search bar",
+        "Enter or 'n' cycles forward through matches; 'N' cycles backward; Escape dismisses and restores full log view",
+        "The search overlay must not block other global keybindings (Ctrl+P palette, tab switching) — it should only capture alphanumeric input when active",
+        "Add Ctrl+F to the keybinding help footer"
+      ],
+      "acceptance": [
+        "Pressing Ctrl+F opens the search bar without disrupting the rest of the TUI layout",
+        "Typing a query immediately filters and highlights matching lines in the activity log",
+        "The match counter accurately reflects how many lines contain the query",
+        "Pressing Enter/n advances to the next match; 'N' goes to the previous",
+        "Pressing Escape closes the overlay and restores the full unfiltered activity log at its previous scroll position",
+        "Ctrl+P and tab navigation continue to work correctly while the search overlay is active"
+      ],
+      "validation": [
+        "uv run pytest tests/ -k activity_search -v",
+        "uv run agent-recall open"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-105",
+      "priority": 5,
+      "title": "Source Health Check with Status Indicators",
+      "description": "Extend the InteractiveSourcesWidget with a per-source health check protocol. Each ingester should expose a lightweight probe (not a full ingest) that checks connectivity/path availability and returns a HealthStatus (ok, degraded, unavailable) plus a latency or last-seen timestamp. The TUI renders color-coded status dots next to each source and a Ctrl+R shortcut to re-probe all sources.",
+      "user_story": "As a developer, I want to see at a glance which of my configured ingest sources are healthy, degraded, or broken in the TUI sources view, so I can diagnose issues without running a full ingest cycle.",
+      "steps": [
+        "Define a HealthStatus enum (OK, DEGRADED, UNAVAILABLE) and a SourceHealthResult dataclass (status, latency_ms, last_seen_path, error_message) in src/agent_recall/ingest/health.py",
+        "Add a check_health() -> SourceHealthResult method to the base ingester interface in src/agent_recall/ingest/base.py",
+        "Implement check_health() for each existing ingester (claude_code, cursor, file, etc.) — for file-based ingesters check path existence; for API-based ones attempt a lightweight HEAD/ping",
+        "Update InteractiveSourcesWidget to display a colored status indicator (● green / ● yellow / ● red) next to each source name reflecting the last known HealthResult",
+        "Add 'Ctrl+R' keybinding to re-run all health probes via WorkerMixin's worker thread; show a brief 'Checking...' spinner during the probe",
+        "Persist the last health check result to .agent/source_health.json so it is available immediately on TUI start without re-probing",
+        "Add the Ctrl+R hint to the sources view footer"
+      ],
+      "acceptance": [
+        "Each source in view:sources displays a color-coded health dot (green/yellow/red) based on the last health check result",
+        "Pressing Ctrl+R in view:sources triggers a re-probe of all sources; the dots update when probes complete",
+        "A 'Checking...' indicator is shown during an in-progress probe and disappears on completion",
+        "The health state is persisted between TUI sessions — the last known status is shown immediately on startup without waiting for a re-probe",
+        "Health check failures do not crash the TUI or block other panel interactions; errors are shown inline in the status indicator tooltip"
+      ],
+      "validation": [
+        "uv run pytest tests/ -k source_health -v",
+        "uv run agent-recall open"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-106",
+      "priority": 6,
+      "title": "Timeline Iteration Annotations",
+      "description": "Extend the IterationDetailModal accessible from InteractiveTimelineWidget to allow the user to attach a short free-text annotation to any iteration. Annotations are stored as JSON sidecars next to the iteration diff files in .agent/ralph/iterations/. The timeline view renders an annotation indicator (📝) next to annotated iterations, and the modal displays the annotation text with an edit option.",
+      "user_story": "As a developer reviewing past Ralph runs, I want to annotate specific iterations with notes about what I learned or why something failed, so I can build a retrospective knowledge trail directly inside the TUI.",
+      "steps": [
+        "Define an IterationAnnotation dataclass (iteration: int, text: str, created_at: datetime, updated_at: datetime) and add load_annotation / save_annotation methods to IterationReportStore",
+        "Store annotations as .agent/ralph/iterations/{iteration:03d}.annotation.json sidecar files alongside the existing diff files",
+        "Update IterationDetailModal to show the annotation text (or 'No annotation' placeholder) with an 'Add/Edit note' button (keybinding 'a')",
+        "Pressing 'a' in the modal opens an inline text input; on confirm (Enter) the annotation is saved via save_annotation; on Escape the input is dismissed without saving",
+        "Update InteractiveTimelineWidget to render a 📝 indicator next to iterations that have a non-empty annotation",
+        "The annotation indicator should also appear in the timeline's iteration list panel, not just inside the modal"
+      ],
+      "acceptance": [
+        "Selecting an iteration in view:timeline and opening the detail modal shows any existing annotation or a 'No annotation' placeholder",
+        "Pressing 'a' in the modal opens a text input; submitting it saves the annotation to the correct sidecar file",
+        "After saving, the modal immediately reflects the new annotation text without requiring a TUI restart",
+        "Iterations with annotations display a 📝 indicator in the timeline list",
+        "Annotation files are correctly named {iteration:03d}.annotation.json and stored alongside diff files",
+        "Pressing Escape during text input cancels without overwriting an existing annotation"
+      ],
+      "validation": [
+        "uv run pytest tests/ -k iteration_annotation -v",
+        "uv run agent-recall open"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-107",
+      "priority": 7,
+      "title": "Context-Aware Ctrl+P Command Palette",
+      "description": "Make the Ctrl+P command palette view-aware so it surfaces the most relevant actions first based on the currently active dashboard view. When on view:knowledge, knowledge-specific actions (edit, compact, export) appear at the top; on view:ralph, ralph-specific actions (run, pause, view-diff, select items) lead the list. Global actions remain available via normal search.",
+      "user_story": "As a power user, I want the Ctrl+P palette to intelligently surface actions relevant to what I'm currently looking at, so I spend less time scrolling through a flat global action list.",
+      "steps": [
+        "Add a current_view: str property to the dashboard app that reflects the active named view (matches the existing view name registry)",
+        "Refactor _build_command_suggestions in commands_mixin.py to accept an optional context_view: str parameter",
+        "Define a VIEW_PRIORITY_MAP dict mapping view names to lists of action IDs that should be promoted to the top of the palette when that view is active",
+        "When Ctrl+P is pressed, pass self.current_view to _build_command_suggestions; promoted actions are prepended before the global list with a visual separator (e.g. a dim '── current view ──' label row)",
+        "Ensure the text search in the palette still searches the full global list regardless of the context filter",
+        "Add view context labels to promoted actions (e.g. '[knowledge]' tag) to communicate why they appear at the top",
+        "Update existing tests for command palette construction to cover context-aware promotion logic"
+      ],
+      "acceptance": [
+        "Opening Ctrl+P while on view:knowledge shows knowledge actions (edit entries, compact, export) at the top before global actions",
+        "Opening Ctrl+P while on view:ralph shows ralph actions (run loop, pause, view diff, select PRD items) at the top",
+        "Typing in the palette search box still returns global results — context promotion does not hide matching non-context actions",
+        "A visual separator is shown between context-promoted and global actions",
+        "The palette behaves identically to the current implementation when on a view with no defined context priorities (e.g. view:console)",
+        "All existing palette keyboard navigation (arrow keys, Enter, Escape) continues to work correctly"
+      ],
+      "validation": [
+        "uv run pytest tests/ -k palette_context -v",
+        "uv run agent-recall open"
       ],
       "passes": false
     }

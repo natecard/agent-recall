@@ -19,3 +19,5 @@
 - [PATTERN] Small targeted edit to remove CLI commands block and unused cli_commands parameter
 - [PATTERN] Small targeted edits across multiple files achieved full acceptance criteria coverage without breaking existing functionality.
 - [PATTERN] Verified existing implementation before assuming bugs - core functionality was already correct, only test coverage was missing.
+- [PATTERN] Check if sidebar_children or main_children are empty before creating containers. Use a single full-width container when only one column has content. Skip mounting entirely if both are empty.
+- [PATTERN] Checked existing implementation first - discovered most items mentioned in PRD were already NOT in palette, only needed cleanup of sources view.

@@ -205,9 +205,15 @@ class RalphLoop:
             return 1
 
         prompt = f"Work on PRD item {item_id}: {item_title}"
-        cmd: list[str] = [resolved, "--print", prompt]
-        if cli_model:
-            cmd.extend(["--model", cli_model])
+        if coding_cli == "codex":
+            cmd = [resolved, "exec"]
+            if cli_model:
+                cmd.extend(["--model", cli_model])
+            cmd.append(prompt)
+        else:
+            cmd = [resolved, "--print", prompt]
+            if cli_model:
+                cmd.extend(["--model", cli_model])
 
         self._emit_progress(
             progress_callback,

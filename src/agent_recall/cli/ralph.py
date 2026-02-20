@@ -244,6 +244,15 @@ def build_agent_cmd_from_ralph_config(ralph_config: dict[str, Any]) -> str | Non
             model_segment = f"-m {shlex.quote(cli_model)} "
         return f'{shlex.quote(binary)} run {model_segment}"$(cat {{prompt_file}})"'
 
+    if coding_cli == "codex":
+        # Codex CLI no longer supports --print; use non-interactive exec and read
+        # the generated prompt from stdin (the shell loop already redirects stdin).
+        parts = [binary, "exec"]
+        if cli_model and model_flag:
+            parts.extend([model_flag, cli_model])
+        parts.append("-")
+        return " ".join(shlex.quote(part) for part in parts)
+
     parts = [binary, "--print"]
     if cli_model and model_flag:
         parts.extend([model_flag, cli_model])
