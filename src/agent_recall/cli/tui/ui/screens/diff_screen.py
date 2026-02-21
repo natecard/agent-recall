@@ -8,7 +8,7 @@ from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Vertical
+from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
@@ -16,6 +16,7 @@ from agent_recall.cli.theme import DEFAULT_THEME, ThemeManager
 from agent_recall.cli.tui.utils.diff_parser import DiffFile, parse_diff_files
 from agent_recall.cli.tui.widgets.diff_content import DiffContentViewer, DiffMode
 from agent_recall.cli.tui.widgets.diff_tree import DiffTreeViewer
+from agent_recall.cli.tui.widgets.resizable_split import ResizableSplit
 from agent_recall.ralph.iteration_store import IterationReport, IterationReportStore
 
 
@@ -36,23 +37,31 @@ class DiffScreen(Screen[None]):
     DiffScreen {
         overflow: hidden;
     }
-    DiffScreen > Container#diff_main {
+    DiffScreen > ResizableSplit#diff_main {
         height: 1fr;
         width: 100%;
-        layout: horizontal;
-        overflow: hidden;
     }
-    DiffScreen > Container#diff_main > Vertical#diff_tree_panel {
-        width: 32;
-        min-width: 20;
-        max-width: 50;
-        height: 1fr;
+    DiffScreen ResizableSplit > Container#split_left {
+        background: $panel;
         border-right: solid $accent;
+    }
+    DiffScreen ResizableSplit > Container#split_right {
+        background: $surface;
+    }
+    DiffScreen ResizableSplit > ResizeHandle {
         background: $panel;
     }
-    DiffScreen > Container#diff_main > Vertical#diff_content_panel {
-        width: 1fr;
+    DiffScreen ResizableSplit > ResizeHandle:hover,
+    DiffScreen ResizableSplit > ResizeHandle.dragging {
+        background: $accent;
+    }
+    DiffScreen #diff_tree_panel {
         height: 1fr;
+        width: 100%;
+    }
+    DiffScreen #diff_content_panel {
+        height: 1fr;
+        width: 100%;
         overflow: hidden;
     }
     DiffScreen #diff_header {
@@ -124,7 +133,7 @@ class DiffScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         yield Header()
 
-        with Container(id="diff_main"):
+        with ResizableSplit(id="diff_main", initial_width=32, min_width=20, max_width=80):
             with Vertical(id="diff_tree_panel"):
                 yield Static("Changed Files", id="tree_title")
                 yield DiffTreeViewer(id="diff_tree_widget")
@@ -160,6 +169,8 @@ class DiffScreen(Screen[None]):
 
         tree_title = self.query_one("#tree_title", Static)
         tree_title.update(self._render_tree_title())
+
+        self._update_header_title()
 
         if self._diff_files:
             tree.focus()
@@ -240,6 +251,7 @@ class DiffScreen(Screen[None]):
 
         self.query_one("#tree_title", Static).update(self._render_tree_title())
         self.query_one("#content_title", Static).update(self._render_mode_header())
+        self._update_header_title()
 
         tree.focus()
 
@@ -342,3 +354,19 @@ class DiffScreen(Screen[None]):
         text.append("[U]", style=u_style)
         text.append(" Unified")
         title.update(text)
+
+    def _update_header_title(self) -> None:
+        try:
+            header = self.query_one(Header)
+            meta = self._iteration_meta
+            if meta:
+                title = f"Iteration #{meta.iteration:03d}"
+                if meta.commit_hash:
+                    title += f" ({meta.commit_hash[:7]})"
+                if meta.item_title:
+                    title += f" - {meta.item_title}"
+                header.border_title = title
+            else:
+                header.border_title = self._title
+        except Exception:
+            pass

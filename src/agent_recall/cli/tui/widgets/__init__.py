@@ -7,6 +7,7 @@ from agent_recall.cli.tui.widgets.interactive_timeline import InteractiveTimelin
 from agent_recall.cli.tui.widgets.knowledge import KnowledgeWidget
 from agent_recall.cli.tui.widgets.llm_config import LLMConfigWidget
 from agent_recall.cli.tui.widgets.ralph import RalphStatusWidget
+from agent_recall.cli.tui.widgets.resizable_split import ResizableSplit
 from agent_recall.cli.tui.widgets.settings import SettingsWidget
 from agent_recall.cli.tui.widgets.sources import SourcesWidget
 from agent_recall.cli.tui.widgets.timeline import TimelineWidget
@@ -21,6 +22,7 @@ __all__ = [
     "KnowledgeWidget",
     "LLMConfigWidget",
     "RalphStatusWidget",
+    "ResizableSplit",
     "SettingsWidget",
     "SourcesWidget",
     "TimelineWidget",

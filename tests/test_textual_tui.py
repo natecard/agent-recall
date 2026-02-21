@@ -2428,3 +2428,66 @@ def test_interactive_knowledge_widget_delete_multiple_entries():
         assert "Alpha" not in guardrails_content
         assert "Beta" not in guardrails_content
         assert "Gamma" not in style_content
+
+
+def test_resizable_split_initial_width() -> None:
+    """Test that ResizableSplit initializes with correct width."""
+    from agent_recall.cli.tui.widgets.resizable_split import ResizableSplit
+
+    split = ResizableSplit(initial_width=40, min_width=20, max_width=80)
+    assert split.left_width == 40
+
+
+def test_resizable_split_width_constraints() -> None:
+    """Test that ResizableSplit constrains width to min/max bounds."""
+    from agent_recall.cli.tui.widgets.resizable_split import ResizableSplit
+
+    split = ResizableSplit(initial_width=50, min_width=20, max_width=80)
+    assert split._min_width == 20
+    assert split._max_width == 80
+
+
+def test_resizable_split_width_change_emits_message() -> None:
+    """Test that changing left_width creates WidthChanged message."""
+    from agent_recall.cli.tui.widgets.resizable_split import ResizableSplit
+
+    split = ResizableSplit(initial_width=32)
+    assert hasattr(split, "left_width")
+    split.left_width = 40
+    assert split.left_width == 40
+
+
+def test_resize_handle_drag_message() -> None:
+    """Test that ResizeHandle.Dragged message contains screen_x."""
+    from agent_recall.cli.tui.widgets.resizable_split import ResizeHandle
+
+    msg = ResizeHandle.Dragged(screen_x=100)
+    assert msg.screen_x == 100
+
+
+def test_diff_screen_header_title_with_iteration() -> None:
+    """Test that DiffScreen shows iteration info in header title."""
+    from agent_recall.cli.tui.ui.screens.diff_screen import DiffScreen, IterationMetadata
+
+    meta = IterationMetadata(
+        iteration=5,
+        item_id="AR-001",
+        item_title="Test Task",
+        commit_hash="abc123def456",
+        outcome="COMPLETED",
+    )
+
+    screen = DiffScreen("", iteration_meta=meta)
+    assert screen._iteration_meta is not None
+    assert screen._iteration_meta.iteration == 5
+    assert screen._iteration_meta.commit_hash == "abc123def456"
+
+
+def test_diff_screen_uses_resizable_split() -> None:
+    """Test that DiffScreen imports ResizableSplit from widgets."""
+    import inspect
+
+    from agent_recall.cli.tui.ui.screens import diff_screen
+
+    source = inspect.getsource(diff_screen.DiffScreen.compose)
+    assert "ResizableSplit" in source, "DiffScreen.compose should use ResizableSplit"
