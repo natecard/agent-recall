@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from agent_recall.ingest.base import RawMessage, RawSession, RawToolCall, SessionIngester
+from agent_recall.ingest.health import HealthStatus, SourceHealthResult
 
 
 class ClaudeCodeIngester(SessionIngester):
@@ -134,6 +136,46 @@ class ClaudeCodeIngester(SessionIngester):
         if not sessions_dir.exists():
             return None
         return sessions_dir
+
+    def check_health(self) -> SourceHealthResult:
+        start_time = time.time()
+        if not self.claude_dir.exists():
+            return SourceHealthResult(
+                status=HealthStatus.UNAVAILABLE,
+                latency_ms=int((time.time() - start_time) * 1000),
+                error_message=f"Claude directory not found: {self.claude_dir}",
+            )
+        project_dir = self._find_project_dir()
+        if not project_dir:
+            return SourceHealthResult(
+                status=HealthStatus.DEGRADED,
+                latency_ms=int((time.time() - start_time) * 1000),
+                error_message="No project directory found for current path",
+                last_seen_path=str(self.claude_dir),
+            )
+        sessions_dir = project_dir / "sessions"
+        if not sessions_dir.exists():
+            return SourceHealthResult(
+                status=HealthStatus.DEGRADED,
+                latency_ms=int((time.time() - start_time) * 1000),
+                error_message="Sessions directory not found",
+                last_seen_path=str(project_dir),
+            )
+        session_files = list(sessions_dir.glob("*.jsonl"))
+        latency_ms = int((time.time() - start_time) * 1000)
+        if session_files:
+            last_session = str(session_files[-1])
+            return SourceHealthResult(
+                status=HealthStatus.OK,
+                latency_ms=latency_ms,
+                last_seen_path=last_session,
+            )
+        return SourceHealthResult(
+            status=HealthStatus.DEGRADED,
+            latency_ms=latency_ms,
+            error_message="No sessions found",
+            last_seen_path=str(sessions_dir),
+        )
 
     def get_session_id(self, path: Path) -> str:
         return f"claude-code-{path.stem}"

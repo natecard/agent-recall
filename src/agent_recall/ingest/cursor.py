@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from agent_recall.ingest.base import RawMessage, RawSession, RawToolCall, SessionIngester
+from agent_recall.ingest.health import HealthStatus, SourceHealthResult
 
 
 @dataclass(frozen=True)
@@ -79,6 +81,30 @@ class CursorIngester(SessionIngester):
             appdata = os.environ.get("APPDATA", "")
             return Path(appdata) / "Cursor/User/globalStorage/state.vscdb"
         raise RuntimeError(f"Unsupported platform: {system}")
+
+    def check_health(self) -> SourceHealthResult:
+        start_time = time.time()
+        if not self.storage_dir.exists():
+            return SourceHealthResult(
+                status=HealthStatus.UNAVAILABLE,
+                latency_ms=int((time.time() - start_time) * 1000),
+                error_message=f"Cursor storage directory not found: {self.storage_dir}",
+            )
+        workspace_dbs = self._find_workspace_dbs()
+        latency_ms = int((time.time() - start_time) * 1000)
+        if workspace_dbs:
+            last_db = str(workspace_dbs[-1])
+            return SourceHealthResult(
+                status=HealthStatus.OK,
+                latency_ms=latency_ms,
+                last_seen_path=last_db,
+            )
+        return SourceHealthResult(
+            status=HealthStatus.DEGRADED,
+            latency_ms=latency_ms,
+            error_message="No workspace databases found for current project",
+            last_seen_path=str(self.storage_dir),
+        )
 
     def _find_workspace_dbs(self) -> list[Path]:
         if self.cursor_db_path is not None:

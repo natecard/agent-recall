@@ -81,3 +81,13 @@
 - [PATTERN] Register views in all required locations consistently.
 - [PATTERN] Add focused tests for store operations and view registration.
 - [PATTERN] Use reactive properties for dynamic widget behavior.
+- [PATTERN] Followed InteractiveSourcesWidget and InteractiveTimelineWidget patterns for widget composition. Used tier_format parse_tier_content and merge_tier_content for entry parsing/reconstruction.
+- [PATTERN] Added search state flags to app.py initialization, search methods to ActivityMixin, and Input widget to compose() method. Used on_key_activity_search_input for targeted key handling and on_input_changed_activity_search_input for real-time search updates.
+- [PATTERN] Created CurationQueueWidget as a simple dataclass widget following existing patterns (ForecastWidget, KnowledgeWidget), then registered view in all required locations (view_select.py, local_router.py, app.py, palette_actions.py, palette_router.py, bindings.py, help_text.py). Added 11 focused tests for store operations and view registration.
+- [PATTERN] Created ForecastWidget as a dataclass widget following existing patterns (RalphStatusWidget, KnowledgeWidget), then registered view in all required locations (view_select.py, local_router.py, app.py, palette_actions.py, help_text.py, bindings.py).
+- [PATTERN] Created a dedicated ResizableSplit widget with reactive left_width property and mouse event handling via ResizeHandle. Updated DiffScreen to use ResizableSplit instead of fixed-width Container layout.
+- [PATTERN] Enhanced existing SessionsViewModal with sources data parameter and DataTable for source status/sync; reused existing _run_source_sync infrastructure for sync button handling.
+- [PATTERN] Grep search for 'llm' across the codebase first, then targeted edits to each file. Test suite runs after each batch of edits to catch missed references.
+- [PATTERN] Implementing a minimal CLI compatibility slice with focused command-construction tests and subprocess command assertions kept scope tight and validation reliable.
+- [PATTERN] Run full gate first, patch only the failing assertion expectations without changing runtime behavior, then rerun the full suite.
+- [PATTERN] Used grep with pattern matching to find all non-standard spacing values; batch edits in parallel; validated with full test suite.

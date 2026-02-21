@@ -13,125 +13,19 @@
   },
   "items": [
     {
-      "id": "AR-260220-01",
-      "priority": 1,
-      "title": "TUI: Enhance Iteration Diff Viewer UI",
-      "description": "The Iteration Diff Viewer needs UI improvements: the file tree panel should be resizable, and the title must display the current iteration or commit information to provide context.",
-      "user_story": "As a developer using the TUI, I want to clearly see the iteration identifier and resize the file tree in the Iteration Diff Viewer so I can easily contextualize and review code changes.",
-      "steps": [
-        "[DONE] Add a resizable handle or integrate a `Splitter` component between the `DiffTreeViewer` and the content view.",
-        "[DONE] Update `IterationDetailModal` or the diff viewer component to accept and display the iteration identifier/title in its header.",
-        "[DONE] Ensure CSS supports layout changes for a resizable tree."
-      ],
-      "acceptance_criteria": [
-        "User can drag the boundary between the file tree and diff content to resize it.",
-        "The top of the viewer clearly states which iteration/commit is being viewed."
-      ],
-      "validation_commands": [
-        "uv run pytest tests/ -k diff_viewer -v",
-        "uv run agent-recall open"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-260220-05",
-      "priority": 2,
-      "title": "Ralph Forecasting Panel (view:forecast)",
-      "description": "Surface the output of the existing ForecastGenerator and per-iteration cost data from IterationReportStore as a dedicated 'view:forecast' panel in the TUI dashboard. The panel should show predicted completion time for the current PRD queue, cumulative token cost vs budget, per-item cost history, and risk indicators for items that have a pattern of hard_failure outcomes.",
-      "user_story": "As a developer running Ralph loops, I want a live forecasting panel in the TUI so I can see projected cost, estimated time to completion, and which PRD items are at risk of repeated failure — all without running a separate CLI command.",
-      "steps": [
-        "[DONE] Register 'forecast' as a new named view in the dashboard view registry alongside the existing 9 views (overview, knowledge, sources, etc.)",
-        "[DONE] Create a new ForecastWidget in src/agent_recall/cli/tui/widgets/forecast_widget.py that reads from IterationReportStore and ForecastGenerator",
-        "[DONE] Display the following sections in the panel: (1) Queue summary — total items, completed, remaining, estimated iterations to completion; (2) Cost tracker — total spend, budget cap, projected overage; (3) Per-item cost table — item ID, title, token count, USD cost, outcome; (4) Risk table — items with 2+ consecutive failures flagged in yellow/red",
-        "[DONE] Add 'F' as a hotkey alias for view:forecast in CommandsMixin and the Ctrl+P palette",
-        "[DONE] Auto-refresh the panel every 10 seconds when Ralph is actively running (detect via RalphStateManager.status == ENABLED)",
-        "[DONE] Expose the forecast view in the keybinding footer"
-      ],
-      "acceptance_criteria": [
-        "Navigating to view:forecast renders without error even when no iterations have run yet (shows empty state)",
-        "The cost tracker reflects the same values as 'agent-recall ralph cost-report' — no divergence",
-        "Items with 2+ consecutive hard_failure outcomes appear in the risk table with a red indicator",
-        "The panel auto-refreshes every 10s when Ralph state is ENABLED; it does not poll when DISABLED",
-        "Pressing 'F' or selecting 'Forecast' from the Ctrl+P palette navigates to view:forecast"
-      ],
-      "validation_commands": [
-        "uv run pytest tests/ -k forecast_panel -v",
-        "uv run agent-recall open"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-260220-06",
-      "priority": 1,
-      "title": "Session Curation Queue (view:queue)",
-      "description": "Expose the session curation queue as a first-class TUI view (view:queue). Ingested conversations awaiting approval before flowing into compact should appear as a scrollable list with per-entry approval, rejection, and label-edit actions — modelled after a 'git add -p' style workflow. Approved entries must be passed downstream to the compact pipeline; rejected entries must be discarded without affecting the knowledge base.",
-      "user_story": "As a developer, I want to review and approve individual ingested conversation chunks before they are compacted into my permanent knowledge base, so I stay in full control of what the agent learns.",
-      "steps": [
-        "[DONE] Define a CurationQueueStore in src/agent_recall/storage/curation_queue.py that serialises pending chunks to .agent/curation_queue.json with fields: chunk_id, source, timestamp, content_preview (first 200 chars), proposed_label, status (pending/approved/rejected)",
-        "[DONE] Wire the existing ingest pipeline to write newly ingested chunks to CurationQueueStore when curation mode is enabled in config (add 'curation_mode: true' flag under [storage] in config)",
-        "[DONE] Create CurationQueueWidget in src/agent_recall/cli/tui/widgets/curation_queue.py rendering a paginated list of pending items with metadata",
-        "[DONE] Add keybindings: 'y' approve, 'n' reject, 'e' edit proposed label, 'a' approve-all-visible, with a confirmation modal for approve-all",
-        "[DONE] On approval, call the existing compact/storage pipeline to promote the chunk; on rejection, mark it rejected in the queue store and do not ingest",
-        "[DONE] Register 'queue' as a named view in the dashboard and add 'Q' hotkey and Ctrl+P palette entry",
-        "[DONE] Show a badge/count indicator on the dashboard status bar when there are pending curation items (e.g. '3 pending')"
-      ],
-      "acceptance_criteria": [
-        "When curation_mode is enabled, newly ingested sessions appear in view:queue as pending items before reaching the knowledge base",
-        "Pressing 'y' on an item approves it and removes it from the pending list; the chunk appears in the knowledge base after the next compact cycle",
-        "Pressing 'n' on an item rejects it; the chunk does not appear in any knowledge tier",
-        "Pressing 'e' opens an inline label editor; the edited label is used if the item is subsequently approved",
-        "The status bar shows a pending count badge when items are waiting; the badge clears when the queue is empty",
-        "The view renders correctly when the queue is empty with a 'No pending items' placeholder"
-      ],
-      "validation_commands": [
-        "uv run pytest tests/ -k curation_queue -v",
-        "uv run agent-recall open"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-260220-07",
-      "priority": 1,
-      "title": "Activity Log Fuzzy Search (Ctrl+F)",
-      "description": "Add an inline fuzzy-search overlay to the activity log panel that activates on Ctrl+F, searches across the in-memory deque buffer (up to 2000 entries), highlights matches, and scrolls to the first result. Subsequent presses of Enter/n cycle through matches; Escape dismisses the overlay and restores the normal log scroll position.",
-      "user_story": "As a developer monitoring a long-running Ralph session, I want to be able to quickly search the activity log by keyword so I can find specific events, errors, or outputs without scrolling manually.",
-      "steps": [
-        "[DONE] Add a fuzzy_search_active: bool state flag and search_query: str to the activity panel state in ActivityMixin",
-        "[DONE] On Ctrl+F, render a search bar widget at the bottom of the activity log panel (similar to the existing palette overlay pattern)",
-        "[DONE] As the user types, filter the deque buffer for lines containing the query (case-insensitive substring match); highlight matching substrings using Textual markup",
-        "[DONE] Display match count (e.g. '3/12 matches') in the search bar",
-        "[DONE] Enter or 'n' cycles forward through matches; 'N' cycles backward; Escape dismisses and restores full log view",
-        "[DONE] The search overlay must not block other global keybindings (Ctrl+P palette, tab switching) — it should only capture alphanumeric input when active",
-        "[DONE] Add Ctrl+F to the keybinding help footer"
-      ],
-      "acceptance_criteria": [
-        "Pressing Ctrl+F opens the search bar without disrupting the rest of the TUI layout",
-        "Typing a query immediately filters and highlights matching lines in the activity log",
-        "The match counter accurately reflects how many lines contain the query",
-        "Pressing Enter/n advances to the next match; 'N' goes to the previous",
-        "Pressing Escape closes the overlay and restores the full unfiltered activity log at its previous scroll position",
-        "Ctrl+P and tab navigation continue to work correctly while the search overlay is active"
-      ],
-      "validation_commands": [
-        "uv run pytest tests/ -k activity_search -v",
-        "uv run agent-recall open"
-      ],
-      "passes": true
-    },
-    {
       "id": "AR-260220-08",
       "priority": 1,
       "title": "Source Health Check with Status Indicators",
       "description": "Extend the InteractiveSourcesWidget with a per-source health check protocol. Each ingester should expose a lightweight probe (not a full ingest) that checks connectivity/path availability and returns a HealthStatus (ok, degraded, unavailable) plus a latency or last-seen timestamp. The TUI renders color-coded status dots next to each source and a Ctrl+R shortcut to re-probe all sources.",
       "user_story": "As a developer, I want to see at a glance which of my configured ingest sources are healthy, degraded, or broken in the TUI sources view, so I can diagnose issues without running a full ingest cycle.",
       "steps": [
-        "Define a HealthStatus enum (OK, DEGRADED, UNAVAILABLE) and a SourceHealthResult dataclass (status, latency_ms, last_seen_path, error_message) in src/agent_recall/ingest/health.py",
-        "Add a check_health() -> SourceHealthResult method to the base ingester interface in src/agent_recall/ingest/base.py",
-        "Implement check_health() for each existing ingester (claude_code, cursor, file, etc.) — for file-based ingesters check path existence; for API-based ones attempt a lightweight HEAD/ping",
-        "Update InteractiveSourcesWidget to display a colored status indicator (● green / ● yellow / ● red) next to each source name reflecting the last known HealthResult",
-        "Add 'Ctrl+R' keybinding to re-run all health probes via WorkerMixin's worker thread; show a brief 'Checking...' spinner during the probe",
-        "Persist the last health check result to .agent/source_health.json so it is available immediately on TUI start without re-probing",
-        "Add the Ctrl+R hint to the sources view footer"
+        "[DONE] Define a HealthStatus enum (OK, DEGRADED, UNAVAILABLE) and a SourceHealthResult dataclass (status, latency_ms, last_seen_path, error_message) in src/agent_recall/ingest/health.py",
+        "[DONE] Add a check_health() -> SourceHealthResult method to the base ingester interface in src/agent_recall/ingest/base.py",
+        "[DONE] Implement check_health() for each existing ingester (claude_code, cursor, file, etc.) — for file-based ingesters check path existence; for API-based ones attempt a lightweight HEAD/ping",
+        "[DONE] Update InteractiveSourcesWidget to display a colored status indicator (● green / ● yellow / ● red) next to each source name reflecting the last known HealthResult",
+        "[DONE] Add 'Ctrl+R' keybinding to re-run all health probes via WorkerMixin's worker thread; show a brief 'Checking...' spinner during the probe",
+        "[DONE] Persist the last health check result to .agent/source_health.json so it is available immediately on TUI start without re-probing",
+        "[DONE] Add the Ctrl+R hint to the sources view footer"
       ],
       "acceptance_criteria": [
         "Each source in view:sources displays a color-coded health dot (green/yellow/red) based on the last health check result",
@@ -144,7 +38,7 @@
         "uv run pytest tests/ -k source_health -v",
         "uv run agent-recall open"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-260220-09",

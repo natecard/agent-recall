@@ -24,6 +24,7 @@ from agent_recall.cli.tui.widgets import (
     TimelineWidget,
 )
 from agent_recall.core.onboarding import API_KEY_ENV_BY_PROVIDER
+from agent_recall.ingest.health import SourceHealthStore
 from agent_recall.ralph.iteration_store import IterationReportStore
 from agent_recall.storage.curation_queue import CurationQueueStore
 from agent_recall.storage.files import KnowledgeTier
@@ -301,11 +302,12 @@ def build_dashboard_panels(
 def build_sources_data(
     context: DashboardRenderContext,
     all_cursor_workspaces: bool = False,
+    health_store: SourceHealthStore | None = None,
 ) -> tuple[list[dict[str, object]], str]:
     """Build sources data for InteractiveSourcesWidget.
 
     Returns a tuple of (sources_list, last_synced_display).
-    Each source dict contains: name, status, sessions, available.
+    Each source dict contains: name, status, sessions, available, health_status.
     """
     storage = context.get_storage()
     files = context.get_files()
@@ -319,6 +321,10 @@ def build_sources_data(
         )
     )
 
+    health_results = {}
+    if health_store is not None:
+        health_results = health_store.load()
+
     sources_data: list[dict[str, object]] = []
     for ingester in ingesters:
         try:
@@ -326,21 +332,28 @@ def build_sources_data(
             session_count = len(sessions)
             available = session_count > 0
 
+            health_result = health_results.get(ingester.source_name)
+            health_status = health_result.status.value if health_result else None
+
             sources_data.append(
                 {
                     "name": ingester.source_name,
                     "status": "available" if available else "empty",
                     "sessions": session_count,
                     "available": available,
+                    "health_status": health_status,
                 }
             )
         except Exception:  # noqa: BLE001
+            health_result = health_results.get(ingester.source_name)
+            health_status = health_result.status.value if health_result else None
             sources_data.append(
                 {
                     "name": ingester.source_name,
                     "status": "error",
                     "sessions": 0,
                     "available": False,
+                    "health_status": health_status,
                 }
             )
 

@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import os
 import platform
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from agent_recall.ingest.base import RawMessage, RawSession, RawToolCall, SessionIngester
+from agent_recall.ingest.health import HealthStatus, SourceHealthResult
 
 
 class OpenCodeIngester(SessionIngester):
@@ -103,6 +105,45 @@ class OpenCodeIngester(SessionIngester):
             return True
 
         return False
+
+    def check_health(self) -> SourceHealthResult:
+        start_time = time.time()
+        if not self.storage_dir.exists():
+            if not self.opencode_dir.exists():
+                return SourceHealthResult(
+                    status=HealthStatus.UNAVAILABLE,
+                    latency_ms=int((time.time() - start_time) * 1000),
+                    error_message=f"OpenCode directory not found: {self.opencode_dir}",
+                )
+            return SourceHealthResult(
+                status=HealthStatus.DEGRADED,
+                latency_ms=int((time.time() - start_time) * 1000),
+                error_message="Storage directory not found",
+                last_seen_path=str(self.opencode_dir),
+            )
+        sessions_dir = self.storage_dir / "session"
+        if not sessions_dir.exists():
+            return SourceHealthResult(
+                status=HealthStatus.DEGRADED,
+                latency_ms=int((time.time() - start_time) * 1000),
+                error_message="Sessions directory not found",
+                last_seen_path=str(self.storage_dir),
+            )
+        session_files = list(sessions_dir.rglob("ses_*.json"))
+        latency_ms = int((time.time() - start_time) * 1000)
+        if session_files:
+            last_session = str(session_files[-1])
+            return SourceHealthResult(
+                status=HealthStatus.OK,
+                latency_ms=latency_ms,
+                last_seen_path=last_session,
+            )
+        return SourceHealthResult(
+            status=HealthStatus.DEGRADED,
+            latency_ms=latency_ms,
+            error_message="No sessions found",
+            last_seen_path=str(sessions_dir),
+        )
 
     def _session_updated_at(self, payload: dict[str, Any], fallback_path: Path) -> datetime:
         if isinstance(payload.get("time"), dict):

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from agent_recall.ingest.base import RawMessage, RawSession, RawToolCall, SessionIngester
+from agent_recall.ingest.health import HealthStatus, SourceHealthResult
 
 
 class CodexIngester(SessionIngester):
@@ -151,6 +153,38 @@ class CodexIngester(SessionIngester):
         if session_cwd is None:
             return False
         return session_cwd == self.project_path
+
+    def check_health(self) -> SourceHealthResult:
+        start_time = time.time()
+        if not self.codex_dir.exists():
+            return SourceHealthResult(
+                status=HealthStatus.UNAVAILABLE,
+                latency_ms=int((time.time() - start_time) * 1000),
+                error_message=f"Codex directory not found: {self.codex_dir}",
+            )
+        if not self.sessions_dir.exists():
+            return SourceHealthResult(
+                status=HealthStatus.DEGRADED,
+                latency_ms=int((time.time() - start_time) * 1000),
+                error_message="Sessions directory not found",
+                last_seen_path=str(self.codex_dir),
+            )
+        session_files = list(self.sessions_dir.rglob("*"))
+        session_files = [f for f in session_files if f.suffix in {".json", ".jsonl"}]
+        latency_ms = int((time.time() - start_time) * 1000)
+        if session_files:
+            last_session = str(session_files[-1])
+            return SourceHealthResult(
+                status=HealthStatus.OK,
+                latency_ms=latency_ms,
+                last_seen_path=last_session,
+            )
+        return SourceHealthResult(
+            status=HealthStatus.DEGRADED,
+            latency_ms=latency_ms,
+            error_message="No sessions found",
+            last_seen_path=str(self.sessions_dir),
+        )
 
     def discover_sessions(self, since: datetime | None = None) -> list[Path]:
         if not self.sessions_dir.exists():

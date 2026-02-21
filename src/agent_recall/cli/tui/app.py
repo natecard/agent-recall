@@ -341,14 +341,19 @@ class AgentRecallTextualApp(
 
     def _build_interactive_sources_widget(self) -> InteractiveSourcesWidget:
         """Build the interactive sources widget with sync buttons."""
+        from agent_recall.ingest.health import SourceHealthStore
+
+        health_store = SourceHealthStore(self._dashboard_context.agent_dir)
         sources_data, last_synced = build_sources_data(
             self._dashboard_context,
             all_cursor_workspaces=self.all_cursor_workspaces,
+            health_store=health_store,
         )
         return InteractiveSourcesWidget(
             sources=sources_data,
             on_sync=self._handle_source_sync_click,
             last_synced=last_synced,
+            on_health_check=self._run_health_check,
             id="dashboard_sources_interactive",
         )
 
@@ -415,6 +420,53 @@ class AgentRecallTextualApp(
     ) -> None:
         """Handle source sync request from SessionsViewModal."""
         self._run_source_sync(event.source_name)
+
+    def on_sessions_view_modal_health_check_requested(
+        self, event: SessionsViewModal.HealthCheckRequested
+    ) -> None:
+        """Handle health check request from SessionsViewModal."""
+        self._run_health_check()
+
+    def _run_health_check(self) -> None:
+        """Run health check for all sources."""
+        from agent_recall.ingest.health import SourceHealthStore
+
+        agent_dir = self._dashboard_context.agent_dir
+        health_store = SourceHealthStore(agent_dir)
+        files = self._dashboard_context.get_files()
+        selected_sources = self._dashboard_context.get_repo_selected_sources(files)
+        ingesters = list(
+            self._dashboard_context.filter_ingesters_by_sources(
+                self._dashboard_context.get_default_ingesters(
+                    cursor_all_workspaces=self.all_cursor_workspaces
+                ),
+                selected_sources,
+            )
+        )
+
+        health_results = {}
+        for ingester in ingesters:
+            try:
+                result = ingester.check_health()
+                health_results[ingester.source_name] = result
+            except Exception:
+                pass
+
+        health_store.save(health_results)
+        self._append_activity(f"Health check completed for {len(health_results)} source(s).")
+
+        try:
+            modal = self.query_one(SessionsViewModal)
+            if modal:
+                sources_data, _ = build_sources_data(
+                    self._dashboard_context,
+                    all_cursor_workspaces=self.all_cursor_workspaces,
+                    health_store=health_store,
+                )
+                modal.update_sources(sources_data)
+                modal.set_checking_health(False)
+        except Exception:
+            pass
 
     def _mount_dashboard_widgets(self, dashboard: Vertical, panels: DashboardPanels) -> None:
         if panels.header is not None:

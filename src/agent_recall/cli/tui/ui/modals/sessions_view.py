@@ -11,6 +11,8 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
+from agent_recall.ingest.health import HealthStatus
+
 
 class SessionsViewModal(ModalScreen[dict[str, object] | None]):
     """An interactive modal replacing the text-based console output for Sessions/Sources."""
@@ -22,8 +24,15 @@ class SessionsViewModal(ModalScreen[dict[str, object] | None]):
             super().__init__()
             self.source_name = source_name
 
+    class HealthCheckRequested(Message):
+        """Emitted when Ctrl+R is pressed to re-probe all sources."""
+
+        def __init__(self) -> None:
+            super().__init__()
+
     BINDINGS = [
         Binding("escape", "dismiss(None)", "Close"),
+        Binding("ctrl+r", "request_health_check", "Re-probe sources"),
     ]
 
     def __init__(
@@ -38,6 +47,17 @@ class SessionsViewModal(ModalScreen[dict[str, object] | None]):
         self.initial_filter = initial_filter
         self.filter_query = initial_filter
         self._syncing_sources: set[str] = set()
+        self._checking_health: bool = False
+
+    @staticmethod
+    def _health_dot(health_status: str | None) -> str:
+        if health_status == HealthStatus.OK.value:
+            return "[success]●[/success]"
+        if health_status == HealthStatus.DEGRADED.value:
+            return "[warning]●[/warning]"
+        if health_status == HealthStatus.UNAVAILABLE.value:
+            return "[error]●[/error]"
+        return "[dim]●[/dim]"
 
     def compose(self) -> ComposeResult:
         with Container(id="modal_overlay"):
@@ -76,13 +96,30 @@ class SessionsViewModal(ModalScreen[dict[str, object] | None]):
             return
         try:
             table = self.query_one("#sources_table", DataTable)
-            table.add_columns("Source", "Status", "Sessions", "Action")
+            table.clear(columns=True)
+            table.add_columns("Health", "Source", "Status", "Sessions", "Action")
 
             for source in self.sources:
                 name = str(source.get("name", "unknown"))
                 available = bool(source.get("available", False))
-                sessions = int(source.get("count", 0))  # type: ignore[arg-type]
                 error = source.get("error")
+                health_status_raw = source.get("health_status")
+                health_status = str(health_status_raw) if health_status_raw is not None else None
+                count_val = source.get("count")
+                sessions_raw = source.get("sessions")
+                sessions_val: int = 0
+                if count_val is not None:
+                    try:
+                        sessions_val = int(str(count_val))
+                    except (TypeError, ValueError):
+                        sessions_val = 0
+                elif sessions_raw is not None:
+                    try:
+                        sessions_val = int(str(sessions_raw))
+                    except (TypeError, ValueError):
+                        sessions_val = 0
+
+                health_dot = self._health_dot(health_status)
 
                 if error:
                     status_text = "[error]✗ Error[/error]"
@@ -102,17 +139,40 @@ class SessionsViewModal(ModalScreen[dict[str, object] | None]):
                 )
 
                 table.add_row(
+                    health_dot,
                     name,
                     status_text,
-                    str(sessions),
+                    str(sessions_val),
                     sync_button,
                     key=name,
                 )
 
             status_widget = self.query_one("#sources_status", Static)
-            status_widget.update("[dim]Select a source to sync or browse conversations below[/dim]")
+            checking_indicator = " [warning]Checking...[/warning]" if self._checking_health else ""
+            status_widget.update(
+                "[dim]Select a source to sync or browse conversations below"
+                f"{checking_indicator} | Ctrl+R to re-probe[/dim]"
+            )
         except Exception:
             pass
+
+    def set_checking_health(self, checking: bool) -> None:
+        """Set the checking health indicator state."""
+        self._checking_health = checking
+        try:
+            status_widget = self.query_one("#sources_status", Static)
+            checking_indicator = " [warning]Checking...[/warning]" if checking else ""
+            status_widget.update(
+                "[dim]Select a source to sync or browse conversations below"
+                f"{checking_indicator} | Ctrl+R to re-probe[/dim]"
+            )
+        except Exception:
+            pass
+
+    def update_sources(self, sources: list[dict[str, object]]) -> None:
+        """Update the sources data and rebuild the table."""
+        self.sources = sources
+        self._build_sources_table()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "sessions_view_close":
@@ -128,6 +188,10 @@ class SessionsViewModal(ModalScreen[dict[str, object] | None]):
             event.button.label = "Syncing..."
             event.button.disabled = True
             self.post_message(self.SourceSyncRequested(source_name))
+
+    def action_request_health_check(self) -> None:
+        """Handle Ctrl+R to request a health check."""
+        self.post_message(self.HealthCheckRequested())
 
     def on_key(self, event: events.Key) -> None:
         if event.key == "enter":
@@ -205,7 +269,6 @@ class SessionsViewModal(ModalScreen[dict[str, object] | None]):
         started = session.get("started", "")
         processed = session.get("processed", False)
 
-        # Pad title for column-like alignment
         padded_title = f"{title:<50}"[:50]
 
         source_str = f"{source:<10}"[:10]
@@ -254,3 +317,8 @@ class SessionsViewModal(ModalScreen[dict[str, object] | None]):
                 )
 
         option_list.set_options(options)
+
+    def mark_sync_complete(self, source_name: str, success: bool = True) -> None:
+        """Mark a sync operation as complete and update the button."""
+        self._syncing_sources.discard(source_name)
+        self._build_sources_table()

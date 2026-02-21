@@ -3013,3 +3013,136 @@ def test_close_inline_picker_closes_search(monkeypatch) -> None:
     app._activity_search_active = True
     app.action_close_inline_picker()
     assert app._activity_search_active is False
+
+
+def test_health_status_enum_values() -> None:
+    """Test that HealthStatus enum has correct values."""
+    from agent_recall.ingest.health import HealthStatus
+
+    assert HealthStatus.OK.value == "ok"
+    assert HealthStatus.DEGRADED.value == "degraded"
+    assert HealthStatus.UNAVAILABLE.value == "unavailable"
+
+
+def test_source_health_result_to_dict_and_from_dict() -> None:
+    """Test SourceHealthResult serialization round-trip."""
+    from datetime import datetime
+
+    from agent_recall.ingest.health import HealthStatus, SourceHealthResult
+
+    result = SourceHealthResult(
+        status=HealthStatus.OK,
+        latency_ms=42,
+        last_seen_path="/path/to/session.json",
+        error_message=None,
+        checked_at=datetime(2024, 1, 15, 10, 30, 0),
+    )
+    data = result.to_dict()
+    assert data["status"] == "ok"
+    assert data["latency_ms"] == 42
+    assert data["last_seen_path"] == "/path/to/session.json"
+
+    restored = SourceHealthResult.from_dict(data)
+    assert restored.status == HealthStatus.OK
+    assert restored.latency_ms == 42
+    assert restored.last_seen_path == "/path/to/session.json"
+
+
+def test_source_health_store_save_and_load(tmp_path: Path) -> None:
+    """Test SourceHealthStore persistence."""
+    from agent_recall.ingest.health import HealthStatus, SourceHealthResult, SourceHealthStore
+
+    store = SourceHealthStore(tmp_path)
+    result = SourceHealthResult(
+        status=HealthStatus.DEGRADED,
+        latency_ms=100,
+        error_message="No sessions found",
+    )
+    store.set("cursor", result)
+
+    loaded = store.get("cursor")
+    assert loaded is not None
+    assert loaded.status == HealthStatus.DEGRADED
+    assert loaded.error_message == "No sessions found"
+
+    all_results = store.load()
+    assert "cursor" in all_results
+    assert all_results["cursor"].status == HealthStatus.DEGRADED
+
+
+def test_interactive_sources_widget_health_dot() -> None:
+    """Test that InteractiveSourcesWidget displays correct health dots."""
+    from agent_recall.cli.tui.widgets import InteractiveSourcesWidget
+
+    assert InteractiveSourcesWidget._health_dot("ok") == "[success]●[/success]"
+    assert InteractiveSourcesWidget._health_dot("degraded") == "[warning]●[/warning]"
+    assert InteractiveSourcesWidget._health_dot("unavailable") == "[error]●[/error]"
+    assert InteractiveSourcesWidget._health_dot(None) == "[dim]●[/dim]"
+
+
+def test_interactive_sources_widget_with_health_status() -> None:
+    """Test that InteractiveSourcesWidget accepts health_status in source data."""
+    from agent_recall.cli.tui.widgets import InteractiveSourcesWidget
+
+    sources = [
+        {
+            "name": "cursor",
+            "status": "available",
+            "sessions": 5,
+            "available": True,
+            "health_status": "ok",
+        },
+        {
+            "name": "codex",
+            "status": "empty",
+            "sessions": 0,
+            "available": False,
+            "health_status": "degraded",
+        },
+        {
+            "name": "claude-code",
+            "status": "error",
+            "sessions": 0,
+            "available": False,
+            "health_status": "unavailable",
+        },
+    ]
+    widget = InteractiveSourcesWidget(
+        sources=sources,
+        on_sync=lambda _name: None,
+        last_synced="2024-01-15 10:30 UTC",
+    )
+    assert widget.sources == sources
+
+
+def test_interactive_sources_widget_health_check_callback() -> None:
+    """Test that InteractiveSourcesWidget calls on_health_check callback."""
+    from agent_recall.cli.tui.widgets import InteractiveSourcesWidget
+
+    health_check_calls: list[int] = []
+
+    def on_health_check() -> None:
+        health_check_calls.append(1)
+
+    widget = InteractiveSourcesWidget(
+        sources=[{"name": "cursor", "sessions": 0, "available": False}],
+        on_sync=lambda _name: None,
+        on_health_check=on_health_check,
+    )
+    widget.request_health_check()
+    assert len(health_check_calls) == 1
+
+
+def test_interactive_sources_widget_set_checking_health() -> None:
+    """Test that set_checking_health updates state correctly."""
+    from agent_recall.cli.tui.widgets import InteractiveSourcesWidget
+
+    widget = InteractiveSourcesWidget(
+        sources=[{"name": "cursor", "sessions": 0, "available": False}],
+        on_sync=lambda _name: None,
+    )
+    assert widget._checking_health is False
+    widget.set_checking_health(True)
+    assert widget._checking_health is True
+    widget.set_checking_health(False)
+    assert widget._checking_health is False
