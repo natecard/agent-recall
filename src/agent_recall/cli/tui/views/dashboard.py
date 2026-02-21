@@ -15,6 +15,7 @@ from rich.text import Text
 from agent_recall.cli.banner import BannerRenderer
 from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
 from agent_recall.cli.tui.widgets import (
+    CurationQueueWidget,
     ForecastWidget,
     KnowledgeWidget,
     RalphStatusWidget,
@@ -24,6 +25,7 @@ from agent_recall.cli.tui.widgets import (
 )
 from agent_recall.core.onboarding import API_KEY_ENV_BY_PROVIDER
 from agent_recall.ralph.iteration_store import IterationReportStore
+from agent_recall.storage.curation_queue import CurationQueueStore
 from agent_recall.storage.files import KnowledgeTier
 from agent_recall.storage.models import LLMConfig
 
@@ -38,6 +40,7 @@ class DashboardPanels:
     timeline: Panel
     ralph: Panel
     forecast: Panel
+    queue: Panel
     slash_console: Panel | None
     source_names: list[str]
 
@@ -230,6 +233,9 @@ def build_dashboard_panels(
         cost_budget_usd=cost_budget_usd,
         format_usd=context.format_usd,
     )
+    curation_queue_store = CurationQueueStore(context.agent_dir)
+    curation_queue_widget = CurationQueueWidget(store=curation_queue_store)
+    curation_pending_count = curation_queue_store.count_pending()
 
     header_panel = None
     if include_banner_header and header_text:
@@ -241,6 +247,9 @@ def build_dashboard_panels(
                 else "[dim]Ralph Idle[/dim]"
             )
             status_line = f"{badge}  [dim]Ctrl+Q to exit[/dim]"
+        if curation_pending_count > 0:
+            pending_badge = f"[warning]{curation_pending_count} pending[/warning]"
+            status_line = f"{pending_badge}  {status_line}"
         header_content = Group(
             Text(status_line),
             Text(),
@@ -258,6 +267,7 @@ def build_dashboard_panels(
     timeline_panel = timeline_widget.render(detail=view == "timeline")
     ralph_panel = ralph_widget.render()
     forecast_panel = forecast_widget.render()
+    queue_panel = curation_queue_widget.render()
 
     slash_panel = None
     if show_slash_console:
@@ -282,6 +292,7 @@ def build_dashboard_panels(
         timeline=timeline_panel,
         ralph=ralph_panel,
         forecast=forecast_panel,
+        queue=queue_panel,
         slash_console=slash_panel,
         source_names=source_names,
     )
@@ -451,6 +462,9 @@ def build_tui_dashboard(
     elif view == "forecast":
         if visibility.get("forecast", True):
             renderables.append(panels.forecast)
+    elif view == "queue":
+        if visibility.get("queue", True):
+            renderables.append(panels.queue)
     elif view == "settings":
         if visibility.get("settings", True):
             renderables.append(panels.settings)

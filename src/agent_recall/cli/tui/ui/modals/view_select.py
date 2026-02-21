@@ -15,6 +15,7 @@ class ViewSelectModal(ModalScreen[str | None]):
     VIEWS = [
         ("overview", "Overview - High-level repository status"),
         ("knowledge", "Knowledge - Base artifacts and indexing"),
+        ("queue", "Queue - Curation queue for pending items"),
         ("settings", "Settings - Runtime and interface settings"),
         ("timeline", "Timeline - Iteration outcomes and summaries"),
         ("ralph", "Ralph - Ralph loop status and outcomes"),

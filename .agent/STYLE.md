@@ -67,3 +67,11 @@
 - [PATTERN] Validate with full suite after patching expectations.
 - [PATTERN] Use subprocess assertions for CLI validation.
 - [PATTERN] Use Rich markup for consistent heading styles.
+- [PATTERN] Use ResizableSplit for dynamic column layouts.
+- [PATTERN] Grep codebase for terms before targeted edits.
+- [PATTERN] Run full gate, then patch failing assertions.
+- [PATTERN] Check if sidebar/main children are empty before container creation.
+- [PATTERN] Batch edits and validate with full test suite.
+- [PATTERN] Run full gate first, then patch failing assertion expectations without changing runtime behavior, then rerun the full suite.
+- [PATTERN] Use grep with pattern matching to find all non-standard spacing values; batch edits in parallel; validated with full test suite.
+- [PATTERN] Verify current implementation and run focused/full validation before changing code; when behavior already matches acceptance, update PRD state instead of modifying runtime logic.

@@ -39,11 +39,13 @@ from agent_recall.cli.tui.ui.styles import APP_CSS
 from agent_recall.cli.tui.views import DashboardPanels, build_dashboard_panels, build_sources_data
 from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
 from agent_recall.cli.tui.widgets import (
+    InteractiveCurationQueueWidget,
     InteractiveKnowledgeWidget,
     InteractiveSourcesWidget,
     InteractiveTimelineWidget,
 )
 from agent_recall.ralph.iteration_store import IterationReport, IterationReportStore
+from agent_recall.storage.curation_queue import CurationQueueStore
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 
 
@@ -148,6 +150,7 @@ class AgentRecallTextualApp(
         self._interactive_sources_widget: InteractiveSourcesWidget | None = None
         self._interactive_timeline_widget: InteractiveTimelineWidget | None = None
         self._interactive_knowledge_widget: InteractiveKnowledgeWidget | None = None
+        self._interactive_curation_queue_widget: InteractiveCurationQueueWidget | None = None
         self.tui_widget_visibility: dict[str, bool] = {}
         self.tui_banner_size: str = "normal"
         self._last_layout_signature: tuple[str, tuple[tuple[str, bool], ...]] | None = None
@@ -362,6 +365,25 @@ class AgentRecallTextualApp(
     def _handle_knowledge_edit(self, tier: KnowledgeTier, entry: Any, new_text: str) -> None:
         self._append_activity(f"Edited {tier.value} entry: {new_text[:50]}...")
 
+    def _build_interactive_curation_queue_widget(self) -> InteractiveCurationQueueWidget:
+        store = CurationQueueStore(self._dashboard_context.agent_dir)
+        return InteractiveCurationQueueWidget(
+            store,
+            on_approve=self._handle_curation_approve,
+            on_reject=self._handle_curation_reject,
+            on_approve_all=self._handle_curation_approve_all,
+            id="dashboard_queue_interactive",
+        )
+
+    def _handle_curation_approve(self, item: Any) -> None:
+        self._append_activity(f"Approved item from {item.source}: {item.content_preview[:50]}...")
+
+    def _handle_curation_reject(self, chunk_id: str) -> None:
+        self._append_activity(f"Rejected item: {chunk_id}")
+
+    def _handle_curation_approve_all(self, count: int) -> None:
+        self._append_activity(f"Approved {count} items in curation queue.")
+
     def _open_iteration_detail(self, report: IterationReport) -> None:
         report_store = IterationReportStore(self._dashboard_context.agent_dir / "ralph")
         diff_text = report_store.load_diff_for_iteration(report.iteration) or ""
@@ -416,6 +438,12 @@ class AgentRecallTextualApp(
         elif self.current_view == "forecast":
             if self._is_widget_visible("forecast"):
                 dashboard.mount(Static(panels.forecast, id="dashboard_forecast"))
+        elif self.current_view == "queue":
+            if self._is_widget_visible("queue"):
+                self._interactive_curation_queue_widget = (
+                    self._build_interactive_curation_queue_widget()
+                )
+                dashboard.mount(self._interactive_curation_queue_widget)
         elif self.current_view == "settings":
             if self._is_widget_visible("settings"):
                 dashboard.mount(Static(panels.settings, id="dashboard_settings"))
@@ -495,6 +523,17 @@ class AgentRecallTextualApp(
             if not self._is_widget_visible("forecast"):
                 return False
             return self._update_static_widget("#dashboard_forecast", panels.forecast)
+        if self.current_view == "queue":
+            if not self._is_widget_visible("queue"):
+                return False
+            try:
+                widget = self.query_one(
+                    "#dashboard_queue_interactive", InteractiveCurationQueueWidget
+                )
+                widget.refresh_queue()
+                return True
+            except Exception:
+                return False
         if self.current_view == "settings":
             if not self._is_widget_visible("settings"):
                 return False

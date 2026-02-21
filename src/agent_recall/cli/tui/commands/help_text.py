@@ -21,6 +21,7 @@ def get_all_cli_commands() -> list[str]:
     views = [
         "overview",
         "knowledge",
+        "queue",
         "settings",
         "timeline",
         "ralph",
@@ -124,7 +125,7 @@ def build_tui_help_lines() -> list[str]:
             continue
         lines.append(f"[dim]/{contract.command}[/dim] - {contract.description}")
     lines.append(
-        "[dim]/view overview|knowledge|settings|timeline|ralph|forecast|console|all[/dim] "
+        "[dim]/view overview|knowledge|queue|settings|timeline|ralph|forecast|console|all[/dim] "
         "- switch TUI view"
     )
     lines.append("[dim]/run[/dim] - Alias for /sync (includes synthesis by default)")

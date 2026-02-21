@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC
 from pathlib import Path
 from typing import Any, cast
 
@@ -606,6 +607,7 @@ def test_dashboard_mount_skips_hidden_widgets() -> None:
         timeline=Panel("timeline"),
         ralph=Panel("ralph"),
         forecast=Panel("forecast"),
+        queue=Panel("queue"),
         slash_console=None,
         source_names=[],
     )
@@ -646,6 +648,7 @@ def test_all_view_handles_empty_sidebar_gracefully() -> None:
         timeline=Panel("timeline"),
         ralph=Panel("ralph"),
         forecast=Panel("forecast"),
+        queue=Panel("queue"),
         slash_console=None,
         source_names=[],
     )
@@ -685,6 +688,7 @@ def test_all_view_handles_empty_main_gracefully() -> None:
         timeline=Panel("timeline"),
         ralph=Panel("ralph"),
         forecast=Panel("forecast"),
+        queue=Panel("queue"),
         slash_console=None,
         source_names=[],
     )
@@ -724,6 +728,7 @@ def test_all_view_handles_all_hidden_gracefully() -> None:
         timeline=Panel("timeline"),
         ralph=Panel("ralph"),
         forecast=Panel("forecast"),
+        queue=Panel("queue"),
         slash_console=None,
         source_names=[],
     )
@@ -768,8 +773,9 @@ def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) ->
         timeline=Panel("timeline"),
         ralph=Panel("ralph"),
         forecast=Panel("forecast"),
+        queue=Panel("queue"),
         slash_console=None,
-        source_names=["cursor"],
+        source_names=[],
     )
 
     class _FakeDashboard:
@@ -2630,3 +2636,198 @@ def test_forecast_palette_action_exists() -> None:
     actions = get_palette_actions()
     action_ids = [a.action_id for a in actions]
     assert "view-forecast" in action_ids
+
+
+def test_curation_queue_store_round_trip(tmp_path) -> None:
+    """Test CurationQueueStore save and load operations."""
+    from datetime import datetime
+
+    from agent_recall.storage.curation_queue import (
+        CurationQueueItem,
+        CurationQueueStatus,
+        CurationQueueStore,
+    )
+
+    store = CurationQueueStore(tmp_path / ".agent")
+    item = CurationQueueItem(
+        chunk_id="test-123",
+        source="cursor",
+        timestamp=datetime.now(UTC),
+        content_preview="This is a test content preview",
+        proposed_label="pattern",
+        status=CurationQueueStatus.PENDING,
+    )
+    store.add(item)
+    loaded = store.load()
+    assert len(loaded) == 1
+    assert loaded[0].chunk_id == "test-123"
+    assert loaded[0].source == "cursor"
+    assert loaded[0].proposed_label == "pattern"
+
+
+def test_curation_queue_store_deduplication(tmp_path) -> None:
+    """Test that adding the same chunk twice only keeps one copy."""
+    from datetime import datetime
+
+    from agent_recall.storage.curation_queue import (
+        CurationQueueItem,
+        CurationQueueStatus,
+        CurationQueueStore,
+    )
+
+    store = CurationQueueStore(tmp_path / ".agent")
+    item1 = CurationQueueItem(
+        chunk_id="dup-123",
+        source="cursor",
+        timestamp=datetime.now(UTC),
+        content_preview="Test",
+        proposed_label="pattern",
+        status=CurationQueueStatus.PENDING,
+    )
+    item2 = CurationQueueItem(
+        chunk_id="dup-123",
+        source="cursor",
+        timestamp=datetime.now(UTC),
+        content_preview="Test again",
+        proposed_label="decision",
+        status=CurationQueueStatus.PENDING,
+    )
+    store.add(item1)
+    store.add(item2)
+    assert store.count_pending() == 1
+
+
+def test_curation_queue_store_status_updates(tmp_path) -> None:
+    """Test approve, reject, and approve_all operations."""
+    from datetime import datetime
+
+    from agent_recall.storage.curation_queue import (
+        CurationQueueItem,
+        CurationQueueStatus,
+        CurationQueueStore,
+    )
+
+    store = CurationQueueStore(tmp_path / ".agent")
+    for i in range(3):
+        item = CurationQueueItem(
+            chunk_id=f"item-{i}",
+            source="cursor",
+            timestamp=datetime.now(UTC),
+            content_preview=f"Preview {i}",
+            proposed_label="pattern",
+            status=CurationQueueStatus.PENDING,
+        )
+        store.add(item)
+
+    store.update_status("item-0", CurationQueueStatus.APPROVED)
+    store.update_status("item-1", CurationQueueStatus.REJECTED)
+    pending = store.get_pending()
+    assert len(pending) == 1
+    assert pending[0].chunk_id == "item-2"
+
+    count = store.approve_all()
+    assert count == 1
+    assert store.count_pending() == 0
+
+
+def test_curation_queue_widget_renders_empty_state(tmp_path) -> None:
+    """Test CurationQueueWidget renders correctly with no items."""
+    from agent_recall.cli.tui.widgets.curation_queue import CurationQueueWidget
+    from agent_recall.storage.curation_queue import CurationQueueStore
+
+    store = CurationQueueStore(tmp_path / ".agent")
+    widget = CurationQueueWidget(store=store)
+    panel = widget.render()
+    assert "No pending items" in str(panel.renderable)
+
+
+def test_curation_queue_widget_renders_items(tmp_path) -> None:
+    """Test CurationQueueWidget renders correctly with items."""
+    from datetime import datetime
+
+    from agent_recall.cli.tui.widgets.curation_queue import CurationQueueWidget
+    from agent_recall.storage.curation_queue import (
+        CurationQueueItem,
+        CurationQueueStatus,
+        CurationQueueStore,
+    )
+
+    store = CurationQueueStore(tmp_path / ".agent")
+    item = CurationQueueItem(
+        chunk_id="test-456",
+        source="claude-code",
+        timestamp=datetime.now(UTC),
+        content_preview="This is a longer content preview for testing",
+        proposed_label="gotcha",
+        status=CurationQueueStatus.PENDING,
+    )
+    store.add(item)
+    widget = CurationQueueWidget(store=store)
+    panel = widget.render()
+    assert panel.title == "Curation Queue"
+    assert store.count_pending() == 1
+
+
+def test_queue_view_registered_in_view_select() -> None:
+    """Test that 'queue' view is registered in ViewSelectModal."""
+    from agent_recall.cli.tui.ui.modals.view_select import ViewSelectModal
+
+    view_ids = [vid for vid, _ in ViewSelectModal.VIEWS]
+    assert "queue" in view_ids
+
+
+def test_queue_view_registered_in_local_router() -> None:
+    """Test that 'queue' view is in valid views set."""
+    from agent_recall.cli.tui.commands.local_router import handle_local_command
+
+    class _FakeApp:
+        current_view = "overview"
+        status = ""
+        activity: list[str] = []
+
+        def _append_activity(self, msg: str) -> None:
+            self.activity.append(msg)
+
+        def _refresh_dashboard_panel(self) -> None:
+            pass
+
+    app = _FakeApp()
+    handle_local_command(app, "/view queue")
+    assert app.current_view == "queue"
+
+
+def test_queue_keybinding_exists() -> None:
+    """Test that 'q' keybinding exists for queue view."""
+    from agent_recall.cli.tui.ui.bindings import TUI_BINDINGS
+
+    binding_keys = [b.key for b in TUI_BINDINGS]
+    assert "q" in binding_keys
+
+
+def test_queue_palette_action_exists() -> None:
+    """Test that view-queue palette action exists."""
+    actions = get_palette_actions()
+    action_ids = [a.action_id for a in actions]
+    assert "view-queue" in action_ids
+
+
+def test_action_switch_to_queue(monkeypatch) -> None:
+    """Test action_switch_to_queue changes view."""
+    app = _build_test_app()
+    captured_activity: list[str] = []
+    monkeypatch.setattr(app, "_append_activity", lambda line: captured_activity.append(line))
+    monkeypatch.setattr(app, "_refresh_dashboard_panel", lambda: None)
+    app.action_switch_to_queue()
+    assert app.current_view == "queue"
+    assert any("queue" in line for line in captured_activity)
+
+
+def test_curation_mode_config_flag() -> None:
+    """Test that curation_mode flag is available in StorageConfig."""
+    from agent_recall.storage.models import StorageConfig
+
+    config = StorageConfig()
+    assert config.curation_mode is False
+
+    config_enabled = StorageConfig(curation_mode=True)
+    assert config_enabled.curation_mode is True

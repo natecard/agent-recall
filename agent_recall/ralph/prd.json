@@ -67,13 +67,13 @@
       "description": "Expose the session curation queue as a first-class TUI view (view:queue). Ingested conversations awaiting approval before flowing into compact should appear as a scrollable list with per-entry approval, rejection, and label-edit actions — modelled after a 'git add -p' style workflow. Approved entries must be passed downstream to the compact pipeline; rejected entries must be discarded without affecting the knowledge base.",
       "user_story": "As a developer, I want to review and approve individual ingested conversation chunks before they are compacted into my permanent knowledge base, so I stay in full control of what the agent learns.",
       "steps": [
-        "Define a CurationQueueStore in src/agent_recall/storage/curation_queue.py that serialises pending chunks to .agent/curation_queue.json with fields: chunk_id, source, timestamp, content_preview (first 200 chars), proposed_label, status (pending/approved/rejected)",
-        "Wire the existing ingest pipeline to write newly ingested chunks to CurationQueueStore when curation mode is enabled in config (add 'curation_mode: true' flag under [storage] in config)",
-        "Create CurationQueueWidget in src/agent_recall/cli/tui/widgets/curation_queue.py rendering a paginated list of pending items with metadata",
-        "Add keybindings: 'y' approve, 'n' reject, 'e' edit proposed label, 'a' approve-all-visible, with a confirmation modal for approve-all",
-        "On approval, call the existing compact/storage pipeline to promote the chunk; on rejection, mark it rejected in the queue store and do not ingest",
-        "Register 'queue' as a named view in the dashboard and add 'Q' hotkey and Ctrl+P palette entry",
-        "Show a badge/count indicator on the dashboard status bar when there are pending curation items (e.g. '3 pending')"
+        "[DONE] Define a CurationQueueStore in src/agent_recall/storage/curation_queue.py that serialises pending chunks to .agent/curation_queue.json with fields: chunk_id, source, timestamp, content_preview (first 200 chars), proposed_label, status (pending/approved/rejected)",
+        "[DONE] Wire the existing ingest pipeline to write newly ingested chunks to CurationQueueStore when curation mode is enabled in config (add 'curation_mode: true' flag under [storage] in config)",
+        "[DONE] Create CurationQueueWidget in src/agent_recall/cli/tui/widgets/curation_queue.py rendering a paginated list of pending items with metadata",
+        "[DONE] Add keybindings: 'y' approve, 'n' reject, 'e' edit proposed label, 'a' approve-all-visible, with a confirmation modal for approve-all",
+        "[DONE] On approval, call the existing compact/storage pipeline to promote the chunk; on rejection, mark it rejected in the queue store and do not ingest",
+        "[DONE] Register 'queue' as a named view in the dashboard and add 'Q' hotkey and Ctrl+P palette entry",
+        "[DONE] Show a badge/count indicator on the dashboard status bar when there are pending curation items (e.g. '3 pending')"
       ],
       "acceptance_criteria": [
         "When curation_mode is enabled, newly ingested sessions appear in view:queue as pending items before reaching the knowledge base",
@@ -87,11 +87,11 @@
         "uv run pytest tests/ -k curation_queue -v",
         "uv run agent-recall open"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-260220-07",
-      "priority": 2,
+      "priority": 1,
       "title": "Activity Log Fuzzy Search (Ctrl+F)",
       "description": "Add an inline fuzzy-search overlay to the activity log panel that activates on Ctrl+F, searches across the in-memory deque buffer (up to 2000 entries), highlights matches, and scrolls to the first result. Subsequent presses of Enter/n cycle through matches; Escape dismisses the overlay and restores the normal log scroll position.",
       "user_story": "As a developer monitoring a long-running Ralph session, I want to be able to quickly search the activity log by keyword so I can find specific events, errors, or outputs without scrolling manually.",
@@ -120,7 +120,7 @@
     },
     {
       "id": "AR-260220-08",
-      "priority": 3,
+      "priority": 2,
       "title": "Source Health Check with Status Indicators",
       "description": "Extend the InteractiveSourcesWidget with a per-source health check protocol. Each ingester should expose a lightweight probe (not a full ingest) that checks connectivity/path availability and returns a HealthStatus (ok, degraded, unavailable) plus a latency or last-seen timestamp. The TUI renders color-coded status dots next to each source and a Ctrl+R shortcut to re-probe all sources.",
       "user_story": "As a developer, I want to see at a glance which of my configured ingest sources are healthy, degraded, or broken in the TUI sources view, so I can diagnose issues without running a full ingest cycle.",
@@ -148,7 +148,7 @@
     },
     {
       "id": "AR-260220-09",
-      "priority": 4,
+      "priority": 3,
       "title": "Timeline Iteration Annotations",
       "description": "Extend the IterationDetailModal accessible from InteractiveTimelineWidget to allow the user to attach a short free-text annotation to any iteration. Annotations are stored as JSON sidecars next to the iteration diff files in .agent/ralph/iterations/. The timeline view renders an annotation indicator (📝) next to annotated iterations, and the modal displays the annotation text with an edit option.",
       "user_story": "As a developer reviewing past Ralph runs, I want to annotate specific iterations with notes about what I learned or why something failed, so I can build a retrospective knowledge trail directly inside the TUI.",
@@ -176,7 +176,7 @@
     },
     {
       "id": "AR-260220-10",
-      "priority": 5,
+      "priority": 4,
       "title": "Context-Aware Ctrl+P Command Palette",
       "description": "Make the Ctrl+P command palette view-aware so it surfaces the most relevant actions first based on the currently active dashboard view. When on view:knowledge, knowledge-specific actions (edit, compact, export) appear at the top; on view:ralph, ralph-specific actions (run, pause, view-diff, select items) lead the list. Global actions remain available via normal search.",
       "user_story": "As a power user, I want the Ctrl+P palette to intelligently surface actions relevant to what I'm currently looking at, so I spend less time scrolling through a flat global action list.",

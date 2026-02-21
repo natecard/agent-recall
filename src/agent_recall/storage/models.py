@@ -246,6 +246,10 @@ class StorageConfig(BaseModel):
     """Storage backend selection and connection settings."""
 
     backend: Literal["local", "shared"] = "local"
+    curation_mode: bool = Field(
+        default=False,
+        description="When enabled, newly ingested items require manual approval before compaction",
+    )
     shared: SharedStorageConfig = Field(default_factory=SharedStorageConfig)
 
 

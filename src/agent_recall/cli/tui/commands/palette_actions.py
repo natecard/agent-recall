@@ -274,6 +274,15 @@ def get_palette_actions() -> list[PaletteAction]:
             keywords="forecast cost budget risk tokens",
         ),
         PaletteAction(
+            "view-queue",
+            "Queue View",
+            "Switch to curation queue for approving pending items",
+            "Dashboard",
+            shortcut="queue view",
+            binding="Q",
+            keywords="queue curation pending approve reject",
+        ),
+        PaletteAction(
             "ralph-terminal",
             "Toggle Terminal Panel",
             "Show or hide the embedded terminal panel",

@@ -18,3 +18,6 @@
 - [GOTCHA] AR-260220-11 implementation and regression test were already present in the codebase, but the PRD item remained marked unpassed.
 - [GOTCHA] The LLM view was referenced in multiple places across the TUI codebase: view select modal, local router, help text, command contract, CLI main, dashboard panels dataclass, dashboard rendering, and app.py mount/update methods. A comprehensive search was needed to find all references.
 - [GOTCHA] DashboardRenderContext doesn't have shared_tiers_dir attribute; use get_files() method to get FileStorage instance instead.
+- [GOTCHA] DashboardPanels dataclass required updating all test fixtures when adding a new field (forecast panel).
+- [GOTCHA] Many files had embedded DEFAULT_CSS strings requiring careful regex-free search to find all spacing instances.
+- [GOTCHA] Textual's compose() method requires an active app context - can't call it directly in unit tests without running within an App.

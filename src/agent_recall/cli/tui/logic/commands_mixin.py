@@ -176,6 +176,12 @@ class CommandsMixin:
         self._append_activity("Switched to forecast view.")
         self._refresh_dashboard_panel()
 
+    def action_switch_to_queue(self: Any) -> None:
+        self.current_view = "queue"
+        self.status = "View: queue"
+        self._append_activity("Switched to queue view.")
+        self._refresh_dashboard_panel()
+
     def _teardown_runtime(self: Any) -> None:
         if self._resize_refresh_timer is not None:
             self._resize_refresh_timer.stop()

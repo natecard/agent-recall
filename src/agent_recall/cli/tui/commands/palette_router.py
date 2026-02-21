@@ -48,6 +48,9 @@ def handle_palette_action(app, action_id: str | None) -> None:
     if action_id == "view-forecast":
         app.action_switch_to_forecast()
         return
+    if action_id == "view-queue":
+        app.action_switch_to_queue()
+        return
     if action_id == "theme":
         app.action_open_theme_modal()
         return

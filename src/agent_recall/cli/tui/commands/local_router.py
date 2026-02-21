@@ -67,6 +67,7 @@ def handle_local_command(app, raw: str) -> bool:
         valid = {
             "overview",
             "knowledge",
+            "queue",
             "settings",
             "timeline",
             "ralph",
