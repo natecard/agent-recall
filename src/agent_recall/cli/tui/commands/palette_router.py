@@ -45,6 +45,9 @@ def handle_palette_action(app, action_id: str | None) -> None:
     if action_id == "ralph-terminal":
         app.action_toggle_terminal_panel()
         return
+    if action_id == "view-forecast":
+        app.action_switch_to_forecast()
+        return
     if action_id == "theme":
         app.action_open_theme_modal()
         return

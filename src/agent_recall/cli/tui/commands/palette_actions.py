@@ -265,6 +265,15 @@ def get_palette_actions() -> list[PaletteAction]:
             keywords="ralph notify notifications alert",
         ),
         PaletteAction(
+            "view-forecast",
+            "Forecast View",
+            "Switch to cost tracking and risk indicators panel",
+            "Dashboard",
+            shortcut="forecast view",
+            binding="F",
+            keywords="forecast cost budget risk tokens",
+        ),
+        PaletteAction(
             "ralph-terminal",
             "Toggle Terminal Panel",
             "Show or hide the embedded terminal panel",

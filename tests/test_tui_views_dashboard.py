@@ -93,6 +93,7 @@ def test_build_dashboard_view_panel_counts() -> None:
         "settings": 3,
         "timeline": 3,
         "ralph": 3,
+        "forecast": 3,
         "console": 2,
         "all": 5,
     }

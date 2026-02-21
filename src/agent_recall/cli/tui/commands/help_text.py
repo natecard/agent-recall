@@ -24,6 +24,7 @@ def get_all_cli_commands() -> list[str]:
         "settings",
         "timeline",
         "ralph",
+        "forecast",
         "console",
         "all",
     ]
@@ -123,7 +124,8 @@ def build_tui_help_lines() -> list[str]:
             continue
         lines.append(f"[dim]/{contract.command}[/dim] - {contract.description}")
     lines.append(
-        "[dim]/view overview|knowledge|settings|timeline|ralph|console|all[/dim] - switch TUI view"
+        "[dim]/view overview|knowledge|settings|timeline|ralph|forecast|console|all[/dim] "
+        "- switch TUI view"
     )
     lines.append("[dim]/run[/dim] - Alias for /sync (includes synthesis by default)")
     lines.append("[dim]/settings[/dim] - Open settings view")

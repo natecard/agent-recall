@@ -1,6 +1,7 @@
 from agent_recall.cli.tui.widgets.diff_content import DiffContentViewer
 from agent_recall.cli.tui.widgets.diff_summary import DiffSummaryWidget
 from agent_recall.cli.tui.widgets.diff_tree import DiffTreeViewer
+from agent_recall.cli.tui.widgets.forecast_widget import ForecastWidget
 from agent_recall.cli.tui.widgets.interactive_knowledge import InteractiveKnowledgeWidget
 from agent_recall.cli.tui.widgets.interactive_sources import InteractiveSourcesWidget
 from agent_recall.cli.tui.widgets.interactive_timeline import InteractiveTimelineWidget
@@ -16,6 +17,7 @@ __all__ = [
     "DiffContentViewer",
     "DiffSummaryWidget",
     "DiffTreeViewer",
+    "ForecastWidget",
     "InteractiveKnowledgeWidget",
     "InteractiveSourcesWidget",
     "InteractiveTimelineWidget",

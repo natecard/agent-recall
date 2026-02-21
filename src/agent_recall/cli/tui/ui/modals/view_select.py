@@ -18,6 +18,7 @@ class ViewSelectModal(ModalScreen[str | None]):
         ("settings", "Settings - Runtime and interface settings"),
         ("timeline", "Timeline - Iteration outcomes and summaries"),
         ("ralph", "Ralph - Ralph loop status and outcomes"),
+        ("forecast", "Forecast - Cost tracking and risk indicators"),
         ("console", "Console - Recent command output history"),
         ("all", "All - Show all dashboard panels together"),
     ]

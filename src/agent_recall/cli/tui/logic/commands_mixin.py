@@ -170,6 +170,12 @@ class CommandsMixin:
     def action_run_knowledge_update(self: Any) -> None:
         self._run_backend_command("run")
 
+    def action_switch_to_forecast(self: Any) -> None:
+        self.current_view = "forecast"
+        self.status = "View: forecast"
+        self._append_activity("Switched to forecast view.")
+        self._refresh_dashboard_panel()
+
     def _teardown_runtime(self: Any) -> None:
         if self._resize_refresh_timer is not None:
             self._resize_refresh_timer.stop()

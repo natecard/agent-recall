@@ -15,6 +15,7 @@ from rich.text import Text
 from agent_recall.cli.banner import BannerRenderer
 from agent_recall.cli.tui.views.dashboard_context import DashboardRenderContext
 from agent_recall.cli.tui.widgets import (
+    ForecastWidget,
     KnowledgeWidget,
     RalphStatusWidget,
     SettingsWidget,
@@ -36,6 +37,7 @@ class DashboardPanels:
     settings: Panel
     timeline: Panel
     ralph: Panel
+    forecast: Panel
     slash_console: Panel | None
     source_names: list[str]
 
@@ -214,6 +216,20 @@ def build_dashboard_panels(
         detail_title=None,
         detail_body=None,
     )
+    ralph_config = files.read_config().get("ralph", {})
+    cost_budget_usd = ralph_config.get("cost_budget_usd")
+    if isinstance(cost_budget_usd, int | float) and cost_budget_usd >= 0:
+        cost_budget_usd = float(cost_budget_usd)
+    else:
+        cost_budget_usd = None
+    prd_path = context.agent_dir / "ralph" / "prd.json"
+    forecast_widget = ForecastWidget(
+        agent_dir=context.agent_dir,
+        prd_path=prd_path,
+        max_iterations=context.ralph_max_iterations,
+        cost_budget_usd=cost_budget_usd,
+        format_usd=context.format_usd,
+    )
 
     header_panel = None
     if include_banner_header and header_text:
@@ -241,6 +257,7 @@ def build_dashboard_panels(
     settings_panel = settings_widget.render()
     timeline_panel = timeline_widget.render(detail=view == "timeline")
     ralph_panel = ralph_widget.render()
+    forecast_panel = forecast_widget.render()
 
     slash_panel = None
     if show_slash_console:
@@ -264,6 +281,7 @@ def build_dashboard_panels(
         settings=settings_panel,
         timeline=timeline_panel,
         ralph=ralph_panel,
+        forecast=forecast_panel,
         slash_console=slash_panel,
         source_names=source_names,
     )
@@ -430,6 +448,9 @@ def build_tui_dashboard(
     elif view == "ralph":
         if visibility.get("ralph", True):
             renderables.append(panels.ralph)
+    elif view == "forecast":
+        if visibility.get("forecast", True):
+            renderables.append(panels.forecast)
     elif view == "settings":
         if visibility.get("settings", True):
             renderables.append(panels.settings)

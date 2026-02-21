@@ -605,6 +605,7 @@ def test_dashboard_mount_skips_hidden_widgets() -> None:
         settings=Panel("settings"),
         timeline=Panel("timeline"),
         ralph=Panel("ralph"),
+        forecast=Panel("forecast"),
         slash_console=None,
         source_names=[],
     )
@@ -644,6 +645,7 @@ def test_all_view_handles_empty_sidebar_gracefully() -> None:
         settings=Panel("settings"),
         timeline=Panel("timeline"),
         ralph=Panel("ralph"),
+        forecast=Panel("forecast"),
         slash_console=None,
         source_names=[],
     )
@@ -682,6 +684,7 @@ def test_all_view_handles_empty_main_gracefully() -> None:
         settings=Panel("settings"),
         timeline=Panel("timeline"),
         ralph=Panel("ralph"),
+        forecast=Panel("forecast"),
         slash_console=None,
         source_names=[],
     )
@@ -720,6 +723,7 @@ def test_all_view_handles_all_hidden_gracefully() -> None:
         settings=Panel("settings"),
         timeline=Panel("timeline"),
         ralph=Panel("ralph"),
+        forecast=Panel("forecast"),
         slash_console=None,
         source_names=[],
     )
@@ -763,6 +767,7 @@ def test_refresh_dashboard_reuses_layout_without_remove_children(monkeypatch) ->
         settings=Panel("settings"),
         timeline=Panel("timeline"),
         ralph=Panel("ralph"),
+        forecast=Panel("forecast"),
         slash_console=None,
         source_names=["cursor"],
     )
@@ -2491,3 +2496,137 @@ def test_diff_screen_uses_resizable_split() -> None:
 
     source = inspect.getsource(diff_screen.DiffScreen.compose)
     assert "ResizableSplit" in source, "DiffScreen.compose should use ResizableSplit"
+
+
+def test_forecast_widget_renders_empty_state() -> None:
+    """Test that ForecastWidget renders gracefully with no iteration data."""
+    from agent_recall.cli.tui.widgets.forecast_widget import ForecastWidget
+
+    widget = ForecastWidget(
+        agent_dir=Path("/nonexistent"),
+        prd_path=None,
+        max_iterations=10,
+        cost_budget_usd=None,
+    )
+    panel = widget.render()
+    assert panel.title == "Ralph Forecast"
+    assert panel.renderable is not None
+
+
+def test_forecast_widget_renders_with_prd_data(tmp_path) -> None:
+    """Test that ForecastWidget shows queue summary from PRD."""
+    import json
+
+    from agent_recall.cli.tui.widgets.forecast_widget import ForecastWidget
+
+    prd_path = tmp_path / "prd.json"
+    prd_data = {
+        "items": [
+            {"id": "AR-001", "title": "Task One", "passes": True},
+            {"id": "AR-002", "title": "Task Two", "passes": False},
+            {"id": "AR-003", "title": "Task Three", "passes": False},
+        ]
+    }
+    prd_path.write_text(json.dumps(prd_data), encoding="utf-8")
+
+    widget = ForecastWidget(
+        agent_dir=tmp_path,
+        prd_path=prd_path,
+        max_iterations=10,
+        cost_budget_usd=100.0,
+    )
+    panel = widget.render()
+    assert panel.title == "Ralph Forecast"
+
+
+def test_forecast_widget_identifies_risk_items() -> None:
+    """Test that ForecastWidget identifies items with 2+ consecutive failures."""
+    from datetime import UTC, datetime
+
+    from agent_recall.cli.tui.widgets.forecast_widget import ForecastWidget
+    from agent_recall.ralph.iteration_store import IterationOutcome, IterationReport
+
+    widget = ForecastWidget(agent_dir=Path("/nonexistent"))
+    reports = [
+        IterationReport(
+            iteration=1,
+            item_id="AR-001",
+            item_title="Task One",
+            started_at=datetime.now(UTC),
+            outcome=IterationOutcome.VALIDATION_FAILED,
+        ),
+        IterationReport(
+            iteration=2,
+            item_id="AR-001",
+            item_title="Task One",
+            started_at=datetime.now(UTC),
+            outcome=IterationOutcome.VALIDATION_FAILED,
+        ),
+        IterationReport(
+            iteration=3,
+            item_id="AR-002",
+            item_title="Task Two",
+            started_at=datetime.now(UTC),
+            outcome=IterationOutcome.COMPLETED,
+        ),
+    ]
+    risk_items = widget._identify_risk_items(reports)
+    assert len(risk_items) == 1
+    assert risk_items[0]["item_id"] == "AR-001"
+    assert risk_items[0]["consecutive_failures"] == 2
+
+
+def test_action_switch_to_forecast() -> None:
+    """Test that action_switch_to_forecast navigates to forecast view."""
+    from typing import Any
+
+    app = _build_test_app()
+    app.current_view = "overview"
+    cast(Any, app)._append_activity = lambda line: None
+    cast(Any, app)._refresh_dashboard_panel = lambda: None
+    app.action_switch_to_forecast()
+    assert app.current_view == "forecast"
+    assert app.status == "View: forecast"
+
+
+def test_forecast_view_registered_in_view_select() -> None:
+    """Test that forecast is registered as a view in ViewSelectModal."""
+    from agent_recall.cli.tui.ui.modals.view_select import ViewSelectModal
+
+    view_ids = [vid for vid, _desc in ViewSelectModal.VIEWS]
+    assert "forecast" in view_ids
+
+
+def test_forecast_view_registered_in_local_router() -> None:
+    """Test that forecast is a valid view in local_router."""
+    from agent_recall.cli.tui.commands.local_router import handle_local_command
+
+    class _FakeApp:
+        current_view = "overview"
+        status = ""
+        activity: list[str] = []
+
+        def _append_activity(self, msg: str) -> None:
+            self.activity.append(msg)
+
+        def _refresh_dashboard_panel(self) -> None:
+            pass
+
+    app = _FakeApp()
+    handle_local_command(app, "/view forecast")
+    assert app.current_view == "forecast"
+
+
+def test_forecast_keybinding_exists() -> None:
+    """Test that 'f' keybinding exists for forecast view."""
+    from agent_recall.cli.tui.ui.bindings import TUI_BINDINGS
+
+    binding_keys = [b.key for b in TUI_BINDINGS]
+    assert "f" in binding_keys
+
+
+def test_forecast_palette_action_exists() -> None:
+    """Test that view-forecast palette action exists."""
+    actions = get_palette_actions()
+    action_ids = [a.action_id for a in actions]
+    assert "view-forecast" in action_ids

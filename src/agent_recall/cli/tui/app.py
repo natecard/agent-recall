@@ -413,6 +413,9 @@ class AgentRecallTextualApp(
         elif self.current_view == "ralph":
             if self._is_widget_visible("ralph"):
                 dashboard.mount(Static(panels.ralph, id="dashboard_ralph"))
+        elif self.current_view == "forecast":
+            if self._is_widget_visible("forecast"):
+                dashboard.mount(Static(panels.forecast, id="dashboard_forecast"))
         elif self.current_view == "settings":
             if self._is_widget_visible("settings"):
                 dashboard.mount(Static(panels.settings, id="dashboard_settings"))
@@ -488,6 +491,10 @@ class AgentRecallTextualApp(
             if not self._is_widget_visible("ralph"):
                 return False
             return self._update_static_widget("#dashboard_ralph", panels.ralph)
+        if self.current_view == "forecast":
+            if not self._is_widget_visible("forecast"):
+                return False
+            return self._update_static_widget("#dashboard_forecast", panels.forecast)
         if self.current_view == "settings":
             if not self._is_widget_visible("settings"):
                 return False
