@@ -21,3 +21,4 @@
 - [GOTCHA] DashboardPanels dataclass required updating all test fixtures when adding a new field (forecast panel).
 - [GOTCHA] Many files had embedded DEFAULT_CSS strings requiring careful regex-free search to find all spacing instances.
 - [GOTCHA] Textual's compose() method requires an active app context - can't call it directly in unit tests without running within an App.
+- [GOTCHA] DashboardPanels dataclass required updating all test fixtures when adding a new field (queue panel), similar to forecast panel case noted in GUARDRAILS.md

@@ -75,3 +75,9 @@
 - [PATTERN] Run full gate first, then patch failing assertion expectations without changing runtime behavior, then rerun the full suite.
 - [PATTERN] Use grep with pattern matching to find all non-standard spacing values; batch edits in parallel; validated with full test suite.
 - [PATTERN] Verify current implementation and run focused/full validation before changing code; when behavior already matches acceptance, update PRD state instead of modifying runtime logic.
+- [PATTERN] Run full gate first, patch failing expectations without runtime changes, then rerun suite.
+- [PATTERN] Use grep with pattern matching for batch edits & validation.
+- [PATTERN] Follow widget composition patterns from existing widgets.
+- [PATTERN] Register views in all required locations consistently.
+- [PATTERN] Add focused tests for store operations and view registration.
+- [PATTERN] Use reactive properties for dynamic widget behavior.

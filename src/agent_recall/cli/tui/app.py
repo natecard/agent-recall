@@ -142,6 +142,11 @@ class AgentRecallTextualApp(
         self._last_activity_render: tuple[str, str] | None = None
         self._debug_scroll_sample_count = 0
         self._activity_follow_tail = True
+        self._activity_search_active = False
+        self._activity_search_query = ""
+        self._activity_search_matches: list[int] = []
+        self._activity_search_current_index = -1
+        self._activity_search_saved_scroll_y = 0
         self._dashboard_refresh_generation = 0
         self._dashboard_layout_view: str | None = None
         self._cli_commands_cache: list[str] = get_all_cli_commands()
@@ -169,6 +174,7 @@ class AgentRecallTextualApp(
                     yield Static(id="terminal_panel")
                     yield Log(id="activity_log", highlight=False, auto_scroll=False)
                     yield OptionList(id="activity_result_list")
+                    yield Input(id="activity_search_input", placeholder="Search activity log...")
         yield Footer()
 
     def on_mount(self) -> None:

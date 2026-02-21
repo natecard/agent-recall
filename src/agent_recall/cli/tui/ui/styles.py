@@ -157,6 +157,14 @@ APP_CSS = """
         overflow: auto;
         display: none;
     }
+    #activity_search_input {
+        height: 1;
+        display: none;
+        border: round $accent;
+        background: $panel;
+        padding: 0 2;
+        margin-top: 1;
+    }
     #palette_overlay, #modal_overlay {
         align: center middle;
         width: 100%;

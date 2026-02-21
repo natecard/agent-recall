@@ -2831,3 +2831,185 @@ def test_curation_mode_config_flag() -> None:
 
     config_enabled = StorageConfig(curation_mode=True)
     assert config_enabled.curation_mode is True
+
+
+def test_activity_search_keybinding_exists() -> None:
+    """Test that Ctrl+F keybinding exists for activity search."""
+    from agent_recall.cli.tui.ui.bindings import TUI_BINDINGS
+
+    binding_keys = [b.key for b in TUI_BINDINGS]
+    assert "ctrl+f" in binding_keys
+
+
+def test_activity_search_state_flags_initialization() -> None:
+    """Test that activity search state flags are initialized correctly."""
+    app = _build_test_app()
+    assert app._activity_search_active is False
+    assert app._activity_search_query == ""
+    assert app._activity_search_matches == []
+    assert app._activity_search_current_index == -1
+
+
+def test_activity_search_open_sets_flags(monkeypatch) -> None:
+    """Test that opening activity search sets correct state flags."""
+    app = _build_test_app()
+    monkeypatch.setattr(app, "_refresh_activity_panel", lambda: None)
+    app._open_activity_search()
+    assert app._activity_search_active is True
+    assert app._activity_search_query == ""
+    assert app._activity_search_matches == []
+
+
+def test_activity_search_close_resets_flags(monkeypatch) -> None:
+    """Test that closing activity search resets state flags."""
+    app = _build_test_app()
+    monkeypatch.setattr(app, "_refresh_activity_panel", lambda: None)
+    monkeypatch.setattr(app, "_restore_activity_log", lambda: None)
+    app._activity_search_active = True
+    app._activity_search_query = "test"
+    app._activity_search_matches = [0, 2, 5]
+    app._activity_search_current_index = 1
+    app._close_activity_search()
+    assert app._activity_search_active is False
+    assert app._activity_search_query == ""
+    assert app._activity_search_matches == []
+
+
+def test_activity_search_perform_finds_matches() -> None:
+    """Test that search finds matching lines in activity buffer."""
+    app = _build_test_app()
+    app.activity.append("TUI ready. Press Ctrl+P for commands.")
+    app.activity.append("Starting sync operation...")
+    app.activity.append("Sync completed successfully.")
+    app.activity.append("Error: connection timeout")
+    app.activity.append("Retrying sync...")
+    app._perform_activity_search("sync")
+    assert len(app._activity_search_matches) == 3
+    assert 1 in app._activity_search_matches
+    assert 2 in app._activity_search_matches
+    assert 4 in app._activity_search_matches
+
+
+def test_activity_search_perform_case_insensitive() -> None:
+    """Test that search is case-insensitive."""
+    app = _build_test_app()
+    app.activity.append("TUI ready. Press Ctrl+P for commands.")
+    app.activity.append("Starting SYNC operation...")
+    app.activity.append("Sync completed successfully.")
+    app._perform_activity_search("SYNC")
+    assert len(app._activity_search_matches) == 2
+
+
+def test_activity_search_empty_query_clears_matches() -> None:
+    """Test that empty query clears matches."""
+    app = _build_test_app()
+    app.activity.append("TUI ready.")
+    app.activity.append("Starting sync...")
+    app._perform_activity_search("sync")
+    assert len(app._activity_search_matches) == 1
+    app._perform_activity_search("")
+    assert len(app._activity_search_matches) == 0
+    assert app._activity_search_current_index == -1
+
+
+def test_activity_search_cycle_forward() -> None:
+    """Test cycling forward through matches."""
+    app = _build_test_app()
+    app.activity.append("Line 1 sync")
+    app.activity.append("Line 2 sync")
+    app.activity.append("Line 3 sync")
+    app._perform_activity_search("sync")
+    assert app._activity_search_current_index == 0
+    app._cycle_search_match_forward()
+    assert app._activity_search_current_index == 1
+    app._cycle_search_match_forward()
+    assert app._activity_search_current_index == 2
+    app._cycle_search_match_forward()
+    assert app._activity_search_current_index == 0
+
+
+def test_activity_search_cycle_backward() -> None:
+    """Test cycling backward through matches."""
+    app = _build_test_app()
+    app.activity.append("Line 1 sync")
+    app.activity.append("Line 2 sync")
+    app.activity.append("Line 3 sync")
+    app._perform_activity_search("sync")
+    assert app._activity_search_current_index == 0
+    app._cycle_search_match_backward()
+    assert app._activity_search_current_index == 2
+    app._cycle_search_match_backward()
+    assert app._activity_search_current_index == 1
+
+
+def test_activity_search_no_matches_cycle_does_nothing() -> None:
+    """Test that cycling with no matches does nothing."""
+    app = _build_test_app()
+    app.activity.append("Line 1")
+    app.activity.append("Line 2")
+    app._perform_activity_search("xyz")
+    app._cycle_search_match_forward()
+    assert app._activity_search_current_index == -1
+    app._cycle_search_match_backward()
+    assert app._activity_search_current_index == -1
+
+
+def test_activity_search_highlight_markup() -> None:
+    """Test that highlight applies correct markup."""
+    from agent_recall.cli.tui.logic.activity_mixin import ActivityMixin
+
+    class _Mixin(ActivityMixin):
+        pass
+
+    mixin = _Mixin()
+    result = mixin._highlight_match("Hello World Test", "world")
+    assert "[bold reverse]World[/bold reverse]" in result
+
+
+def test_activity_search_escape_closes_search(monkeypatch) -> None:
+    """Test that Escape key closes the search."""
+    from unittest.mock import MagicMock
+
+    from textual import events
+
+    app = _build_test_app()
+    monkeypatch.setattr(app, "_refresh_activity_panel", lambda: None)
+    monkeypatch.setattr(app, "_restore_activity_log", lambda: None)
+    app._activity_search_active = True
+    app._activity_search_query = "test"
+
+    event = MagicMock(spec=events.Key)
+    event.key = "escape"
+    event.prevent_default = MagicMock()
+    event.stop = MagicMock()
+    app.on_key_activity_search_input(event)
+    assert app._activity_search_active is False
+
+
+def test_action_activity_search_opens_search(monkeypatch) -> None:
+    """Test that action_activity_search opens the search."""
+    app = _build_test_app()
+    monkeypatch.setattr(app, "_refresh_activity_panel", lambda: None)
+    assert app._activity_search_active is False
+    app.action_activity_search()
+    assert app._activity_search_active is True
+
+
+def test_action_activity_search_does_not_reopen(monkeypatch) -> None:
+    """Test that action_activity_search doesn't reopen if already active."""
+    app = _build_test_app()
+    monkeypatch.setattr(app, "_refresh_activity_panel", lambda: None)
+    app._activity_search_active = True
+    app._activity_search_query = "existing"
+    app.action_activity_search()
+    assert app._activity_search_query == "existing"
+
+
+def test_close_inline_picker_closes_search(monkeypatch) -> None:
+    """Test that action_close_inline_picker also closes activity search."""
+    app = _build_test_app()
+    monkeypatch.setattr(app, "_refresh_activity_panel", lambda: None)
+    monkeypatch.setattr(app, "_restore_activity_log", lambda: None)
+    app._activity_search_active = True
+    app.action_close_inline_picker()
+    assert app._activity_search_active is False

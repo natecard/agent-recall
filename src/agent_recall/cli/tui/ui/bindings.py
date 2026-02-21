@@ -3,6 +3,7 @@ from textual.binding import Binding
 TUI_BINDINGS = [
     Binding("ctrl+p", "command_palette", "Commands"),
     Binding("f1", "open_command_palette", "Commands", show=False),
+    Binding("ctrl+f", "activity_search", "Search", show=False),
     Binding("ctrl+g", "open_settings_modal", "Settings"),
     Binding("ctrl+r", "refresh_now", "Refresh"),
     Binding("ctrl+k", "run_knowledge_update", "Run"),
