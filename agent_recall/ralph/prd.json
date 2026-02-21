@@ -47,12 +47,12 @@
       "description": "Extend the IterationDetailModal accessible from InteractiveTimelineWidget to allow the user to attach a short free-text annotation to any iteration. Annotations are stored as JSON sidecars next to the iteration diff files in .agent/ralph/iterations/. The timeline view renders an annotation indicator (📝) next to annotated iterations, and the modal displays the annotation text with an edit option.",
       "user_story": "As a developer reviewing past Ralph runs, I want to annotate specific iterations with notes about what I learned or why something failed, so I can build a retrospective knowledge trail directly inside the TUI.",
       "steps": [
-        "Define an IterationAnnotation dataclass (iteration: int, text: str, created_at: datetime, updated_at: datetime) and add load_annotation / save_annotation methods to IterationReportStore",
-        "Store annotations as .agent/ralph/iterations/{iteration:03d}.annotation.json sidecar files alongside the existing diff files",
-        "Update IterationDetailModal to show the annotation text (or 'No annotation' placeholder) with an 'Add/Edit note' button (keybinding 'a')",
-        "Pressing 'a' in the modal opens an inline text input; on confirm (Enter) the annotation is saved via save_annotation; on Escape the input is dismissed without saving",
-        "Update InteractiveTimelineWidget to render a 📝 indicator next to iterations that have a non-empty annotation",
-        "The annotation indicator should also appear in the timeline's iteration list panel, not just inside the modal"
+        "[DONE] Define an IterationAnnotation dataclass (iteration: int, text: str, created_at: datetime, updated_at: datetime) and add load_annotation / save_annotation methods to IterationReportStore",
+        "[DONE] Store annotations as .agent/ralph/iterations/{iteration:03d}.annotation.json sidecar files alongside the existing diff files",
+        "[DONE] Update IterationDetailModal to show the annotation text (or 'No annotation' placeholder) with an 'Add/Edit note' button (keybinding 'a')",
+        "[DONE] Pressing 'a' in the modal opens an inline text input; on confirm (Enter) the annotation is saved via save_annotation; on Escape the input is dismissed without saving",
+        "[DONE] Update InteractiveTimelineWidget to render a 📝 indicator next to iterations that have a non-empty annotation",
+        "[DONE] The annotation indicator should also appear in the timeline's iteration list panel, not just inside the modal"
       ],
       "acceptance_criteria": [
         "Selecting an iteration in view:timeline and opening the detail modal shows any existing annotation or a 'No annotation' placeholder",
@@ -66,7 +66,7 @@
         "uv run pytest tests/ -k iteration_annotation -v",
         "uv run agent-recall open"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-260220-10",
@@ -75,13 +75,13 @@
       "description": "Make the Ctrl+P command palette view-aware so it surfaces the most relevant actions first based on the currently active dashboard view. When on view:knowledge, knowledge-specific actions (edit, compact, export) appear at the top; on view:ralph, ralph-specific actions (run, pause, view-diff, select items) lead the list. Global actions remain available via normal search.",
       "user_story": "As a power user, I want the Ctrl+P palette to intelligently surface actions relevant to what I'm currently looking at, so I spend less time scrolling through a flat global action list.",
       "steps": [
-        "Add a current_view: str property to the dashboard app that reflects the active named view (matches the existing view name registry)",
-        "Refactor _build_command_suggestions in commands_mixin.py to accept an optional context_view: str parameter",
-        "Define a VIEW_PRIORITY_MAP dict mapping view names to lists of action IDs that should be promoted to the top of the palette when that view is active",
-        "When Ctrl+P is pressed, pass self.current_view to _build_command_suggestions; promoted actions are prepended before the global list with a visual separator (e.g. a dim '── current view ──' label row)",
-        "Ensure the text search in the palette still searches the full global list regardless of the context filter",
-        "Add view context labels to promoted actions (e.g. '[knowledge]' tag) to communicate why they appear at the top",
-        "Update existing tests for command palette construction to cover context-aware promotion logic"
+        "[DONE] Add a current_view: str property to the dashboard app that reflects the active named view (matches the existing view name registry)",
+        "[DONE] Refactor _build_command_suggestions in commands_mixin.py to accept an optional context_view: str parameter",
+        "[DONE] Define a VIEW_PRIORITY_MAP dict mapping view names to lists of action IDs that should be promoted to the top of the palette when that view is active",
+        "[DONE] When Ctrl+P is pressed, pass self.current_view to _build_command_suggestions; promoted actions are prepended before the global list with a visual separator (e.g. a dim '── current view ──' label row)",
+        "[DONE] Ensure the text search in the palette still searches the full global list regardless of the context filter",
+        "[DONE] Add view context labels to promoted actions (e.g. '[knowledge]' tag) to communicate why they appear at the top",
+        "[DONE] Update existing tests for command palette construction to cover context-aware promotion logic"
       ],
       "acceptance_criteria": [
         "Opening Ctrl+P while on view:knowledge shows knowledge actions (edit entries, compact, export) at the top before global actions",
@@ -95,7 +95,7 @@
         "uv run pytest tests/ -k palette_context -v",
         "uv run agent-recall open"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }

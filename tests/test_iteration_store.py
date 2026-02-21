@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_recall.ralph.iteration_store import (
+    IterationAnnotation,
     IterationOutcome,
     IterationReport,
     IterationReportStore,
@@ -143,3 +144,109 @@ def test_iteration_report_store_create_avoids_archive_collision(tmp_path: Path) 
     assert created.iteration == 2
     store.finalize_current(0, "")
     assert (store.iterations_dir / "002.json").exists()
+
+
+def test_iteration_annotation_round_trip() -> None:
+    created_at = datetime(2026, 2, 13, 12, 0, 0, tzinfo=UTC)
+    updated_at = datetime(2026, 2, 13, 12, 30, 0, tzinfo=UTC)
+    annotation = IterationAnnotation(
+        iteration=5,
+        text="This iteration fixed the bug with the widget refresh.",
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+
+    payload = annotation.to_dict()
+    restored = IterationAnnotation.from_dict(payload)
+
+    assert restored.iteration == annotation.iteration
+    assert restored.text == annotation.text
+    assert restored.created_at == annotation.created_at
+    assert restored.updated_at == annotation.updated_at
+
+
+def test_iteration_annotation_store_round_trip(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "agent_recall" / "ralph"
+    store = IterationReportStore(ralph_dir)
+
+    annotation = IterationAnnotation(
+        iteration=3,
+        text="Learned that the cache needs to be cleared before each test.",
+    )
+    store.save_annotation(annotation)
+
+    annotation_path = store.iterations_dir / "003.annotation.json"
+    assert annotation_path.exists()
+
+    loaded = store.load_annotation(3)
+    assert loaded is not None
+    assert loaded.iteration == 3
+    assert loaded.text == annotation.text
+    assert loaded.created_at is not None
+    assert loaded.updated_at is not None
+
+
+def test_iteration_annotation_load_missing_returns_none(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "agent_recall" / "ralph"
+    store = IterationReportStore(ralph_dir)
+
+    assert store.load_annotation(999) is None
+
+
+def test_iteration_annotation_load_corrupt_returns_none(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "agent_recall" / "ralph"
+    store = IterationReportStore(ralph_dir)
+    store.iterations_dir.mkdir(parents=True, exist_ok=True)
+
+    annotation_path = store.iterations_dir / "001.annotation.json"
+    annotation_path.write_text("{not json", encoding="utf-8")
+
+    assert store.load_annotation(1) is None
+
+
+def test_iteration_has_annotation(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "agent_recall" / "ralph"
+    store = IterationReportStore(ralph_dir)
+
+    assert store.has_annotation(1) is False
+
+    annotation = IterationAnnotation(iteration=1, text="Test note")
+    store.save_annotation(annotation)
+
+    assert store.has_annotation(1) is True
+
+
+def test_iteration_has_annotation_empty_text_returns_false(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "agent_recall" / "ralph"
+    store = IterationReportStore(ralph_dir)
+
+    annotation = IterationAnnotation(iteration=1, text="   ")
+    store.save_annotation(annotation)
+
+    assert store.has_annotation(1) is False
+
+
+def test_iteration_annotation_update_updates_timestamp(tmp_path: Path) -> None:
+    ralph_dir = tmp_path / "agent_recall" / "ralph"
+    store = IterationReportStore(ralph_dir)
+
+    annotation = IterationAnnotation(
+        iteration=2,
+        text="First note",
+        created_at=datetime(2026, 2, 13, 12, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 2, 13, 12, 0, 0, tzinfo=UTC),
+    )
+    store.save_annotation(annotation)
+
+    loaded = store.load_annotation(2)
+    assert loaded is not None
+    original_updated = loaded.updated_at
+
+    loaded.text = "Updated note"
+    store.save_annotation(loaded)
+
+    reloaded = store.load_annotation(2)
+    assert reloaded is not None
+    assert reloaded.text == "Updated note"
+    assert reloaded.updated_at > original_updated
+    assert reloaded.created_at == loaded.created_at

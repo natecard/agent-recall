@@ -91,3 +91,12 @@
 - [PATTERN] Implementing a minimal CLI compatibility slice with focused command-construction tests and subprocess command assertions kept scope tight and validation reliable.
 - [PATTERN] Run full gate first, patch only the failing assertion expectations without changing runtime behavior, then rerun the full suite.
 - [PATTERN] Used grep with pattern matching to find all non-standard spacing values; batch edits in parallel; validated with full test suite.
+- [PATTERN] Verify full feature implementation before new development.
+- [PATTERN] Reuse inline edit patterns for similar modal interactions.
+- [PATTERN] Prioritize patching failing assertions before runtime changes.
+- [PATTERN] Use grep for codebase-wide search before targeted edits.
+- [PATTERN] Implement focused tests for store operations & view registration.
+- [PATTERN] Register views consistently across all required locations.
+- [PATTERN] Follow existing widget composition patterns.
+- [PATTERN] Check for empty sidebar/main content before container creation.
+- [PATTERN] Run full gate first, patch expectations, then rerun suite.

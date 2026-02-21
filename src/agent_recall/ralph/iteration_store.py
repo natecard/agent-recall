@@ -17,6 +17,33 @@ class IterationOutcome(StrEnum):
 
 
 @dataclass
+class IterationAnnotation:
+    iteration: int
+    text: str = ""
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "iteration": self.iteration,
+            "text": self.text,
+            "created_at": _format_datetime(self.created_at),
+            "updated_at": _format_datetime(self.updated_at),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> IterationAnnotation:
+        created_at = _parse_datetime(data.get("created_at"))
+        updated_at = _parse_datetime(data.get("updated_at"))
+        return cls(
+            iteration=int(data.get("iteration") or 0),
+            text=str(data.get("text") or ""),
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+
+
+@dataclass
 class IterationReport:
     # Harness-set before agent
     iteration: int = 0
@@ -241,6 +268,33 @@ class IterationReportStore:
             return path.read_text(encoding="utf-8")
         except OSError:
             return None
+
+    def load_annotation(self, iteration: int) -> IterationAnnotation | None:
+        path = self.iterations_dir / f"{iteration:03d}.annotation.json"
+        if not path.exists():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        try:
+            return IterationAnnotation.from_dict(payload)
+        except (TypeError, ValueError):
+            return None
+
+    def save_annotation(self, annotation: IterationAnnotation) -> None:
+        self.iterations_dir.mkdir(parents=True, exist_ok=True)
+        annotation.updated_at = datetime.now(UTC)
+        if not annotation.created_at:
+            annotation.created_at = annotation.updated_at
+        path = self.iterations_dir / f"{annotation.iteration:03d}.annotation.json"
+        path.write_text(json.dumps(annotation.to_dict(), indent=2), encoding="utf-8")
+
+    def has_annotation(self, iteration: int) -> bool:
+        annotation = self.load_annotation(iteration)
+        return annotation is not None and bool(annotation.text.strip())
 
     def _iter_archive_paths(self) -> list[Path]:
         return [

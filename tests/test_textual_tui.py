@@ -1645,6 +1645,9 @@ def test_open_iteration_detail_builds_modal(monkeypatch) -> None:
         summary = "Did the thing."
         outcome = type("Outcome", (), {"value": "COMPLETED"})()
 
+    class _FakeAnnotation:
+        text = "Previous annotation"
+
     class _FakeStore:
         def __init__(self, *_args: Any, **_kwargs: Any) -> None:
             pass
@@ -1652,16 +1655,25 @@ def test_open_iteration_detail_builds_modal(monkeypatch) -> None:
         def load_diff_for_iteration(self, _iteration: int) -> str:
             return "diff --git a/file b/file"
 
+        def load_annotation(self, _iteration: int) -> Any:
+            return _FakeAnnotation()
+
+        def save_annotation(self, _annotation: Any) -> None:
+            pass
+
     monkeypatch.setattr("agent_recall.cli.tui.app.IterationDetailModal", _FakeModal)
     monkeypatch.setattr("agent_recall.cli.tui.app.IterationReportStore", _FakeStore)
     monkeypatch.setattr(app, "push_screen", _capture_push)
     app._open_iteration_detail(cast(Any, _FakeReport()))
     screen = captured.get("screen")
     assert isinstance(screen, _FakeModal)
+    assert screen.kwargs["iteration"] == 5
     assert screen.kwargs["title"] == "Iteration 5 Detail"
     assert screen.kwargs["summary_text"] == "Did the thing."
     assert screen.kwargs["outcome_text"] == "COMPLETED"
     assert "AR-1004" in screen.kwargs["item_text"]
+    assert screen.kwargs["annotation_text"] == "Previous annotation"
+    assert screen.kwargs["on_save_annotation"] is not None
 
 
 def test_slash_command_map_includes_ralph_and_view_select() -> None:
@@ -1941,6 +1953,97 @@ def test_command_palette_group_order_is_correct() -> None:
     modal = CommandPaletteModal(actions, recents=[], config_dir=None)
     modal.query_text = ""
     assert modal.query_text == ""
+
+
+def test_command_palette_context_view_promotes_knowledge_actions() -> None:
+    """Test context-aware promotion shows knowledge actions first when context_view='knowledge'."""
+    from agent_recall.cli.tui.commands.palette_actions import VIEW_PRIORITY_MAP
+    from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
+
+    actions = get_palette_actions()
+    modal = CommandPaletteModal(actions, recents=[], config_dir=None, context_view="knowledge")
+    modal.query_text = ""
+    assert modal.context_view == "knowledge"
+    assert "knowledge-run" in VIEW_PRIORITY_MAP.get("knowledge", [])
+
+
+def test_command_palette_context_view_promotes_ralph_actions() -> None:
+    """Test context-aware promotion shows ralph actions first when context_view='ralph'."""
+    from agent_recall.cli.tui.commands.palette_actions import VIEW_PRIORITY_MAP
+    from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
+
+    actions = get_palette_actions()
+    modal = CommandPaletteModal(actions, recents=[], config_dir=None, context_view="ralph")
+    modal.query_text = ""
+    assert modal.context_view == "ralph"
+    assert "ralph-run" in VIEW_PRIORITY_MAP.get("ralph", [])
+
+
+def test_command_palette_context_view_none_no_promotion() -> None:
+    """Test no context promotion when context_view is None."""
+    from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
+
+    actions = get_palette_actions()
+    modal = CommandPaletteModal(actions, recents=[], config_dir=None, context_view=None)
+    modal.query_text = ""
+    assert modal.context_view is None
+
+
+def test_command_palette_context_view_unknown_no_promotion() -> None:
+    """Test no context promotion when context_view is not in VIEW_PRIORITY_MAP."""
+    from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
+
+    actions = get_palette_actions()
+    modal = CommandPaletteModal(actions, recents=[], config_dir=None, context_view="unknown_view")
+    modal.query_text = ""
+    assert modal.context_view == "unknown_view"
+
+
+def test_command_palette_search_still_shows_all_actions() -> None:
+    """Test that searching still shows all matching actions regardless of context."""
+    from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
+
+    actions = get_palette_actions()
+    modal = CommandPaletteModal(actions, recents=[], config_dir=None, context_view="knowledge")
+    modal.query_text = "ralph"
+    assert modal.context_view == "knowledge"
+    assert modal.query_text == "ralph"
+
+
+def test_view_priority_map_contains_expected_views() -> None:
+    """Test VIEW_PRIORITY_MAP has entries for all expected views."""
+    from agent_recall.cli.tui.commands.palette_actions import VIEW_PRIORITY_MAP
+
+    expected_views = {
+        "knowledge",
+        "ralph",
+        "queue",
+        "forecast",
+        "timeline",
+        "console",
+        "overview",
+        "settings",
+    }
+    assert expected_views <= set(VIEW_PRIORITY_MAP.keys())
+
+
+def test_view_priority_map_knowledge_has_sync() -> None:
+    """Test knowledge view prioritizes sync-related actions."""
+    from agent_recall.cli.tui.commands.palette_actions import VIEW_PRIORITY_MAP
+
+    knowledge_actions = VIEW_PRIORITY_MAP.get("knowledge", [])
+    assert "sync" in knowledge_actions
+    assert "knowledge-run" in knowledge_actions
+
+
+def test_view_priority_map_ralph_has_loop_controls() -> None:
+    """Test ralph view prioritizes loop control actions."""
+    from agent_recall.cli.tui.commands.palette_actions import VIEW_PRIORITY_MAP
+
+    ralph_actions = VIEW_PRIORITY_MAP.get("ralph", [])
+    assert "ralph-run" in ralph_actions
+    assert "ralph-status" in ralph_actions
+    assert "ralph-view-diff" in ralph_actions
 
 
 def test_layout_modal_prepopulates_with_current_state() -> None:

@@ -11,7 +11,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from agent_recall.cli.tui.commands.palette_actions import PaletteAction
+from agent_recall.cli.tui.commands.palette_actions import VIEW_PRIORITY_MAP, PaletteAction
 from agent_recall.cli.tui.commands.palette_recents import record_recent
 from agent_recall.cli.tui.logic.text_sanitizers import _strip_rich_markup
 
@@ -41,11 +41,13 @@ class CommandPaletteModal(ModalScreen[str | None]):
         actions: list[PaletteAction],
         recents: list[str] | None = None,
         config_dir: Path | None = None,
+        context_view: str | None = None,
     ):
         super().__init__()
         self.actions = actions
         self.recents = recents or []
         self.config_dir = config_dir
+        self.context_view = context_view
         self.query_text = ""
 
     def compose(self) -> ComposeResult:
@@ -172,8 +174,43 @@ class CommandPaletteModal(ModalScreen[str | None]):
             ("System", "System"),
         ]
 
+        actions_by_id = {a.action_id: a for a in self.actions}
+
+        context_promoted_ids: list[str] = []
+        if not query and self.context_view:
+            context_promoted_ids = VIEW_PRIORITY_MAP.get(self.context_view, [])
+
+        if not query and context_promoted_ids:
+            context_actions = []
+            for action_id in context_promoted_ids:
+                if action_id in actions_by_id:
+                    context_actions.append(actions_by_id[action_id])
+            if context_actions:
+                options.append(
+                    Option(
+                        f"[dim]── {self.context_view} ──[/dim]",
+                        id="heading:context",
+                        disabled=True,
+                    )
+                )
+                for action in context_actions:
+                    added_action_ids.add(action.action_id)
+                    line = f"{action.title} [dim]\\[{self.context_view}][/dim]"
+                    if action.shortcut:
+                        line = f"{line} [dim]{action.shortcut}[/dim]"
+                    if action.binding:
+                        left_plain = _strip_rich_markup(line)
+                        binding_plain = _strip_rich_markup(action.binding)
+                        spacer_width = max(2, list_width - len(left_plain) - len(binding_plain) - 2)
+                        line = f"{line}{' ' * spacer_width}[dim]{action.binding}[/dim]"
+                    options.append(
+                        Option(
+                            line,
+                            id=f"action:{action.action_id}",
+                        )
+                    )
+
         if not query and self.recents:
-            actions_by_id = {a.action_id: a for a in self.actions}
             recent_actions = []
             for recent_id in self.recents:
                 if recent_id in actions_by_id:
@@ -209,7 +246,7 @@ class CommandPaletteModal(ModalScreen[str | None]):
                 continue
 
             if not query:
-                if index > 0 or self.recents:
+                if index > 0 or self.recents or context_promoted_ids:
                     options.append(Option("", id=f"heading:spacer:{group}", disabled=True))
                 options.append(
                     Option(

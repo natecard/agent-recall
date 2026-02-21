@@ -44,7 +44,11 @@ from agent_recall.cli.tui.widgets import (
     InteractiveSourcesWidget,
     InteractiveTimelineWidget,
 )
-from agent_recall.ralph.iteration_store import IterationReport, IterationReportStore
+from agent_recall.ralph.iteration_store import (
+    IterationAnnotation,
+    IterationReport,
+    IterationReportStore,
+)
 from agent_recall.storage.curation_queue import CurationQueueStore
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 
@@ -401,13 +405,26 @@ class AgentRecallTextualApp(
         item_label = " ".join(part for part in [report.item_id, report.item_title] if part)
         summary_text = report.summary or "No summary available."
         outcome_text = report.outcome.value if report.outcome else "Unknown"
+        annotation = report_store.load_annotation(report.iteration)
+        annotation_text = annotation.text if annotation else None
+
+        def on_save_annotation(iteration: int, text: str) -> None:
+            new_annotation = IterationAnnotation(iteration=iteration, text=text)
+            report_store.save_annotation(new_annotation)
+            self._append_activity(f"Saved annotation for iteration {iteration}")
+            if self._interactive_timeline_widget:
+                self._interactive_timeline_widget.refresh_timeline()
+
         self.push_screen(
             IterationDetailModal(
+                iteration=report.iteration,
                 title=f"Iteration {report.iteration} Detail",
                 summary_text=summary_text,
                 outcome_text=outcome_text,
                 item_text=item_label or "Unknown item",
                 diff_text=diff_text,
+                annotation_text=annotation_text,
+                on_save_annotation=on_save_annotation,
             )
         )
 

@@ -62,6 +62,7 @@ class CommandsMixin:
                 get_palette_actions(),
                 recents=recents,
                 config_dir=config_dir,
+                context_view=getattr(self, "current_view", None),
             ),
             self._handle_palette_action,
         )

@@ -5,6 +5,24 @@ from dataclasses import dataclass
 
 from agent_recall.cli.command_contract import get_command_contract
 
+VIEW_PRIORITY_MAP: dict[str, list[str]] = {
+    "knowledge": ["knowledge-run", "run:select", "sync", "sessions"],
+    "ralph": [
+        "ralph-enable",
+        "ralph-disable",
+        "ralph-status",
+        "ralph-select",
+        "ralph-run",
+        "ralph-view-diff",
+    ],
+    "queue": ["view-queue", "status"],
+    "forecast": ["view-forecast", "ralph-status", "status"],
+    "timeline": ["ralph-view-diff", "ralph-status"],
+    "console": ["status", "sync"],
+    "overview": ["status", "sessions", "sync"],
+    "settings": ["settings", "layout", "theme", "ralph-config"],
+}
+
 
 def _build_command_suggestions(cli_commands: list[str]) -> list[str]:
     base = ["help", "run", "sync --no-compact", "settings", "preferences", "quit"]

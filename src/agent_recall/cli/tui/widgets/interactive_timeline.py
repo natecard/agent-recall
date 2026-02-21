@@ -48,7 +48,7 @@ class InteractiveTimelineWidget(DataTable):
         self._reports = self._report_store.load_recent(count=self._max_entries)
 
         # Add columns
-        self.add_column("Iteration", width=8)
+        self.add_column("#", width=4)
         self.add_column("Item", width=20)
         self.add_column("Outcome", width=12)
         self.add_column("When", width=20)
@@ -57,8 +57,10 @@ class InteractiveTimelineWidget(DataTable):
         for report in self._reports:
             outcome_str = report.outcome.value if report.outcome else "In Progress"
             when_str = self._format_when(report)
+            has_annotation = self._report_store.has_annotation(report.iteration)
+            iteration_display = f"📝{report.iteration}" if has_annotation else str(report.iteration)
             self.add_row(
-                str(report.iteration),
+                iteration_display,
                 report.item_id or "—",
                 outcome_str,
                 when_str,
