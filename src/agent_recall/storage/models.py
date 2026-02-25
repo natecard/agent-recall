@@ -104,6 +104,7 @@ class Chunk(BaseModel):
     created_at: datetime = Field(default_factory=utcnow)
     token_count: int | None = None
     embedding: list[float] | None = None
+    embedding_version: int = 0
 
 
 class ScoredChunk(Chunk):

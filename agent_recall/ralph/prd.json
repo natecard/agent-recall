@@ -19,17 +19,17 @@
       "description": "Update pyproject.toml to include sentence-transformers dependency. Create src/agent_recall/core/semantic_embedder.py with a lazy-loading SentenceTransformer singleton that initializes the all-MiniLM-L6-v2 model on first use. This provides the foundation for all downstream embedding operations and ensures the ~22MB model is loaded only once across the application lifecycle.",
       "user_story": "As a developer integrating semantic search into agent-recall, I need a centralized, thread-safe embeddings module that loads and caches the SentenceTransformer model on first access, so that multiple concurrent retrieval operations reuse the same model instance without redundant disk I/O or memory overhead.",
       "steps": [
-        "Open pyproject.toml and locate the [project] dependencies list.",
-        "Add 'sentence-transformers>=2.3.0' and 'numpy>=1.24.0' to the dependencies array.",
-        "Create src/agent_recall/core/semantic_embedder.py with module docstring explaining lazy-loading strategy.",
-        "Import necessary modules: from __future__ import annotations, import threading, from typing import Optional, import numpy as np, from sentence_transformers import SentenceTransformer, from functools import lru_cache.",
-        "Create a module-level lock: _embedding_lock = threading.Lock() to ensure thread-safe model initialization.",
-        "Implement a function _get_model() -> SentenceTransformer that uses _embedding_lock to safely load the model once and return the cached instance (store in a module-level variable or use functools.lru_cache).",
-        "Implement embed_single(text: str) -> np.ndarray that calls _get_model().encode([text], convert_to_numpy=True)[0].",
-        "Implement embed_batch(texts: list[str]) -> list[np.ndarray] that calls _get_model().encode(texts, convert_to_numpy=True) and returns a list of arrays.",
-        "Implement embed_batch_to_lists(texts: list[str]) -> list[list[float]] that converts numpy arrays to Python lists (for JSON/SQLite serialization).",
-        "Add a module-level function get_embedding_dimension() -> int that returns 384 (the dimension of all-MiniLM-L6-v2).",
-        "Add a function reset_model() that clears the cached model (for testing and hot-reload scenarios)."
+        "[DONE] Open pyproject.toml and locate the [project] dependencies list.",
+        "[DONE] Add 'sentence-transformers>=2.3.0' and 'numpy>=1.24.0' to the dependencies array.",
+        "[DONE] Create src/agent_recall/core/semantic_embedder.py with module docstring explaining lazy-loading strategy.",
+        "[DONE] Import necessary modules: from __future__ import annotations, import threading, from typing import Optional, import numpy as np, from sentence_transformers import SentenceTransformer, from functools import lru_cache.",
+        "[DONE] Create a module-level lock: _embedding_lock = threading.Lock() to ensure thread-safe model initialization.",
+        "[DONE] Implement a function _get_model() -> SentenceTransformer that uses _embedding_lock to safely load the model once and return the cached instance (store in a module-level variable or use functools.lru_cache).",
+        "[DONE] Implement embed_single(text: str) -> np.ndarray that calls _get_model().encode([text], convert_to_numpy=True)[0].",
+        "[DONE] Implement embed_batch(texts: list[str]) -> list[np.ndarray] that calls _get_model().encode(texts, convert_to_numpy=True) and returns a list of arrays.",
+        "[DONE] Implement embed_batch_to_lists(texts: list[str]) -> list[list[float]] that converts numpy arrays to Python lists (for JSON/SQLite serialization).",
+        "[DONE] Add a module-level function get_embedding_dimension() -> int that returns 384 (the dimension of all-MiniLM-L6-v2).",
+        "[DONE] Add a function reset_model() that clears the cached model (for testing and hot-reload scenarios)."
       ],
       "acceptance_criteria": [
         "pyproject.toml contains sentence-transformers>=2.3.0 and numpy>=1.24.0 in dependencies.",
@@ -47,7 +47,7 @@
         "uv run ruff check src/agent_recall/core/semantic_embedder.py",
         "uv run ty check src/agent_recall/core/semantic_embedder.py"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "The model (~22MB) will be auto-downloaded from HuggingFace on first _get_model() call and cached in ~/.cache/huggingface/hub/. Subsequent runs load from cache. Expected first-load time: 2-5 seconds on typical network. Embedding speed: ~100-200 documents per second on CPU."
     },
     {
@@ -57,18 +57,18 @@
       "description": "Modify src/agent_recall/storage/models.py to add an embedding field (JSON array of 384 floats) to the Chunk model. Create a new EmbeddingIndex table to support fast vector similarity queries. Update src/agent_recall/storage/sqlite.py with methods to store and retrieve embeddings. This enables the storage layer to persist embeddings alongside chunk text.",
       "user_story": "As the storage layer, I need to persist semantic embeddings alongside chunk content so that retrieval operations can later perform vector similarity searches without re-computing embeddings.",
       "steps": [
-        "Open src/agent_recall/storage/models.py and locate the Chunk dataclass.",
-        "Add a new field: embedding: list[float] | None = None with a docstring 'Semantic embedding (384-dim from all-MiniLM-L6-v2). Computed on first index, None until synced.'.",
-        "Add a new field: embedding_version: int = 0 with a docstring 'Version of embedding model used. Incremented if embedding strategy changes.'.",
-        "Create a new dataclass EmbeddingIndex with fields: chunk_id: UUID, session_id: UUID | None = None, created_at: datetime = field(default_factory=datetime.utcnow), updated_at: datetime = field(default_factory=datetime.utcnow).",
-        "Open src/agent_recall/storage/sqlite.py and locate the initialize_db() function.",
-        "Add a migration that adds two new columns to the chunks table: embedding TEXT (JSON array serialized as string) and embedding_version INTEGER DEFAULT 0.",
-        "Add a new table creation for embedding_indices (if not exists) with columns: chunk_id, session_id, created_at, updated_at, and a composite primary key (chunk_id, session_id).",
-        "Implement a method save_embedding(chunk_id: UUID, embedding: list[float], version: int = 1) -> None that updates the chunks table, setting embedding = json.dumps(embedding) and embedding_version = version.",
-        "Implement a method load_embedding(chunk_id: UUID) -> tuple[list[float], int] | None that queries the chunks table and returns (embedding, embedding_version) or None if not indexed.",
-        "Implement a method get_chunks_without_embeddings(limit: int = 100) -> list[Chunk] that returns chunks where embedding IS NULL.",
-        "Implement a method mark_embedding_indexed(chunk_id: UUID, session_id: UUID | None = None) -> None that inserts a row into embedding_indices.",
-        "Implement a method get_embedding_index_status() -> dict[str, int] that returns {'total_chunks': X, 'embedded_chunks': Y, 'pending': Z}."
+        "[DONE] Open src/agent_recall/storage/models.py and locate the Chunk dataclass.",
+        "[DONE] Add a new field: embedding: list[float] | None = None with a docstring 'Semantic embedding (384-dim from all-MiniLM-L6-v2). Computed on first index, None until synced.'.",
+        "[DONE] Add a new field: embedding_version: int = 0 with a docstring 'Version of embedding model used. Incremented if embedding strategy changes.'.",
+        "[DONE] Create a new dataclass EmbeddingIndex with fields: chunk_id: UUID, session_id: UUID | None = None, created_at: datetime = field(default_factory=datetime.utcnow), updated_at: datetime = field(default_factory=datetime.utcnow).",
+        "[DONE] Open src/agent_recall/storage/sqlite.py and locate the initialize_db() function.",
+        "[DONE] Add a migration that adds two new columns to the chunks table: embedding TEXT (JSON array serialized as string) and embedding_version INTEGER DEFAULT 0.",
+        "[DONE] Add a new table creation for embedding_indices (if not exists) with columns: chunk_id, session_id, created_at, updated_at, and a composite primary key (chunk_id, session_id).",
+        "[DONE] Implement a method save_embedding(chunk_id: UUID, embedding: list[float], version: int = 1) -> None that updates the chunks table, setting embedding = json.dumps(embedding) and embedding_version = version.",
+        "[DONE] Implement a method load_embedding(chunk_id: UUID) -> tuple[list[float], int] | None that queries the chunks table and returns (embedding, embedding_version) or None if not indexed.",
+        "[DONE] Implement a method get_chunks_without_embeddings(limit: int = 100) -> list[Chunk] that returns chunks where embedding IS NULL.",
+        "[DONE] Implement a method mark_embedding_indexed(chunk_id: UUID, session_id: UUID | None = None) -> None that inserts a row into embedding_indices.",
+        "[DONE] Implement a method get_embedding_index_status() -> dict[str, int] that returns {'total_chunks': X, 'embedded_chunks': Y, 'pending': Z}."
       ],
       "acceptance_criteria": [
         "Chunk model has fields embedding: list[float] | None and embedding_version: int.",
@@ -88,7 +88,7 @@
         "uv run ruff check src/agent_recall/storage/models.py src/agent_recall/storage/sqlite.py",
         "uv run ty check src/agent_recall/storage/"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Use json.dumps() / json.loads() for embedding serialization. Each embedding is 384 floats × 4 bytes = ~1.5KB per chunk. A 10,000-chunk database will add ~15-20MB. SQLite can handle this without issues up to millions of embeddings."
     },
     {
@@ -98,13 +98,13 @@
       "description": "Create src/agent_recall/core/embedding_indexer.py with an EmbeddingIndexer class that batch-processes chunks without embeddings, calls the semantic embedder, stores results, and tracks progress. This is called during sync operations to vectorize all markdown chunks efficiently.",
       "user_story": "As the sync command, I need to efficiently embed all unindexed chunks in a single pass, batching to minimize model calls and providing progress updates to the user.",
       "steps": [
-        "Create src/agent_recall/core/embedding_indexer.py with module docstring.",
-        "Import: from agent_recall.core.semantic_embedder import embed_batch_to_lists, from agent_recall.storage.base import Storage, from tqdm import tqdm (for progress bars), import logging.",
-        "Create a logger instance: logger = logging.getLogger(__name__).",
-        "Implement class EmbeddingIndexer with __init__(self, storage: Storage, batch_size: int = 32).",
-        "Implement method index_missing_embeddings(self, max_chunks: int = 0) -> dict[str, int] that: (a) calls storage.get_chunks_without_embeddings(limit=max_chunks if max_chunks > 0 else 9999), (b) if empty, returns {'skipped': 0, 'indexed': 0}, (c) logs 'Found N chunks without embeddings.', (d) batches chunks into groups of batch_size, (e) for each batch, extracts text via [chunk.text for chunk in batch], (f) calls embed_batch_to_lists() to get embeddings, (g) for each (chunk, embedding) pair, calls storage.save_embedding(chunk.id, embedding, version=1), (h) calls storage.mark_embedding_indexed(chunk.id), (i) yields progress bar updates.",
-        "Implement method get_indexing_stats(self) -> dict that calls storage.get_embedding_index_status() and returns the result.",
-        "Add optional progress bar integration: import tqdm.auto import tqdm and wrap the batch loop with tqdm(total=len(chunks), desc='Embedding chunks')."
+        "[DONE] Create src/agent_recall/core/embedding_indexer.py with module docstring.",
+        "[DONE] Import: from agent_recall.core.semantic_embedder import embed_batch_to_lists, from agent_recall.storage.base import Storage, from tqdm import tqdm (for progress bars), import logging.",
+        "[DONE] Create a logger instance: logger = logging.getLogger(__name__).",
+        "[DONE] Implement class EmbeddingIndexer with __init__(self, storage: Storage, batch_size: int = 32).",
+        "[DONE] Implement method index_missing_embeddings(self, max_chunks: int = 0) -> dict[str, int] that: (a) calls storage.get_chunks_without_embeddings(limit=max_chunks if max_chunks > 0 else 9999), (b) if empty, returns {'skipped': 0, 'indexed': 0}, (c) logs 'Found N chunks without embeddings.', (d) batches chunks into groups of batch_size, (e) for each batch, extracts text via [chunk.text for chunk in batch], (f) calls embed_batch_to_lists() to get embeddings, (g) for each (chunk, embedding) pair, calls storage.save_embedding(chunk.id, embedding, version=1), (h) calls storage.mark_embedding_indexed(chunk.id), (i) yields progress bar updates.",
+        "[DONE] Implement method get_indexing_stats(self) -> dict that calls storage.get_embedding_index_status() and returns the result.",
+        "[DONE] Add optional progress bar integration: import tqdm.auto import tqdm and wrap the batch loop with tqdm(total=len(chunks), desc='Embedding chunks')."
       ],
       "acceptance_criteria": [
         "EmbeddingIndexer can be instantiated: indexer = EmbeddingIndexer(storage).",
@@ -123,7 +123,7 @@
         "uv run ruff check src/agent_recall/core/embedding_indexer.py",
         "uv run ty check src/agent_recall/core/embedding_indexer.py"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Expected performance: ~100-200 chunks/sec on CPU with batch_size=32. For 10,000 chunks, expect ~50-100 seconds total. Batch size can be tuned: larger batches = faster but higher memory, smaller = lower memory but more overhead."
     },
     {
@@ -133,13 +133,13 @@
       "description": "Modify src/agent_recall/core/sync.py to call the EmbeddingIndexer after chunk ingestion and before compaction. Add --skip-embeddings flag to skip vectorization for testing. Update CLI help text to document the new behavior.",
       "user_story": "As a user running 'agent-recall sync', I want embeddings to be automatically computed and indexed so that future context retrieval uses semantic search without manual intervention.",
       "steps": [
-        "Open src/agent_recall/core/sync.py and locate the main sync() function or sync command handler.",
-        "Import: from agent_recall.core.embedding_indexer import EmbeddingIndexer.",
-        "After chunk ingestion completes, add code: if not skip_embeddings: indexer = EmbeddingIndexer(storage); stats = indexer.index_missing_embeddings(); logger.info(f'Indexed {stats[\"indexed\"]} chunks.').",
-        "Add a parameter skip_embeddings: bool = False to the sync function signature with docstring 'Skip semantic embedding indexing (for testing)'.",
-        "Add a CLI flag --skip-embeddings / --no-skip-embeddings with help text 'Skip computing semantic embeddings for chunks (default: False)'.",
-        "Update the help/docstring for the sync command to mention 'Embeddings are computed automatically unless --skip-embeddings is passed.'.",
-        "Ensure the indexer respects --no-compact behavior: if compaction is skipped, embeddings can still be indexed (they are independent operations)."
+        "[DONE] Open src/agent_recall/core/sync.py and locate the main sync() function or sync command handler.",
+        "[DONE] Import: from agent_recall.core.embedding_indexer import EmbeddingIndexer.",
+        "[DONE] After chunk ingestion completes, add code: if not skip_embeddings: indexer = EmbeddingIndexer(storage); stats = indexer.index_missing_embeddings(); logger.info(f'Indexed {stats[\"indexed\"]} chunks.').",
+        "[DONE] Add a parameter skip_embeddings: bool = False to the sync function signature with docstring 'Skip semantic embedding indexing (for testing)'.",
+        "[DONE] Add a CLI flag --skip-embeddings / --no-skip-embeddings with help text 'Skip computing semantic embeddings for chunks (default: False)'.",
+        "[DONE] Update the help/docstring for the sync command to mention 'Embeddings are computed automatically unless --skip-embeddings is passed.'.",
+        "[DONE] Ensure the indexer respects --no-compact behavior: if compaction is skipped, embeddings can still be indexed (they are independent operations)."
       ],
       "acceptance_criteria": [
         "Running 'agent-recall sync' (without flags) now calls EmbeddingIndexer and logs 'Indexed X chunks.'.",
@@ -156,7 +156,7 @@
         "uv run ruff check src/agent_recall/core/sync.py",
         "uv run ty check src/agent_recall/core/sync.py"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Embedding indexing runs automatically. On a fresh database with 1000 chunks, expect sync to take an additional 5-10 seconds for embeddings. Progress is silent if --no-verbose is set."
     },
     {

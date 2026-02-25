@@ -89,7 +89,18 @@ CREATE TABLE IF NOT EXISTS chunks (
     tags TEXT NOT NULL,
     created_at TEXT NOT NULL,
     token_count INTEGER,
-    embedding BLOB
+    embedding BLOB,
+    embedding_version INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS embedding_indices (
+    chunk_id TEXT NOT NULL,
+    session_id TEXT,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    project_id TEXT NOT NULL DEFAULT 'default',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (chunk_id, session_id, tenant_id, project_id)
 );
 
 {CHUNKS_FTS_SCHEMA}
@@ -141,6 +152,7 @@ SCOPE_INDEXES_BY_TABLE = {
     "processed_sessions": "idx_processed_sessions_scope",
     "session_checkpoints": "idx_session_checkpoints_scope",
     "background_sync_status": "idx_background_sync_status_scope",
+    "embedding_indices": "idx_embedding_indices_scope",
 }
 
 
@@ -185,6 +197,7 @@ class SQLiteStorage(Storage):
             "processed_sessions",
             "session_checkpoints",
             "background_sync_status",
+            "embedding_indices",
         ]
         with self._connect() as conn:
             for table in tables:
@@ -207,6 +220,14 @@ class SQLiteStorage(Storage):
                         f"ALTER TABLE {table} ADD COLUMN project_id TEXT NOT NULL DEFAULT 'default'"
                     )
                     columns.append("project_id")
+                if table == "chunks" and "embedding" not in columns:
+                    conn.execute("ALTER TABLE chunks ADD COLUMN embedding BLOB")
+                    columns.append("embedding")
+                if table == "chunks" and "embedding_version" not in columns:
+                    conn.execute(
+                        "ALTER TABLE chunks ADD COLUMN embedding_version INTEGER NOT NULL DEFAULT 0"
+                    )
+                    columns.append("embedding_version")
                 if table == "log_entries" and "curation_status" not in columns:
                     conn.execute(
                         "ALTER TABLE log_entries "
@@ -478,9 +499,9 @@ class SQLiteStorage(Storage):
                         """INSERT INTO chunks
                            (
                                id, tenant_id, project_id, source, source_ids, content, label,
-                               tags, created_at, token_count, embedding
+                               tags, created_at, token_count, embedding, embedding_version
                            )
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             str(chunk.id),
                             self.tenant_id,
@@ -493,6 +514,7 @@ class SQLiteStorage(Storage):
                             chunk.created_at.isoformat(),
                             chunk.token_count,
                             self._serialize_embedding(chunk.embedding),
+                            chunk.embedding_version,
                         ),
                     )
                 return
@@ -503,12 +525,108 @@ class SQLiteStorage(Storage):
                 raise
 
     def index_chunk_embedding(self, chunk_id: UUID, embedding: list[float]) -> None:
+        self.save_embedding(chunk_id=chunk_id, embedding=embedding, version=1)
+
+    def save_embedding(self, chunk_id: UUID, embedding: list[float], version: int = 1) -> None:
         self._validate_namespace()
         with self._connect() as conn:
             conn.execute(
-                "UPDATE chunks SET embedding = ? WHERE id = ?",
-                (self._serialize_embedding(embedding), str(chunk_id)),
+                (
+                    "UPDATE chunks "
+                    "SET embedding = ?, embedding_version = ? "
+                    "WHERE id = ? AND tenant_id = ? AND project_id = ?"
+                ),
+                (
+                    self._serialize_embedding(embedding),
+                    int(version),
+                    str(chunk_id),
+                    self.tenant_id,
+                    self.project_id,
+                ),
             )
+
+    def load_embedding(self, chunk_id: UUID) -> tuple[list[float], int] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                (
+                    "SELECT embedding, embedding_version FROM chunks "
+                    "WHERE id = ? AND tenant_id = ? AND project_id = ?"
+                ),
+                (str(chunk_id), self.tenant_id, self.project_id),
+            ).fetchone()
+        if not row:
+            return None
+
+        embedding = self._deserialize_embedding(row["embedding"])
+        if embedding is None:
+            return None
+
+        version = int(row["embedding_version"]) if row["embedding_version"] is not None else 0
+        return embedding, version
+
+    def get_chunks_without_embeddings(self, limit: int = 100) -> list[Chunk]:
+        max_limit = max(1, int(limit))
+        with self._connect() as conn:
+            rows = conn.execute(
+                (
+                    "SELECT * FROM chunks "
+                    "WHERE embedding IS NULL "
+                    "AND tenant_id = ? AND project_id = ? "
+                    "ORDER BY created_at DESC, id ASC LIMIT ?"
+                ),
+                (self.tenant_id, self.project_id, max_limit),
+            ).fetchall()
+        return [self._row_to_chunk(row) for row in rows]
+
+    def mark_embedding_indexed(self, chunk_id: UUID, session_id: UUID | None = None) -> None:
+        now = datetime.now(UTC).isoformat()
+        session_value = str(session_id) if session_id is not None else None
+        with self._connect() as conn:
+            conn.execute(
+                (
+                    "INSERT OR REPLACE INTO embedding_indices "
+                    "(chunk_id, session_id, tenant_id, project_id, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, COALESCE(("
+                    "SELECT created_at FROM embedding_indices "
+                    "WHERE chunk_id = ? AND session_id IS ? "
+                    "AND tenant_id = ? AND project_id = ?"
+                    "), ?), ?)"
+                ),
+                (
+                    str(chunk_id),
+                    session_value,
+                    self.tenant_id,
+                    self.project_id,
+                    str(chunk_id),
+                    session_value,
+                    self.tenant_id,
+                    self.project_id,
+                    now,
+                    now,
+                ),
+            )
+
+    def get_embedding_index_status(self) -> dict[str, int]:
+        with self._connect() as conn:
+            total_row = conn.execute(
+                "SELECT COUNT(*) AS n FROM chunks WHERE tenant_id = ? AND project_id = ?",
+                (self.tenant_id, self.project_id),
+            ).fetchone()
+            embedded_row = conn.execute(
+                (
+                    "SELECT COUNT(*) AS n FROM chunks "
+                    "WHERE embedding IS NOT NULL AND tenant_id = ? AND project_id = ?"
+                ),
+                (self.tenant_id, self.project_id),
+            ).fetchone()
+
+        total_chunks = int(total_row["n"]) if total_row else 0
+        embedded_chunks = int(embedded_row["n"]) if embedded_row else 0
+        return {
+            "total_chunks": total_chunks,
+            "embedded_chunks": embedded_chunks,
+            "pending": max(0, total_chunks - embedded_chunks),
+        }
 
     @staticmethod
     def _is_chunks_fts_corruption(exc: Exception) -> bool:
@@ -718,6 +836,9 @@ class SQLiteStorage(Storage):
             created_at=datetime.fromisoformat(row["created_at"]),
             token_count=row["token_count"],
             embedding=self._deserialize_embedding(row["embedding"]),
+            embedding_version=(
+                int(row["embedding_version"]) if "embedding_version" in row.keys() else 0
+            ),
         )
 
     def is_session_processed(self, source_session_id: str) -> bool:

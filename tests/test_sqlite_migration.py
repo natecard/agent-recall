@@ -123,6 +123,7 @@ def test_sqlite_storage_migrates_legacy_schema_before_scope_indexes(tmp_path: Pa
     assert _index_exists(db_path, "idx_sessions_scope")
     assert _index_exists(db_path, "idx_entries_scope")
     assert _index_exists(db_path, "idx_chunks_scope")
+    assert "embedding_version" in _column_names(db_path, "chunks")
 
 
 def test_sqlite_storage_migrates_when_only_project_column_is_missing(tmp_path: Path) -> None:
