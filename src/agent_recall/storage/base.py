@@ -131,6 +131,19 @@ class Storage(ABC):
         ...
 
     @abstractmethod
+    def index_chunk_embedding(self, chunk_id: UUID, embedding: list[float]) -> None:
+        """Index the vector embedding for an existing chunk.
+
+        This separates vector indexing from content storage, enabling split-backend
+        architectures where vector storage can be handled by a specialized service.
+
+        Args:
+            chunk_id: The UUID of the chunk to index.
+            embedding: The vector embedding to associate with the chunk.
+        """
+        ...
+
+    @abstractmethod
     def has_chunk(self, content: str, label: SemanticLabel) -> bool:
         """Check if a chunk with the same content and label already exists."""
         ...

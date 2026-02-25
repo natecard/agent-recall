@@ -502,6 +502,14 @@ class SQLiteStorage(Storage):
                     continue
                 raise
 
+    def index_chunk_embedding(self, chunk_id: UUID, embedding: list[float]) -> None:
+        self._validate_namespace()
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE chunks SET embedding = ? WHERE id = ?",
+                (self._serialize_embedding(embedding), str(chunk_id)),
+            )
+
     @staticmethod
     def _is_chunks_fts_corruption(exc: Exception) -> bool:
         lowered = str(exc).lower()

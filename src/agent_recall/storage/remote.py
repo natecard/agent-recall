@@ -288,6 +288,15 @@ class _HTTPClient(Storage):
             "Use SQLiteStorage for vector search capabilities."
         )
 
+    def index_chunk_embedding(self, chunk_id: UUID, embedding: list[float]) -> None:
+        self._require_role("admin", "writer")
+        self._require_promote()
+        response = self._client.post(
+            f"/chunks/{chunk_id}/embedding",
+            json={"embedding": embedding},
+        )
+        response.raise_for_status()
+
     def is_session_processed(self, source_session_id: str) -> bool:
         # We might want base64 or similar if session IDs contain slashes
         # But for now let's assume valid path chars or rely on query param if unsure
@@ -582,6 +591,9 @@ class RemoteStorage(Storage):
         self, embedding: list[float], limit: int = 10
     ) -> list[ScoredChunk]:
         return self._execute("search_chunks_by_embedding", embedding, limit=limit)
+
+    def index_chunk_embedding(self, chunk_id: UUID, embedding: list[float]) -> None:
+        return self._execute("index_chunk_embedding", chunk_id, embedding)
 
     def is_session_processed(self, source_session_id: str) -> bool:
         return self._execute("is_session_processed", source_session_id)

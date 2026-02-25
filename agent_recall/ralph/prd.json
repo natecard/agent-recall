@@ -151,12 +151,12 @@
       "description": "Refactor the `store_chunk` usage in the ingestion pipeline logic. Instead of a single atomic call that implies both storage and indexing, split the operation into two distinct phases: first storing the chunk content (without embedding) and then indexing the vector. This prepares the codebase for split-backend architectures.",
       "user_story": "As a system architect, I want the ingest pipeline to treat content storage and vector indexing as separate operations so that we can eventually move vector indexing to a specialized service without rewriting the core loop.",
       "steps": [
-        "Locate the main ingestion loop (likely in `src/ingest/` or `src/pipeline.py`).",
-        "Identify where `storage.store_chunk(chunk)` is currently called.",
-        "Modify the loop to create a copy of the chunk without the embedding: `chunk_no_vec = chunk.model_copy(update={'embedding': None})`.",
-        "Call `storage.store_chunk(chunk_no_vec)` first.",
-        "Immediately follow with a call to the embedding indexer: `storage.index(chunk.id, chunk.embedding)` (assuming `storage` currently implements the `EmbeddingBackend` interface or similar).",
-        "If `storage.index` does not exist, expose the vector insertion logic of `SQLiteStorage` as a public method or separate interface method."
+        "[DONE] Locate the main ingestion loop (likely in `src/ingest/` or `src/pipeline.py`).",
+        "[DONE] Identify where `storage.store_chunk(chunk)` is currently called.",
+        "[DONE] Modify the loop to create a copy of the chunk without the embedding: `chunk_no_vec = chunk.model_copy(update={'embedding': None})`.",
+        "[DONE] Call `storage.store_chunk(chunk_no_vec)` first.",
+        "[DONE] Immediately follow with a call to the embedding indexer: `storage.index(chunk.id, chunk.embedding)` (assuming `storage` currently implements the `EmbeddingBackend` interface or similar).",
+        "[DONE] If `storage.index` does not exist, expose the vector insertion logic of `SQLiteStorage` as a public method or separate interface method."
       ],
       "acceptance_criteria": [
         "The ingest pipeline makes two separate calls per chunk processing iteration.",
@@ -169,7 +169,7 @@
         "uv run pytest tests/ingest/test_pipeline.py",
         "uv run ruff check src/ingest"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "AR-260225-04",

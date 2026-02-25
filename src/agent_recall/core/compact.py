@@ -252,16 +252,17 @@ class CompactionEngine:
                 if embedding_enabled
                 else None
             )
-            self.storage.store_chunk(
-                Chunk(
-                    source=ChunkSource.LOG_ENTRY,
-                    source_ids=[entry.id],
-                    content=entry.content,
-                    label=entry.label,
-                    tags=entry.tags,
-                    embedding=embedding,
-                )
+            chunk = Chunk(
+                source=ChunkSource.LOG_ENTRY,
+                source_ids=[entry.id],
+                content=entry.content,
+                label=entry.label,
+                tags=entry.tags,
+                embedding=None,
             )
+            self.storage.store_chunk(chunk)
+            if embedding is not None:
+                self.storage.index_chunk_embedding(chunk.id, embedding)
             results["chunks_indexed"] = int(results["chunks_indexed"]) + 1
 
         return results
