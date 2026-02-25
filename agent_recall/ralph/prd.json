@@ -366,11 +366,11 @@
       "description": "Create tests/integration/test_embedding_e2e.py that tests: (1) ingest 20 test chunks, (2) verify no embeddings exist, (3) run indexer, (4) verify all chunks are embedded, (5) query via hybrid search, (6) verify results are semantically correct. Ensures all components integrate properly.",
       "user_story": "As QA, I need an end-to-end test that verifies the complete embedding pipeline from ingestion through retrieval, so I catch integration regressions early.",
       "steps": [
-        "Create tests/integration/test_embedding_e2e.py with module docstring.",
-        "Create fixture test_db that: (a) creates temp SQLite db, (b) initializes via storage.initialize_db(), (c) yields storage, (d) deletes db after test.",
-        "Write test_embedding_pipeline_end_to_end(test_db) that: (a) creates 20 Chunk objects covering auth, API, database topics, (b) inserts via storage.insert_chunk(), (c) verifies storage.get_chunks_without_embeddings() returns 20 chunks, (d) runs EmbeddingIndexer.index_missing_embeddings(), (e) verifies stats={'indexed': 20, 'skipped': 0}, (f) verifies storage.get_chunks_without_embeddings() now returns [], (g) creates Retriever, (h) calls search_hybrid('JWT authentication'), (i) verifies results include auth-related chunks ranked first, (j) calls search_hybrid('database optimization'), (k) verifies results include db-related chunks ranked first.",
-        "Add assertions on result ranking: first result similarity score > 0.6, is_relevant_to_query(result, query) returns True for top 3.",
-        "Add timing assertions: total execution < 60 seconds, embedding phase < 30 seconds."
+        "[DONE] Create tests/integration/test_embedding_e2e.py with module docstring.",
+        "[DONE] Create fixture test_db that: (a) creates temp SQLite db, (b) initializes via storage.initialize_db(), (c) yields storage, (d) deletes db after test.",
+        "[DONE] Write test_embedding_pipeline_end_to_end(test_db) that: (a) creates 20 Chunk objects covering auth, API, database topics, (b) inserts via storage.insert_chunk(), (c) verifies storage.get_chunks_without_embeddings() returns 20 chunks, (d) runs EmbeddingIndexer.index_missing_embeddings(), (e) verifies stats={'indexed': 20, 'skipped': 0}, (f) verifies storage.get_chunks_without_embeddings() now returns [], (g) creates Retriever, (h) calls search_hybrid('JWT authentication'), (i) verifies results include auth-related chunks ranked first, (j) calls search_hybrid('database optimization'), (k) verifies results include db-related chunks ranked first.",
+        "[DONE] Add assertions on result ranking: first result similarity score > 0.6, is_relevant_to_query(result, query) returns True for top 3.",
+        "[DONE] Add timing assertions: total execution < 60 seconds, embedding phase < 30 seconds."
       ],
       "acceptance_criteria": [
         "Test file exists at tests/integration/test_embedding_e2e.py.",
@@ -387,7 +387,7 @@
         "uv run pytest tests/integration/test_embedding_e2e.py -v -s",
         "uv run pytest tests/integration/test_embedding_e2e.py::test_embedding_pipeline_end_to_end --durations=10"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "This test uses real embeddings (not mocked), so it runs slower (~20-40s). Run separately in CI with marker: pytest tests/integration/ -m slow. Use real SentenceTransformer for this test to verify actual behavior."
     },
     {
