@@ -397,11 +397,11 @@
       "description": "Create docs/embeddings-guide.md (>= 1000 words) explaining what embeddings are, why they help Agent-Recall, how to configure them, performance characteristics, and troubleshooting. Update README.md to mention embeddings. This helps users understand and adopt the feature.",
       "user_story": "As a new user, I want to understand what embeddings are, why they improve Agent-Recall, and how to configure them, so I can make informed decisions about enabling the feature.",
       "steps": [
-        "Create docs/embeddings-guide.md with the following sections in order: (1) Overview section explaining embeddings using non-technical analogy (e.g., 'meaning vs spelling'), (2) Why Embeddings Help section with concrete examples ('JWT error' matches 'token validation'), (3) How It Works section with architecture diagram (text -> tokenize -> embed -> store -> retrieve -> rank), (4) Quick Start section showing default behavior and when embeddings are enabled, (5) Configuration section documenting all EmbeddingSettings fields with YAML examples, (6) Performance Characteristics section with real benchmarks (10K chunks = X MB, Y seconds to index), (7) Hybrid Search Explained section showing FTS vs Semantic vs Hybrid, (8) Disabling Embeddings section with fallback behavior, (9) Troubleshooting section with >= 4 common issues and solutions, (10) FAQ section with >= 5 questions.",
-        "Update README.md to add new section 'Semantic Search' under Advanced Capabilities that: (a) briefly explains embeddings, (b) links to docs/embeddings-guide.md, (c) shows example query.",
-        "Include code examples in guide: config.yaml with embeddings section, CLI commands (agent-recall sync, agent-recall embedding-stats).",
-        "Include performance table: '1000 chunks: 50MB disk, 5 min to embed (one-time)' and similar for 10K, 100K chunks.",
-        "Include troubleshooting table with Problem/Cause/Solution columns for: slow sync, high disk usage, poor retrieval quality, embedding errors."
+        "[DONE] Create docs/embeddings-guide.md with the following sections in order: (1) Overview section explaining embeddings using non-technical analogy (e.g., 'meaning vs spelling'), (2) Why Embeddings Help section with concrete examples ('JWT error' matches 'token validation'), (3) How It Works section with architecture diagram (text -> tokenize -> embed -> store -> retrieve -> rank), (4) Quick Start section showing default behavior and when embeddings are enabled, (5) Configuration section documenting all EmbeddingSettings fields with YAML examples, (6) Performance Characteristics section with real benchmarks (10K chunks = X MB, Y seconds to index), (7) Hybrid Search Explained section showing FTS vs Semantic vs Hybrid, (8) Disabling Embeddings section with fallback behavior, (9) Troubleshooting section with >= 4 common issues and solutions, (10) FAQ section with >= 5 questions.",
+        "[DONE] Update README.md to add new section 'Semantic Search' under Advanced Capabilities that: (a) briefly explains embeddings, (b) links to docs/embeddings-guide.md, (c) shows example query.",
+        "[DONE] Include code examples in guide: config.yaml with embeddings section, CLI commands (agent-recall sync, agent-recall embedding-stats).",
+        "[DONE] Include performance table: '1000 chunks: 50MB disk, 5 min to embed (one-time)' and similar for 10K, 100K chunks.",
+        "[DONE] Include troubleshooting table with Problem/Cause/Solution columns for: slow sync, high disk usage, poor retrieval quality, embedding errors."
       ],
       "acceptance_criteria": [
         "docs/embeddings-guide.md exists and is >= 1000 words.",
@@ -421,7 +421,7 @@
         "grep -E '(config\\.yaml|agent-recall)' docs/embeddings-guide.md (verify examples present)",
         "grep -i 'troubleshooting\\|faq\\|performance' docs/embeddings-guide.md"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Use Markdown headings (##) for sections so they appear in auto-generated TOC. Include links to source code files (e.g., 'see src/agent_recall/core/semantic_embedder.py for implementation details'). Keep language accessible to non-ML-experts."
     },
     {

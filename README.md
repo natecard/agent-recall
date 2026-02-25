@@ -159,6 +159,26 @@ Advanced command families (background sync, curation queue, tier maintenance, co
 - Getting started guide: `docs/getting-started.md`
 - Full command reference: `docs/cli-reference.md`
 
+### Semantic Search
+
+Agent-Recall supports semantic embeddings for intelligent search that understands meaning, not just keywords. When enabled, searches find relevant results even when your query uses different words than your logged content.
+
+```bash
+# Enable embeddings in .agent/config.yaml:
+# retrieval:
+#   backend: hybrid
+#   embedding_indexed: true
+
+# Run one-time migration and indexing
+agent-recall embedding migrate-embeddings
+agent-recall embedding reindex --force
+
+# Search semantically (finds "token validation" when you search "JWT error")
+agent-recall embedding search --query "authentication problems"
+```
+
+For full documentation including performance benchmarks, configuration options, and troubleshooting, see [docs/embeddings-guide.md](docs/embeddings-guide.md).
+
 ## Development
 
 ```bash
