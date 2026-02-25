@@ -45,7 +45,15 @@ class ContextAssembler:
 
         if task and include_retrieval:
             retriever = self.retriever or Retriever(self.storage)
-            chunks = retriever.search(task, top_k=self.retrieval_top_k)
+            if hasattr(retriever, "search_hybrid"):
+                chunks = retriever.search_hybrid(
+                    query=task,
+                    top_k=self.retrieval_top_k,
+                    fts_weight=0.4,
+                    semantic_weight=0.6,
+                )
+            else:
+                chunks = retriever.search(task, top_k=self.retrieval_top_k, backend="hybrid")
             if chunks:
                 relevant = "\n".join(f"- {chunk.content}" for chunk in chunks)
                 parts.append(f'## Relevant to "{task}"\n\n{relevant}')

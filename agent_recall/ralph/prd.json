@@ -200,12 +200,12 @@
       "description": "Modify src/agent_recall/core/retrieve.py to add a search_hybrid() method that ranks results from both full-text search and vector search, using a weighted combination of BM25 score and semantic similarity. This provides balanced recall (FTS catches exact keywords) and precision (semantic matching catches meaning).",
       "user_story": "As the retrieval system, I want to combine full-text search (high recall for keyword matches) with semantic search (high precision for meaning) into a single query, so that queries return both exact matches and semantically related results in a unified ranked list.",
       "steps": [
-        "Open src/agent_recall/core/retrieve.py and locate the Retriever class.",
-        "Add a new method search_hybrid(self, query: str, top_k: int = 5, fts_weight: float = 0.4, semantic_weight: float = 0.6, fts_top_k: int = 20) -> list[Chunk] that: (a) calls self.search_chunks_fts(query, top_k=fts_top_k) to get FTS candidates, (b) calls self.search_by_vector_similarity(query, top_k=fts_top_k) to get semantic candidates, (c) merges the two lists by chunk ID (deduplicate), (d) for each chunk, computes hybrid_score = fts_weight * normalized_fts_score + semantic_weight * normalized_semantic_score, (e) sorts by hybrid_score descending, (f) returns top_k chunks.",
-        "Implement a helper method _normalize_fts_scores(chunks: list[tuple[Chunk, float]]) -> dict[UUID, float] that normalizes BM25 scores to [0, 1] range by dividing by max score.",
-        "Implement a helper method _normalize_semantic_scores(chunks: list[tuple[Chunk, float]]) -> dict[UUID, float] that normalizes cosine similarity scores (already [0, 1]) into the same range.",
-        "Ensure chunks that appear in both FTS and semantic results receive a combined score boost.",
-        "Add logging: logger.debug(f'Hybrid search: {len(fts_results)} FTS + {len(semantic_results)} semantic = {len(merged)} unique, top {top_k} returned')."
+        "[DONE] Open src/agent_recall/core/retrieve.py and locate the Retriever class.",
+        "[DONE] Add a new method search_hybrid(self, query: str, top_k: int = 5, fts_weight: float = 0.4, semantic_weight: float = 0.6, fts_top_k: int = 20) -> list[Chunk] that: (a) calls self.search_chunks_fts(query, top_k=fts_top_k) to get FTS candidates, (b) calls self.search_by_vector_similarity(query, top_k=fts_top_k) to get semantic candidates, (c) merges the two lists by chunk ID (deduplicate), (d) for each chunk, computes hybrid_score = fts_weight * normalized_fts_score + semantic_weight * normalized_semantic_score, (e) sorts by hybrid_score descending, (f) returns top_k chunks.",
+        "[DONE] Implement a helper method _normalize_fts_scores(chunks: list[tuple[Chunk, float]]) -> dict[UUID, float] that normalizes BM25 scores to [0, 1] range by dividing by max score.",
+        "[DONE] Implement a helper method _normalize_semantic_scores(chunks: list[tuple[Chunk, float]]) -> dict[UUID, float] that normalizes cosine similarity scores (already [0, 1]) into the same range.",
+        "[DONE] Ensure chunks that appear in both FTS and semantic results receive a combined score boost.",
+        "[DONE] Add logging: logger.debug(f'Hybrid search: {len(fts_results)} FTS + {len(semantic_results)} semantic = {len(merged)} unique, top {top_k} returned')."
       ],
       "acceptance_criteria": [
         "search_hybrid('JWT auth error') returns list[Chunk] with at most top_k results.",
@@ -223,22 +223,22 @@
         "uv run ruff check src/agent_recall/core/retrieve.py",
         "uv run ty check src/agent_recall/core/retrieve.py"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Hybrid search is the recommended default for context retrieval. FTS is fast (< 100ms) but misses semantic matches. Semantic alone is slow but very accurate. Hybrid balances both. Consider making weights configurable via config.yaml."
     },
     {
-      "id": "AR-507",
+      "id": "AR-260225-11",
       "title": "Update ContextAssembler to use hybrid retrieval by default",
       "priority": 2,
       "description": "Modify src/agent_recall/core/context.py to replace pure FTS calls in ContextAssembler.assemble() with hybrid retrieval. This makes semantic search the default behavior when assembling context for LLM prompts.",
       "user_story": "As an agent receiving context via ContextAssembler, I want the context to include both exact keyword matches and semantically similar content, so my prompts contain richer, more relevant context.",
       "steps": [
-        "Open src/agent_recall/core/context.py and locate ContextAssembler.assemble().",
-        "Find the line calling self.retriever.search_chunks_fts(task, top_k=...).",
-        "Replace it with: chunks = self.retriever.search_hybrid(query=task, top_k=self.retrieval_top_k, fts_weight=0.4, semantic_weight=0.6).",
-        "Add a comment explaining the hybrid approach: '# Hybrid search: 40% full-text (exact keywords), 60% semantic (meaning). Falls back to FTS if chunks lack embeddings.'",
-        "Ensure that search_hybrid() is tolerant of missing embeddings (it should still return FTS results).",
-        "Update ContextAssembler's docstring to document the new hybrid retrieval behavior."
+        "[DONE] Open src/agent_recall/core/context.py and locate ContextAssembler.assemble().",
+        "[DONE] Find the line calling self.retriever.search_chunks_fts(task, top_k=...).",
+        "[DONE] Replace it with: chunks = self.retriever.search_hybrid(query=task, top_k=self.retrieval_top_k, fts_weight=0.4, semantic_weight=0.6).",
+        "[DONE] Add a comment explaining the hybrid approach: '# Hybrid search: 40% full-text (exact keywords), 60% semantic (meaning). Falls back to FTS if chunks lack embeddings.'",
+        "[DONE] Ensure that search_hybrid() is tolerant of missing embeddings (it should still return FTS results).",
+        "[DONE] Update ContextAssembler's docstring to document the new hybrid retrieval behavior."
       ],
       "acceptance_criteria": [
         "ContextAssembler.assemble() now calls search_hybrid instead of search_chunks_fts.",
@@ -253,11 +253,11 @@
         "uv run ruff check src/agent_recall/core/context.py",
         "uv run ty check src/agent_recall/core/context.py"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "This is a drop-in replacement. No API changes, just better results. If performance is a concern, consider caching embeddings in-memory or using FAISS for large databases."
     },
     {
-      "id": "AR-508",
+      "id": "AR-260225-12",
       "title": "Add embedding quality metrics and diagnostics command",
       "priority": 3,
       "description": "Create src/agent_recall/core/embedding_diagnostics.py with functions to measure embedding quality, detect stale embeddings, and report coverage. Add a CLI command 'agent-recall embedding-stats' to expose these metrics. This helps operators understand the quality and completeness of their embedding index.",
@@ -292,7 +292,7 @@
       "notes": "Pairwise similarity computation on large databases (100K+ chunks) can be slow. Optimize by sampling: compute similarities only on random 1000-chunk subset for distribution estimation."
     },
     {
-      "id": "AR-509",
+      "id": "AR-260225-13",
       "title": "Add configuration section for embedding parameters to config.yaml schema",
       "priority": 3,
       "description": "Extend src/agent_recall/core/config.py to add an EmbeddingSettings dataclass with model_name, batch_size, min_similarity_threshold, and hybrid_enabled fields. Update the Config dataclass to include embedding settings. This allows operators to configure embeddings via .agent/config.yaml without code changes.",
@@ -326,7 +326,7 @@
       "notes": "Ensure EmbeddingSettings is immutable (frozen=True) so config cannot be accidentally modified at runtime. Use dataclass field() with validators if using Python 3.10+."
     },
     {
-      "id": "AR-510",
+      "id": "AR-260225-14",
       "title": "Write comprehensive unit tests for semantic embedding pipeline",
       "priority": 2,
       "description": "Create tests/unit/core/test_semantic_embedder.py, test_embedding_indexer.py, test_vector_search.py, test_hybrid_search.py covering all embedding functionality with mocked models and small test datasets.",
@@ -360,7 +360,7 @@
       "notes": "Create conftest.py in tests/unit/core/ with shared fixtures: @pytest.fixture def mock_storage(), @pytest.fixture def sample_chunks(), @pytest.fixture def mock_embedder()."
     },
     {
-      "id": "AR-511",
+      "id": "AR-260225-15",
       "title": "Write integration test for end-to-end embedding workflow",
       "priority": 2,
       "description": "Create tests/integration/test_embedding_e2e.py that tests: (1) ingest 20 test chunks, (2) verify no embeddings exist, (3) run indexer, (4) verify all chunks are embedded, (5) query via hybrid search, (6) verify results are semantically correct. Ensures all components integrate properly.",
@@ -425,7 +425,7 @@
       "notes": "Use Markdown headings (##) for sections so they appear in auto-generated TOC. Include links to source code files (e.g., 'see src/agent_recall/core/semantic_embedder.py for implementation details'). Keep language accessible to non-ML-experts."
     },
     {
-      "id": "AR-513",
+      "id": "AR-260225-16",
       "title": "Benchmark embedding pipeline and document optimization strategies",
       "priority": 3,
       "description": "Run benchmarks on embedding indexing speed, query latency, and disk usage across different chunk counts (1K, 10K, 100K). Document results and provide optimization recommendations (batch tuning, caching). This helps operators understand costs and plan deployments.",
@@ -458,7 +458,7 @@
       "notes": "Use pytest-benchmark (pip install pytest-benchmark). Run on consistent hardware for reproducibility. Document CPU model and RAM in results. Include both cold (first run) and warm (cached) timings."
     },
     {
-      "id": "AR-514",
+      "id": "AR-260225-17",
       "title": "Implement CLI commands for embedding management and monitoring",
       "priority": 2,
       "description": "Add CLI commands: 'agent-recall embedding-stats' (show coverage, size, health), 'agent-recall reindex-embeddings' (force re-embed all chunks), 'agent-recall embedding-search' (test semantic search interactively). These provide operators with debugging and testing tools.",
@@ -491,7 +491,7 @@
       "notes": "Use click.echo() for colorized output (click supports color). Use click.prompt() for interactive input. Make commands idempotent: running twice should be safe."
     },
     {
-      "id": "AR-260225-11",
+      "id": "AR-260225-18",
       "title": "Create migration script to add embeddings to existing Agent-Recall databases",
       "priority": 2,
       "description": "Create src/agent_recall/storage/migrations/migrate_to_embeddings.py that: (1) detects old database schema (pre-embeddings), (2) adds embedding and embedding_version columns safely, (3) backs up database before migration, (4) runs indexing on all chunks. This ensures smooth upgrade path for existing users.",
@@ -524,7 +524,7 @@
       "notes": "Add --dry-run flag to preview changes without applying. Include schema inspection: print 'Found X chunks, will migrate Y from backup' before running. Test on real old database schema."
     },
     {
-      "id": "AR-260225-12",
+      "id": "AR-260225-19",
       "title": "Update CHANGELOG.md and create release notes for semantic embeddings feature",
       "priority": 3,
       "description": "Add comprehensive entry to CHANGELOG.md documenting all embedding-related changes (new PRDs, new modules, new CLI commands). Create RELEASE_NOTES.md with migration guide for upgrading from pre-embedding versions.",
@@ -555,7 +555,7 @@
       "notes": "Keep tone professional but accessible. Include a 'Quick Start' section for users who just want embeddings to work with defaults. Mention that embeddings are opt-in via config, not mandatory."
     },
     {
-      "id": "AR-260225-13",
+      "id": "AR-260225-20",
       "title": "Implement optional in-memory caching layer for embeddings",
       "priority": 3,
       "description": "Create src/agent_recall/core/embedding_cache.py with EmbeddingCache class that caches recently loaded embeddings in memory (LRU eviction). This speeds up repeated queries by avoiding repeated database lookups and deserialization.",
@@ -587,7 +587,7 @@
       "notes": "Measure cache hit rate in logs: logger.debug(f'Embedding cache hit rate: {hits}/{total} ({100*hits/total:.1f}%)'). Make cache size configurable. For large databases (100K+ chunks), keep cache disabled to avoid OOM."
     },
     {
-      "id": "AR-260225-14",
+      "id": "AR-260225-21",
       "title": "Add Prometheus metrics and structured logging for embedding operations",
       "priority": 3,
       "description": "Instrument embedding pipeline with Prometheus metrics (indexing_duration_seconds, retrieval_latency_seconds, cache_hit_rate) and structured logging. This enables monitoring and performance debugging in production deployments.",
@@ -633,7 +633,7 @@
       "notes": "Use logger.getLogger(__name__) at module level to get structured logging. Metrics follow Prometheus best practices: _seconds suffix for durations, _total for counters, _milliseconds for sub-second latencies. Test with mock prometheus_client if needed to avoid external dependencies in tests."
     },
     {
-      "id": "AR-260225-15",
+      "id": "AR-260225-22",
       "title": "Add optional FAISS integration for fast approximate nearest neighbor search on 100K+ chunk deployments",
       "priority": 3,
       "description": "Create src/agent_recall/core/embedding_faiss.py with optional FAISS (Facebook AI Similarity Search) backend that enables O(log n) approximate nearest neighbor search instead of O(n) brute-force. When embedding.use_faiss=true and database has >= 10K chunks, automatically build and use FAISS index for sub-10ms retrieval latency at scale.",
