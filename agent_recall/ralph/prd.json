@@ -332,13 +332,13 @@
       "description": "Create tests/unit/core/test_semantic_embedder.py, test_embedding_indexer.py, test_vector_search.py, test_hybrid_search.py covering all embedding functionality with mocked models and small test datasets.",
       "user_story": "As a developer, I need comprehensive tests for the embedding pipeline so I can confidently refactor and maintain the code without breaking functionality.",
       "steps": [
-        "Create tests/unit/core/test_semantic_embedder.py with test_embed_single_returns_384_dim_vector(), test_embed_batch_processes_multiple_texts(), test_get_model_caches_instance(), test_reset_model_clears_cache(), test_embedding_dimension_is_384(), test_embed_batch_to_lists_converts_to_python_lists().",
-        "Create tests/unit/core/test_embedding_indexer.py with test_index_missing_embeddings_processes_unembedded_chunks(), test_batch_size_is_respected(), test_index_missing_embeddings_returns_correct_stats(), test_already_embedded_chunks_are_skipped(), test_max_chunks_limit_is_respected(), test_progress_bar_displays().",
-        "Create tests/unit/core/test_vector_search.py with test_search_by_vector_similarity_returns_chunks(), test_results_are_ordered_by_similarity_descending(), test_min_similarity_threshold_filters_results(), test_top_k_limit_is_respected(), test_empty_database_returns_empty_list(), test_malformed_embedding_is_skipped_with_warning().",
-        "Create tests/unit/core/test_hybrid_search.py with test_hybrid_search_combines_fts_and_semantic(), test_hybrid_deduplicates_overlapping_results(), test_pure_fts_when_semantic_weight_is_zero(), test_pure_semantic_when_fts_weight_is_zero(), test_results_ranked_by_hybrid_score().",
-        "Use pytest fixtures for: in-memory SQLite storage, sample 10-chunk dataset with predetermined embeddings, Retriever instance, EmbeddingIndexer instance.",
-        "Mock SentenceTransformer.encode() to return deterministic test embeddings (use numpy.ones, numpy.zeros, numpy.arange patterns).",
-        "Each test file should have >= 5 test functions. Total >= 25 tests across all files."
+        "[DONE] Create tests/unit/core/test_semantic_embedder.py with test_embed_single_returns_384_dim_vector(), test_embed_batch_processes_multiple_texts(), test_get_model_caches_instance(), test_reset_model_clears_cache(), test_embedding_dimension_is_384(), test_embed_batch_to_lists_converts_to_python_lists().",
+        "[DONE] Create tests/unit/core/test_embedding_indexer.py with test_index_missing_embeddings_processes_unembedded_chunks(), test_batch_size_is_respected(), test_index_missing_embeddings_returns_correct_stats(), test_already_embedded_chunks_are_skipped(), test_max_chunks_limit_is_respected(), test_progress_bar_displays().",
+        "[DONE] Create tests/unit/core/test_vector_search.py with test_search_by_vector_similarity_returns_chunks(), test_results_are_ordered_by_similarity_descending(), test_min_similarity_threshold_filters_results(), test_top_k_limit_is_respected(), test_empty_database_returns_empty_list(), test_malformed_embedding_is_skipped_with_warning().",
+        "[DONE] Create tests/unit/core/test_hybrid_search.py with test_hybrid_search_combines_fts_and_semantic(), test_hybrid_deduplicates_overlapping_results(), test_pure_fts_when_semantic_weight_is_zero(), test_pure_semantic_when_fts_weight_is_zero(), test_results_ranked_by_hybrid_score().",
+        "[DONE] Use pytest fixtures for: in-memory SQLite storage, sample 10-chunk dataset with predetermined embeddings, Retriever instance, EmbeddingIndexer instance.",
+        "[DONE] Mock SentenceTransformer.encode() to return deterministic test embeddings (use numpy.ones, numpy.zeros, numpy.arange patterns).",
+        "[DONE] Each test file should have >= 5 test functions. Total >= 25 tests across all files."
       ],
       "acceptance_criteria": [
         "All 4 test files exist in tests/unit/core/.",
@@ -356,8 +356,8 @@
         "uv run ruff check tests/unit/core/test_*embedding*.py",
         "uv run ty check tests/unit/core/"
       ],
-      "passes": false,
-      "notes": "Create conftest.py in tests/unit/core/ with shared fixtures: @pytest.fixture def mock_storage(), @pytest.fixture def sample_chunks(), @pytest.fixture def mock_embedder()."
+      "passes": true,
+      "notes": "Created conftest.py in tests/unit/core/ with shared fixtures: mock_storage, sample_chunks, mock_embedder. All 32 tests pass (8 in semantic_embedder, 9 in embedding_indexer, 7 in vector_search, 8 in hybrid_search). Linting passes."
     },
     {
       "id": "AR-260225-15",
@@ -391,7 +391,7 @@
       "notes": "This test uses real embeddings (not mocked), so it runs slower (~20-40s). Run separately in CI with marker: pytest tests/integration/ -m slow. Use real SentenceTransformer for this test to verify actual behavior."
     },
     {
-      "id": "AR-512",
+      "id": "AR-260225-15",
       "title": "Write comprehensive user documentation for semantic embeddings feature",
       "priority": 3,
       "description": "Create docs/embeddings-guide.md (>= 1000 words) explaining what embeddings are, why they help Agent-Recall, how to configure them, performance characteristics, and troubleshooting. Update README.md to mention embeddings. This helps users understand and adopt the feature.",
@@ -678,7 +678,7 @@
       "notes": "FAISS is NOT required. Design app to work without it. Document that FAISS is recommended for 100K+ chunks. Use IVFFlat (not HNSW) for faster training and lower memory. FAISS index is ~15MB per 10K chunks. Test on real 100K chunk dataset to verify speedup."
     },
     {
-      "id": "AR-260225-16",
+      "id": "AR-260225-23",
       "title": "Final integration testing, documentation, and production readiness validation for semantic embeddings",
       "priority": 1,
       "description": "Run comprehensive end-to-end tests verifying all 19 previous embedding PRDs (AR-501 through AR-519) work together seamlessly. Execute performance benchmarks, verify CLI commands, validate migrations, update documentation, and gate release on acceptance criteria. This is the final PRD before launching embeddings feature.",
