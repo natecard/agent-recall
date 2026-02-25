@@ -497,13 +497,13 @@
       "description": "Create src/agent_recall/storage/migrations/migrate_to_embeddings.py that: (1) detects old database schema (pre-embeddings), (2) adds embedding and embedding_version columns safely, (3) backs up database before migration, (4) runs indexing on all chunks. This ensures smooth upgrade path for existing users.",
       "user_story": "As an existing Agent-Recall user upgrading to the embeddings release, I want automatic schema migration and indexing so my database is ready to use embeddings without manual SQL.",
       "steps": [
-        "Create src/agent_recall/storage/migrations/ directory if not exists.",
-        "Create src/agent_recall/storage/migrations/migrate_to_embeddings.py with function migrate_database(storage: Storage, backup: bool = True) -> dict.",
-        "Implement backup logic: (a) copies .db to .db.backup-{timestamp}, (b) verifies backup is readable, (c) returns backup path.",
-        "Implement schema migration: (a) checks if 'embedding' column exists in chunks table, (b) if not, runs ALTER TABLE chunks ADD COLUMN embedding TEXT, (c) runs ALTER TABLE chunks ADD COLUMN embedding_version INTEGER DEFAULT 0.",
-        "Implement indexing: (a) after schema update, calls EmbeddingIndexer.index_missing_embeddings(), (b) displays progress, (c) logs total chunks embedded.",
-        "Create CLI command 'agent-recall migrate-embeddings' that calls migrate_database() with user confirmation.",
-        "Make migration idempotent: running twice should not cause errors, just skip already-migrated chunks."
+        "[DONE] Create src/agent_recall/storage/migrations/ directory if not exists.",
+        "[DONE] Create src/agent_recall/storage/migrations/migrate_to_embeddings.py with function migrate_database(storage: Storage, backup: bool = True) -> dict.",
+        "[DONE] Implement backup logic: (a) copies .db to .db.backup-{timestamp}, (b) verifies backup is readable, (c) returns backup path.",
+        "[DONE] Implement schema migration: (a) checks if 'embedding' column exists in chunks table, (b) if not, runs ALTER TABLE chunks ADD COLUMN embedding TEXT, (c) runs ALTER TABLE chunks ADD COLUMN embedding_version INTEGER DEFAULT 0.",
+        "[DONE] Implement indexing: (a) after schema update, calls EmbeddingIndexer.index_missing_embeddings(), (b) displays progress, (c) logs total chunks embedded.",
+        "[DONE] Create CLI command 'agent-recall migrate-embeddings' that calls migrate_database() with user confirmation.",
+        "[DONE] Make migration idempotent: running twice should not cause errors, just skip already-migrated chunks."
       ],
       "acceptance_criteria": [
         "Migration script exists at src/agent_recall/storage/migrations/migrate_to_embeddings.py.",
@@ -520,7 +520,7 @@
         "uv run agent-recall migrate-embeddings --help",
         "uv run agent-recall migrate-embeddings --dry-run"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Add --dry-run flag to preview changes without applying. Include schema inspection: print 'Found X chunks, will migrate Y from backup' before running. Test on real old database schema."
     },
     {

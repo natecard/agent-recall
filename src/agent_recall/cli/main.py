@@ -99,6 +99,10 @@ from agent_recall.ralph.iteration_store import IterationOutcome, IterationReport
 from agent_recall.storage import create_storage_backend
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
+from agent_recall.storage.migrations.migrate_to_embeddings import (
+    get_migration_preview,
+    migrate_database,
+)
 from agent_recall.storage.models import CurationStatus, LLMConfig, RetrievalConfig, SemanticLabel
 from agent_recall.storage.remote import resolve_shared_db_path
 
@@ -1856,6 +1860,104 @@ def embedding_test_quality():
             title="Quality Test Summary",
         )
     )
+
+
+@embedding_app.command("migrate-embeddings")
+def migrate_embeddings_cmd(
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Preview migration without making changes",
+    ),
+    no_backup: bool = typer.Option(
+        False,
+        "--no-backup",
+        help="Skip database backup before migration",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Skip confirmation prompt",
+    ),
+):
+    """Migrate existing database to support semantic embeddings."""
+    from agent_recall.storage.sqlite import SQLiteStorage
+
+    storage = get_storage()
+
+    if not isinstance(storage, SQLiteStorage):
+        console.print("[error]Migration is only supported for SQLite storage backends.[/error]")
+        raise typer.Exit(1)
+
+    preview = get_migration_preview(storage)
+
+    if preview["needs_migration"]:
+        console.print(
+            Panel.fit(
+                "Schema migration required\n"
+                f"Total chunks: {preview['total_chunks']}\n"
+                f"Pending embeddings: {preview['pending_chunks']}",
+                title="Migration Preview",
+            )
+        )
+    else:
+        console.print(
+            Panel.fit(
+                "Database already has embedding support\n"
+                f"Total chunks: {preview['total_chunks']}\n"
+                f"Embedded: {preview['embedded_chunks']}\n"
+                f"Pending: {preview['pending_chunks']}",
+                title="Migration Preview",
+            )
+        )
+
+    if dry_run:
+        console.print("[dim]Dry run complete. No changes made.[/dim]")
+        return
+
+    if not force:
+        confirm = typer.prompt(
+            "Proceed with migration? (backup will be created unless --no-backup is set)",
+            default="n",
+        )
+        if confirm.lower() not in ("y", "yes"):
+            console.print("[dim]Migration cancelled.[/dim]")
+            return
+
+    console.print("[dim]Starting migration...[/dim]")
+
+    result = migrate_database(storage, backup=not no_backup)
+
+    if result.get("error"):
+        console.print(f"[error]Migration failed: {result['error']}[/error]")
+        raise typer.Exit(1)
+
+    if result["already_migrated"]:
+        console.print(
+            Panel.fit(
+                f"Indexing complete\n"
+                f"Embedded: {result['indexed']} new chunks\n"
+                f"Total embedded: {result['embedded_after']}/{result['chunks_after']}",
+                title="Migration Complete",
+            )
+        )
+    else:
+        backup_info = (
+            f"\nBackup: {result['backup_path']}"
+            if result["backup_path"]
+            else "\n(No backup created)"
+        )
+        console.print(
+            Panel.fit(
+                f"Migration complete{backup_info}\n"
+                f"Indexed: {result['indexed']} chunks\n"
+                f"Total embedded: {result['embedded_after']}/{result['chunks_after']}\n\n"
+                "To restore from backup:\n"
+                f"  cp {result['backup_path']} <db-path>",
+                title="Migration Complete",
+            )
+        )
 
 
 @app.command("sync-background")
