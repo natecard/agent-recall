@@ -4,6 +4,7 @@ import re
 from uuid import UUID
 
 from agent_recall.core.embeddings import cosine_similarity, generate_embedding
+from agent_recall.core.semantic_embedder import embed_single, get_embedding_dimension
 from agent_recall.storage.base import Storage
 from agent_recall.storage.models import Chunk, SemanticLabel
 
@@ -106,7 +107,7 @@ class Retriever:
         if dimensions <= 0:
             return []
 
-        query_embedding = generate_embedding(query, dimensions=dimensions)
+        query_embedding = self._build_query_embedding(query=query, dimensions=dimensions)
         scored: list[tuple[Chunk, float]] = []
         for chunk in chunks:
             if chunk.embedding is None or len(chunk.embedding) != dimensions:
@@ -126,7 +127,9 @@ class Retriever:
         query_text = query.strip().lower()
         dimensions = next((len(chunk.embedding) for chunk in chunks if chunk.embedding), 0)
         query_embedding = (
-            generate_embedding(query, dimensions=dimensions) if dimensions > 0 else None
+            self._build_query_embedding(query=query, dimensions=dimensions)
+            if dimensions > 0
+            else None
         )
 
         scored: list[tuple[float, float, float, int, str, Chunk]] = []
@@ -171,3 +174,12 @@ class Retriever:
         overlap = len(query_terms & chunk_terms) / float(len(query_terms))
         phrase_bonus = 0.15 if query_text and query_text in searchable.lower() else 0.0
         return overlap + phrase_bonus
+
+    @staticmethod
+    def _build_query_embedding(query: str, dimensions: int) -> list[float]:
+        if dimensions == get_embedding_dimension():
+            try:
+                return embed_single(query).tolist()
+            except Exception:  # noqa: BLE001
+                pass
+        return generate_embedding(query, dimensions=dimensions)

@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from agent_recall.core.embeddings import generate_embedding
+from agent_recall.core.semantic_embedder import embed_single, get_embedding_dimension
 from agent_recall.core.tier_format import is_ralph_entry_start, parse_tier_content
 from agent_recall.llm.base import LLMProvider, Message
 from agent_recall.storage.base import Storage
@@ -248,7 +249,7 @@ class CompactionEngine:
             if self.storage.has_chunk(entry.content, entry.label):
                 continue
             embedding = (
-                generate_embedding(entry.content, dimensions=embedding_dimensions)
+                self._generate_chunk_embedding(entry.content, dimensions=embedding_dimensions)
                 if embedding_enabled
                 else None
             )
@@ -266,6 +267,15 @@ class CompactionEngine:
             results["chunks_indexed"] = int(results["chunks_indexed"]) + 1
 
         return results
+
+    @staticmethod
+    def _generate_chunk_embedding(text: str, dimensions: int) -> list[float]:
+        if dimensions == get_embedding_dimension():
+            try:
+                return embed_single(text).tolist()
+            except Exception:  # noqa: BLE001
+                pass
+        return generate_embedding(text, dimensions=dimensions)
 
     @staticmethod
     def _format_entries_for_prompt(entries: list[LogEntry]) -> str:

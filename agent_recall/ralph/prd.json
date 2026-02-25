@@ -13,30 +13,726 @@
   },
   "items": [
     {
-      "id": "AR-260225-04",
-      "title": "Add storage replication utility",
-      "description": "Create a standalone utility function `replicate_chunks_to` in `src/storage/utils.py`. This function takes a source `Storage` and a target `Storage` and copies chunks from source to target. This serves as the primitive for 'export to cloud' features.",
-      "user_story": "As a user, I want to be able to sync my local knowledge base to a cloud environment or share it with a team member, requiring a reliable mechanism to copy data between storage instances.",
+      "id": "AR-260225-05",
+      "title": "Add semantic embeddings dependencies and initialize SentenceTransformer model loader",
+      "priority": 1,
+      "description": "Update pyproject.toml to include sentence-transformers dependency. Create src/agent_recall/core/semantic_embedder.py with a lazy-loading SentenceTransformer singleton that initializes the all-MiniLM-L6-v2 model on first use. This provides the foundation for all downstream embedding operations and ensures the ~22MB model is loaded only once across the application lifecycle.",
+      "user_story": "As a developer integrating semantic search into agent-recall, I need a centralized, thread-safe embeddings module that loads and caches the SentenceTransformer model on first access, so that multiple concurrent retrieval operations reuse the same model instance without redundant disk I/O or memory overhead.",
       "steps": [
-        "[DONE] Create `src/storage/utils.py` if it does not exist.",
-        "[DONE] Define `def replicate_chunks_to(source: Storage, target: Storage) -> int:`.",
-        "[DONE] Implement the logic: Iterate through chunks in `source` (using `list_chunks` or an iterator).",
-        "[DONE] For each chunk, call `target.store_chunk(chunk)`.",
-        "[DONE] Handle embeddings: call `target.index_chunk_embedding()` after storing.",
-        "[DONE] Return the count of replicated chunks."
+        "Open pyproject.toml and locate the [project] dependencies list.",
+        "Add 'sentence-transformers>=2.3.0' and 'numpy>=1.24.0' to the dependencies array.",
+        "Create src/agent_recall/core/semantic_embedder.py with module docstring explaining lazy-loading strategy.",
+        "Import necessary modules: from __future__ import annotations, import threading, from typing import Optional, import numpy as np, from sentence_transformers import SentenceTransformer, from functools import lru_cache.",
+        "Create a module-level lock: _embedding_lock = threading.Lock() to ensure thread-safe model initialization.",
+        "Implement a function _get_model() -> SentenceTransformer that uses _embedding_lock to safely load the model once and return the cached instance (store in a module-level variable or use functools.lru_cache).",
+        "Implement embed_single(text: str) -> np.ndarray that calls _get_model().encode([text], convert_to_numpy=True)[0].",
+        "Implement embed_batch(texts: list[str]) -> list[np.ndarray] that calls _get_model().encode(texts, convert_to_numpy=True) and returns a list of arrays.",
+        "Implement embed_batch_to_lists(texts: list[str]) -> list[list[float]] that converts numpy arrays to Python lists (for JSON/SQLite serialization).",
+        "Add a module-level function get_embedding_dimension() -> int that returns 384 (the dimension of all-MiniLM-L6-v2).",
+        "Add a function reset_model() that clears the cached model (for testing and hot-reload scenarios)."
       ],
       "acceptance_criteria": [
-        "`replicate_chunks_to` is importable from `src.storage.utils`.",
-        "Function accepts any two implementations of the `Storage` ABC (e.g., SQLite to SQLite, or SQLite to HTTP).",
-        "All chunks present in the source are upserted into the target.",
-        "Embeddings and metadata are preserved during replication.",
-        "The function returns the total number of chunks processed."
+        "pyproject.toml contains sentence-transformers>=2.3.0 and numpy>=1.24.0 in dependencies.",
+        "semantic_embedder.py can be imported without errors: from agent_recall.core.semantic_embedder import embed_single, embed_batch, embed_batch_to_lists, get_embedding_dimension.",
+        "Calling embed_single('hello world') returns a numpy.ndarray of shape (384,) with float dtype.",
+        "Calling embed_batch(['hello', 'world']) returns a list of two numpy.ndarray objects, each shape (384,).",
+        "Calling embed_batch_to_lists(['hello']) returns a list containing one list of 384 floats.",
+        "get_embedding_dimension() returns 384.",
+        "Calling _get_model() twice in sequence returns the same object (model is cached, not reloaded).",
+        "reset_model() clears the cache and causes _get_model() to reload on next call.",
+        "The module is thread-safe: concurrent calls to embed_single from multiple threads do not cause race conditions or duplicate model loads."
       ],
       "validation_commands": [
-        "uv run pytest tests/storage/test_replication.py",
-        "uv run mypy src/storage/utils.py"
+        "uv run pytest tests/unit/core/test_semantic_embedder.py -v",
+        "uv run ruff check src/agent_recall/core/semantic_embedder.py",
+        "uv run ty check src/agent_recall/core/semantic_embedder.py"
       ],
-      "passes": true
+      "passes": false,
+      "notes": "The model (~22MB) will be auto-downloaded from HuggingFace on first _get_model() call and cached in ~/.cache/huggingface/hub/. Subsequent runs load from cache. Expected first-load time: 2-5 seconds on typical network. Embedding speed: ~100-200 documents per second on CPU."
+    },
+    {
+      "id": "AR-260225-06",
+      "title": "Extend Chunk model and storage schema to support vector embeddings",
+      "priority": 1,
+      "description": "Modify src/agent_recall/storage/models.py to add an embedding field (JSON array of 384 floats) to the Chunk model. Create a new EmbeddingIndex table to support fast vector similarity queries. Update src/agent_recall/storage/sqlite.py with methods to store and retrieve embeddings. This enables the storage layer to persist embeddings alongside chunk text.",
+      "user_story": "As the storage layer, I need to persist semantic embeddings alongside chunk content so that retrieval operations can later perform vector similarity searches without re-computing embeddings.",
+      "steps": [
+        "Open src/agent_recall/storage/models.py and locate the Chunk dataclass.",
+        "Add a new field: embedding: list[float] | None = None with a docstring 'Semantic embedding (384-dim from all-MiniLM-L6-v2). Computed on first index, None until synced.'.",
+        "Add a new field: embedding_version: int = 0 with a docstring 'Version of embedding model used. Incremented if embedding strategy changes.'.",
+        "Create a new dataclass EmbeddingIndex with fields: chunk_id: UUID, session_id: UUID | None = None, created_at: datetime = field(default_factory=datetime.utcnow), updated_at: datetime = field(default_factory=datetime.utcnow).",
+        "Open src/agent_recall/storage/sqlite.py and locate the initialize_db() function.",
+        "Add a migration that adds two new columns to the chunks table: embedding TEXT (JSON array serialized as string) and embedding_version INTEGER DEFAULT 0.",
+        "Add a new table creation for embedding_indices (if not exists) with columns: chunk_id, session_id, created_at, updated_at, and a composite primary key (chunk_id, session_id).",
+        "Implement a method save_embedding(chunk_id: UUID, embedding: list[float], version: int = 1) -> None that updates the chunks table, setting embedding = json.dumps(embedding) and embedding_version = version.",
+        "Implement a method load_embedding(chunk_id: UUID) -> tuple[list[float], int] | None that queries the chunks table and returns (embedding, embedding_version) or None if not indexed.",
+        "Implement a method get_chunks_without_embeddings(limit: int = 100) -> list[Chunk] that returns chunks where embedding IS NULL.",
+        "Implement a method mark_embedding_indexed(chunk_id: UUID, session_id: UUID | None = None) -> None that inserts a row into embedding_indices.",
+        "Implement a method get_embedding_index_status() -> dict[str, int] that returns {'total_chunks': X, 'embedded_chunks': Y, 'pending': Z}."
+      ],
+      "acceptance_criteria": [
+        "Chunk model has fields embedding: list[float] | None and embedding_version: int.",
+        "EmbeddingIndex dataclass exists with chunk_id, session_id, created_at, updated_at fields.",
+        "Database schema includes embedding TEXT column in chunks table.",
+        "Database schema includes embedding_version INTEGER in chunks table.",
+        "embedding_indices table exists with chunk_id, session_id, created_at, updated_at columns.",
+        "save_embedding(chunk_id, [0.1, 0.2, ...]) stores the embedding as JSON string in database.",
+        "load_embedding(chunk_id) returns tuple[list[float], int] when embedding exists.",
+        "load_embedding(chunk_id) returns None when embedding does not exist.",
+        "get_chunks_without_embeddings() returns only chunks where embedding is NULL.",
+        "get_embedding_index_status() returns dict with keys total_chunks, embedded_chunks, pending.",
+        "Calling get_embedding_index_status() on a fresh database returns {'total_chunks': 0, 'embedded_chunks': 0, 'pending': 0}."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/unit/storage/test_embeddings.py -v",
+        "uv run ruff check src/agent_recall/storage/models.py src/agent_recall/storage/sqlite.py",
+        "uv run ty check src/agent_recall/storage/"
+      ],
+      "passes": false,
+      "notes": "Use json.dumps() / json.loads() for embedding serialization. Each embedding is 384 floats × 4 bytes = ~1.5KB per chunk. A 10,000-chunk database will add ~15-20MB. SQLite can handle this without issues up to millions of embeddings."
+    },
+    {
+      "id": "AR-260225-07",
+      "title": "Create batch embedding indexer for efficient bulk vectorization",
+      "priority": 1,
+      "description": "Create src/agent_recall/core/embedding_indexer.py with an EmbeddingIndexer class that batch-processes chunks without embeddings, calls the semantic embedder, stores results, and tracks progress. This is called during sync operations to vectorize all markdown chunks efficiently.",
+      "user_story": "As the sync command, I need to efficiently embed all unindexed chunks in a single pass, batching to minimize model calls and providing progress updates to the user.",
+      "steps": [
+        "Create src/agent_recall/core/embedding_indexer.py with module docstring.",
+        "Import: from agent_recall.core.semantic_embedder import embed_batch_to_lists, from agent_recall.storage.base import Storage, from tqdm import tqdm (for progress bars), import logging.",
+        "Create a logger instance: logger = logging.getLogger(__name__).",
+        "Implement class EmbeddingIndexer with __init__(self, storage: Storage, batch_size: int = 32).",
+        "Implement method index_missing_embeddings(self, max_chunks: int = 0) -> dict[str, int] that: (a) calls storage.get_chunks_without_embeddings(limit=max_chunks if max_chunks > 0 else 9999), (b) if empty, returns {'skipped': 0, 'indexed': 0}, (c) logs 'Found N chunks without embeddings.', (d) batches chunks into groups of batch_size, (e) for each batch, extracts text via [chunk.text for chunk in batch], (f) calls embed_batch_to_lists() to get embeddings, (g) for each (chunk, embedding) pair, calls storage.save_embedding(chunk.id, embedding, version=1), (h) calls storage.mark_embedding_indexed(chunk.id), (i) yields progress bar updates.",
+        "Implement method get_indexing_stats(self) -> dict that calls storage.get_embedding_index_status() and returns the result.",
+        "Add optional progress bar integration: import tqdm.auto import tqdm and wrap the batch loop with tqdm(total=len(chunks), desc='Embedding chunks')."
+      ],
+      "acceptance_criteria": [
+        "EmbeddingIndexer can be instantiated: indexer = EmbeddingIndexer(storage).",
+        "Calling index_missing_embeddings() on a database with 10 unembedded chunks processes all 10 chunks.",
+        "Embeddings are batched: with batch_size=5, 10 chunks are processed in 2 embed_batch_to_lists() calls, not 10.",
+        "For each chunk processed, storage.save_embedding() is called exactly once.",
+        "For each chunk processed, storage.mark_embedding_indexed() is called exactly once.",
+        "index_missing_embeddings() returns {'indexed': 10, 'skipped': 0} after processing 10 chunks.",
+        "index_missing_embeddings() returns {'indexed': 0, 'skipped': 0} when called on an empty database.",
+        "get_indexing_stats() returns a dict with keys 'total_chunks', 'embedded_chunks', 'pending'.",
+        "Calling index_missing_embeddings(max_chunks=5) processes at most 5 chunks even if 100 are missing.",
+        "Progress bar is displayed when tqdm is available (no errors if tqdm is unavailable)."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/unit/core/test_embedding_indexer.py -v",
+        "uv run ruff check src/agent_recall/core/embedding_indexer.py",
+        "uv run ty check src/agent_recall/core/embedding_indexer.py"
+      ],
+      "passes": false,
+      "notes": "Expected performance: ~100-200 chunks/sec on CPU with batch_size=32. For 10,000 chunks, expect ~50-100 seconds total. Batch size can be tuned: larger batches = faster but higher memory, smaller = lower memory but more overhead."
+    },
+    {
+      "id": "AR-260225-08",
+      "title": "Integrate embedding indexer into agent-recall sync command pipeline",
+      "priority": 2,
+      "description": "Modify src/agent_recall/core/sync.py to call the EmbeddingIndexer after chunk ingestion and before compaction. Add --skip-embeddings flag to skip vectorization for testing. Update CLI help text to document the new behavior.",
+      "user_story": "As a user running 'agent-recall sync', I want embeddings to be automatically computed and indexed so that future context retrieval uses semantic search without manual intervention.",
+      "steps": [
+        "Open src/agent_recall/core/sync.py and locate the main sync() function or sync command handler.",
+        "Import: from agent_recall.core.embedding_indexer import EmbeddingIndexer.",
+        "After chunk ingestion completes, add code: if not skip_embeddings: indexer = EmbeddingIndexer(storage); stats = indexer.index_missing_embeddings(); logger.info(f'Indexed {stats[\"indexed\"]} chunks.').",
+        "Add a parameter skip_embeddings: bool = False to the sync function signature with docstring 'Skip semantic embedding indexing (for testing)'.",
+        "Add a CLI flag --skip-embeddings / --no-skip-embeddings with help text 'Skip computing semantic embeddings for chunks (default: False)'.",
+        "Update the help/docstring for the sync command to mention 'Embeddings are computed automatically unless --skip-embeddings is passed.'.",
+        "Ensure the indexer respects --no-compact behavior: if compaction is skipped, embeddings can still be indexed (they are independent operations)."
+      ],
+      "acceptance_criteria": [
+        "Running 'agent-recall sync' (without flags) now calls EmbeddingIndexer and logs 'Indexed X chunks.'.",
+        "Running 'agent-recall sync --skip-embeddings' skips embedding indexing.",
+        "After sync completes, all newly ingested chunks have embeddings stored in the database.",
+        "The --skip-embeddings flag is documented in CLI help.",
+        "Embedding indexing does not block or delay the sync command visibly (batching and progress bar should run silently if no new chunks are added).",
+        "If a chunk already has an embedding, it is not re-embedded (storage.get_chunks_without_embeddings() should not return it).",
+        "Running sync multiple times does not re-embed previously embedded chunks."
+      ],
+      "validation_commands": [
+        "uv run agent-recall sync --help | grep -i embedding",
+        "uv run pytest tests/unit/core/test_sync_embeddings.py -v",
+        "uv run ruff check src/agent_recall/core/sync.py",
+        "uv run ty check src/agent_recall/core/sync.py"
+      ],
+      "passes": false,
+      "notes": "Embedding indexing runs automatically. On a fresh database with 1000 chunks, expect sync to take an additional 5-10 seconds for embeddings. Progress is silent if --no-verbose is set."
+    },
+    {
+      "id": "AR-260225-09",
+      "title": "Add semantic vector similarity search to Retriever class",
+      "priority": 2,
+      "description": "Extend src/agent_recall/core/retrieve.py with a new method search_by_vector_similarity() that embeds the query, computes cosine similarity with all indexed chunks, and returns top-k results ranked by similarity score. This enables semantic search as an alternative or complement to full-text search.",
+      "user_story": "As the retrieval engine, I need to search chunks semantically by converting the user query to embeddings and finding similar chunks in the database, so that queries like 'JWT validation issue' match 'token authentication error' even without exact keyword overlap.",
+      "steps": [
+        "Open src/agent_recall/core/retrieve.py and locate the Retriever class.",
+        "Import: from agent_recall.core.semantic_embedder import embed_single, from scipy.spatial.distance import cosine import numpy as np.",
+        "Implement method search_by_vector_similarity(self, query: str, top_k: int = 10, min_similarity: float = 0.3) -> list[Chunk] that: (a) calls embed_single(query) to get query_embedding, (b) queries storage for all chunks where embedding IS NOT NULL, (c) for each chunk, deserializes embedding from JSON, (d) computes cosine_similarity = 1 - cosine(query_embedding, chunk_embedding), (e) filters results where cosine_similarity >= min_similarity, (f) sorts by similarity descending, (g) returns top_k chunks.",
+        "Implement helper method _deserialize_embedding(embedding_json: str) -> np.ndarray that calls json.loads() and converts to numpy array.",
+        "Add optional embedding_stats logging: logger.debug(f'Vector search found {len(results)} chunks with similarity >= {min_similarity}').",
+        "Ensure the method is resilient: if a chunk's embedding is malformed, skip it and log a warning rather than crashing."
+      ],
+      "acceptance_criteria": [
+        "search_by_vector_similarity('JWT auth') returns list[Chunk] (empty list if no matches).",
+        "Results are ordered by cosine similarity (highest first).",
+        "Only chunks with embedding IS NOT NULL are included in results.",
+        "Results respect the top_k parameter: at most top_k chunks are returned.",
+        "Results respect the min_similarity threshold: all returned chunks have similarity >= min_similarity.",
+        "Calling search_by_vector_similarity('hello world') on an empty database returns [].",
+        "Query embeddings are computed once per call (no redundant re-embeddings).",
+        "If a chunk has a malformed embedding, it is skipped and a warning is logged.",
+        "Similarity scores are between 0.0 and 1.0 (inclusive).",
+        "Performance: searching 10,000 chunks completes in < 500ms on CPU."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/unit/core/test_vector_search.py -v",
+        "uv run ruff check src/agent_recall/core/retrieve.py",
+        "uv run ty check src/agent_recall/core/retrieve.py"
+      ],
+      "passes": false,
+      "notes": "For performance, consider caching chunk embeddings in memory if database size < 100K chunks. Cosine similarity in NumPy is faster than scipy for large batches; consider np.dot(query, chunk) / (||query|| * ||chunk||) instead of scipy.spatial.distance.cosine."
+    },
+    {
+      "id": "AR-260225-10",
+      "title": "Implement hybrid retrieval combining full-text search and semantic similarity",
+      "priority": 2,
+      "description": "Modify src/agent_recall/core/retrieve.py to add a search_hybrid() method that ranks results from both full-text search and vector search, using a weighted combination of BM25 score and semantic similarity. This provides balanced recall (FTS catches exact keywords) and precision (semantic matching catches meaning).",
+      "user_story": "As the retrieval system, I want to combine full-text search (high recall for keyword matches) with semantic search (high precision for meaning) into a single query, so that queries return both exact matches and semantically related results in a unified ranked list.",
+      "steps": [
+        "Open src/agent_recall/core/retrieve.py and locate the Retriever class.",
+        "Add a new method search_hybrid(self, query: str, top_k: int = 5, fts_weight: float = 0.4, semantic_weight: float = 0.6, fts_top_k: int = 20) -> list[Chunk] that: (a) calls self.search_chunks_fts(query, top_k=fts_top_k) to get FTS candidates, (b) calls self.search_by_vector_similarity(query, top_k=fts_top_k) to get semantic candidates, (c) merges the two lists by chunk ID (deduplicate), (d) for each chunk, computes hybrid_score = fts_weight * normalized_fts_score + semantic_weight * normalized_semantic_score, (e) sorts by hybrid_score descending, (f) returns top_k chunks.",
+        "Implement a helper method _normalize_fts_scores(chunks: list[tuple[Chunk, float]]) -> dict[UUID, float] that normalizes BM25 scores to [0, 1] range by dividing by max score.",
+        "Implement a helper method _normalize_semantic_scores(chunks: list[tuple[Chunk, float]]) -> dict[UUID, float] that normalizes cosine similarity scores (already [0, 1]) into the same range.",
+        "Ensure chunks that appear in both FTS and semantic results receive a combined score boost.",
+        "Add logging: logger.debug(f'Hybrid search: {len(fts_results)} FTS + {len(semantic_results)} semantic = {len(merged)} unique, top {top_k} returned')."
+      ],
+      "acceptance_criteria": [
+        "search_hybrid('JWT auth error') returns list[Chunk] with at most top_k results.",
+        "Results include both FTS matches (keyword 'JWT') and semantic matches ('token validation').",
+        "Chunks appearing in both FTS and semantic results are present exactly once (deduplicated).",
+        "If a chunk has no semantic embedding, it still appears in hybrid results (from FTS).",
+        "Hybrid scores are reproducible: calling search_hybrid twice with identical params returns identical order.",
+        "Setting fts_weight=1.0, semantic_weight=0.0 makes hybrid search equivalent to pure FTS.",
+        "Setting fts_weight=0.0, semantic_weight=1.0 makes hybrid search equivalent to pure semantic.",
+        "Default weights (0.4 FTS, 0.6 semantic) balance both signals.",
+        "Performance: hybrid search on 10K chunks completes in < 800ms on CPU."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/unit/core/test_hybrid_search.py -v",
+        "uv run ruff check src/agent_recall/core/retrieve.py",
+        "uv run ty check src/agent_recall/core/retrieve.py"
+      ],
+      "passes": false,
+      "notes": "Hybrid search is the recommended default for context retrieval. FTS is fast (< 100ms) but misses semantic matches. Semantic alone is slow but very accurate. Hybrid balances both. Consider making weights configurable via config.yaml."
+    },
+    {
+      "id": "AR-507",
+      "title": "Update ContextAssembler to use hybrid retrieval by default",
+      "priority": 2,
+      "description": "Modify src/agent_recall/core/context.py to replace pure FTS calls in ContextAssembler.assemble() with hybrid retrieval. This makes semantic search the default behavior when assembling context for LLM prompts.",
+      "user_story": "As an agent receiving context via ContextAssembler, I want the context to include both exact keyword matches and semantically similar content, so my prompts contain richer, more relevant context.",
+      "steps": [
+        "Open src/agent_recall/core/context.py and locate ContextAssembler.assemble().",
+        "Find the line calling self.retriever.search_chunks_fts(task, top_k=...).",
+        "Replace it with: chunks = self.retriever.search_hybrid(query=task, top_k=self.retrieval_top_k, fts_weight=0.4, semantic_weight=0.6).",
+        "Add a comment explaining the hybrid approach: '# Hybrid search: 40% full-text (exact keywords), 60% semantic (meaning). Falls back to FTS if chunks lack embeddings.'",
+        "Ensure that search_hybrid() is tolerant of missing embeddings (it should still return FTS results).",
+        "Update ContextAssembler's docstring to document the new hybrid retrieval behavior."
+      ],
+      "acceptance_criteria": [
+        "ContextAssembler.assemble() now calls search_hybrid instead of search_chunks_fts.",
+        "The docstring of ContextAssembler explains that hybrid retrieval is used.",
+        "Calling assemble(task='JWT error') returns context that includes both FTS matches ('JWT') and semantic matches ('token validation').",
+        "On a database with only unembedded chunks, search_hybrid still returns FTS results (graceful fallback).",
+        "Context window size is not exceeded (pruning logic remains unchanged).",
+        "Existing tests for ContextAssembler still pass."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/unit/core/test_context.py -v",
+        "uv run ruff check src/agent_recall/core/context.py",
+        "uv run ty check src/agent_recall/core/context.py"
+      ],
+      "passes": false,
+      "notes": "This is a drop-in replacement. No API changes, just better results. If performance is a concern, consider caching embeddings in-memory or using FAISS for large databases."
+    },
+    {
+      "id": "AR-508",
+      "title": "Add embedding quality metrics and diagnostics command",
+      "priority": 3,
+      "description": "Create src/agent_recall/core/embedding_diagnostics.py with functions to measure embedding quality, detect stale embeddings, and report coverage. Add a CLI command 'agent-recall embedding-stats' to expose these metrics. This helps operators understand the quality and completeness of their embedding index.",
+      "user_story": "As an operator, I need to understand the health of my embedding index (how many chunks are embedded, what the average similarity distribution looks like, whether embeddings are stale) so I can detect issues and decide when to re-index.",
+      "steps": [
+        "Create src/agent_recall/core/embedding_diagnostics.py with module docstring.",
+        "Import: import numpy as np, from agent_recall.storage.base import Storage, from datetime import datetime, timedelta.",
+        "Implement class EmbeddingDiagnostics(storage: Storage).",
+        "Implement method get_coverage_stats() -> dict that returns: {'total_chunks': int, 'embedded_chunks': int, 'coverage_percent': float, 'pending': int}.",
+        "Implement method get_similarity_distribution() -> dict that: (a) loads all embeddings, (b) computes pairwise cosine similarities, (c) returns {'mean': float, 'median': float, 'std': float, 'min': float, 'max': float}.",
+        "Implement method check_stale_embeddings(threshold_days: int = 90) -> dict that counts chunks where (now - updated_at) > threshold_days.",
+        "Implement method estimate_embedding_size() -> dict that returns {'total_bytes': int, 'per_chunk_kb': float}.",
+        "Create a CLI command in src/agent_recall/cli/commands.py: @click.command('embedding-stats') def embedding_stats(): diagnostics = EmbeddingDiagnostics(storage); stats = diagnostics.get_coverage_stats(); click.echo(f'Coverage: {stats[\"coverage_percent\"]:.1f}%'); ...",
+        "Ensure the command is registered in the main CLI group."
+      ],
+      "acceptance_criteria": [
+        "Running 'agent-recall embedding-stats' displays embedding coverage, similarity stats, and disk usage.",
+        "get_coverage_stats() returns dict with keys: total_chunks, embedded_chunks, coverage_percent, pending.",
+        "coverage_percent is calculated as 100 * embedded_chunks / total_chunks (or 0 if total_chunks=0).",
+        "get_similarity_distribution() computes statistics on actual pairwise similarities between random chunk pairs.",
+        "check_stale_embeddings(90) returns count of chunks with updated_at < (now - 90 days).",
+        "estimate_embedding_size() returns accurate byte count of all embeddings in database.",
+        "CLI output is human-readable and includes all key metrics on one screen."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/unit/core/test_embedding_diagnostics.py -v",
+        "uv run agent-recall embedding-stats",
+        "uv run ruff check src/agent_recall/core/embedding_diagnostics.py",
+        "uv run ty check src/agent_recall/core/embedding_diagnostics.py"
+      ],
+      "passes": false,
+      "notes": "Pairwise similarity computation on large databases (100K+ chunks) can be slow. Optimize by sampling: compute similarities only on random 1000-chunk subset for distribution estimation."
+    },
+    {
+      "id": "AR-509",
+      "title": "Add configuration section for embedding parameters to config.yaml schema",
+      "priority": 3,
+      "description": "Extend src/agent_recall/core/config.py to add an EmbeddingSettings dataclass with model_name, batch_size, min_similarity_threshold, and hybrid_enabled fields. Update the Config dataclass to include embedding settings. This allows operators to configure embeddings via .agent/config.yaml without code changes.",
+      "user_story": "As an operator, I want to configure embedding behavior (batch sizes, similarity thresholds, hybrid search toggle) via config.yaml, so I can tune performance and behavior across different environments.",
+      "steps": [
+        "Open src/agent_recall/core/config.py and locate existing dataclass definitions.",
+        "Create a new dataclass EmbeddingSettings with fields: model_name: str = 'all-MiniLM-L6-v2', batch_size: int = 32, min_similarity_threshold: float = 0.3, hybrid_search_enabled: bool = True, fts_weight: float = 0.4, semantic_weight: float = 0.6.",
+        "Add validation in __post_init__: assert batch_size > 0, 'batch_size must be > 0'; assert 0 <= min_similarity_threshold <= 1, 'threshold must be [0,1]'; assert 0 <= fts_weight <= 1 and 0 <= semantic_weight <= 1, 'weights must be [0,1]'.",
+        "Update the Config dataclass to add field: embeddings: EmbeddingSettings = field(default_factory=EmbeddingSettings).",
+        "Update the config loading function to parse the 'embeddings' section from config.yaml if present, else use defaults.",
+        "Add a classmethod Config.from_yaml() that reads .agent/config.yaml and constructs Config with proper defaults for missing sections."
+      ],
+      "acceptance_criteria": [
+        "EmbeddingSettings dataclass exists with all 6 fields.",
+        "EmbeddingSettings validates batch_size > 0, raising ValueError if not.",
+        "EmbeddingSettings validates min_similarity_threshold in [0, 1], raising ValueError if not.",
+        "Config dataclass includes embeddings: EmbeddingSettings field.",
+        "Default EmbeddingSettings uses model='all-MiniLM-L6-v2', batch_size=32, threshold=0.3, hybrid=True, weights 0.4/0.6.",
+        "Config.from_yaml() successfully loads embeddings section from config.yaml if present.",
+        "Config.from_yaml() uses EmbeddingSettings defaults if embeddings section is missing.",
+        "Invalid batch_size in config.yaml raises clear error on load.",
+        "Invalid threshold in config.yaml raises clear error on load."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/unit/core/test_config.py::test_embedding_settings -v",
+        "uv run pytest tests/unit/core/test_config.py::test_config_with_embeddings -v",
+        "uv run ruff check src/agent_recall/core/config.py",
+        "uv run ty check src/agent_recall/core/config.py"
+      ],
+      "passes": false,
+      "notes": "Ensure EmbeddingSettings is immutable (frozen=True) so config cannot be accidentally modified at runtime. Use dataclass field() with validators if using Python 3.10+."
+    },
+    {
+      "id": "AR-510",
+      "title": "Write comprehensive unit tests for semantic embedding pipeline",
+      "priority": 2,
+      "description": "Create tests/unit/core/test_semantic_embedder.py, test_embedding_indexer.py, test_vector_search.py, test_hybrid_search.py covering all embedding functionality with mocked models and small test datasets.",
+      "user_story": "As a developer, I need comprehensive tests for the embedding pipeline so I can confidently refactor and maintain the code without breaking functionality.",
+      "steps": [
+        "Create tests/unit/core/test_semantic_embedder.py with test_embed_single_returns_384_dim_vector(), test_embed_batch_processes_multiple_texts(), test_get_model_caches_instance(), test_reset_model_clears_cache(), test_embedding_dimension_is_384(), test_embed_batch_to_lists_converts_to_python_lists().",
+        "Create tests/unit/core/test_embedding_indexer.py with test_index_missing_embeddings_processes_unembedded_chunks(), test_batch_size_is_respected(), test_index_missing_embeddings_returns_correct_stats(), test_already_embedded_chunks_are_skipped(), test_max_chunks_limit_is_respected(), test_progress_bar_displays().",
+        "Create tests/unit/core/test_vector_search.py with test_search_by_vector_similarity_returns_chunks(), test_results_are_ordered_by_similarity_descending(), test_min_similarity_threshold_filters_results(), test_top_k_limit_is_respected(), test_empty_database_returns_empty_list(), test_malformed_embedding_is_skipped_with_warning().",
+        "Create tests/unit/core/test_hybrid_search.py with test_hybrid_search_combines_fts_and_semantic(), test_hybrid_deduplicates_overlapping_results(), test_pure_fts_when_semantic_weight_is_zero(), test_pure_semantic_when_fts_weight_is_zero(), test_results_ranked_by_hybrid_score().",
+        "Use pytest fixtures for: in-memory SQLite storage, sample 10-chunk dataset with predetermined embeddings, Retriever instance, EmbeddingIndexer instance.",
+        "Mock SentenceTransformer.encode() to return deterministic test embeddings (use numpy.ones, numpy.zeros, numpy.arange patterns).",
+        "Each test file should have >= 5 test functions. Total >= 25 tests across all files."
+      ],
+      "acceptance_criteria": [
+        "All 4 test files exist in tests/unit/core/.",
+        "Total of >= 25 test functions across all files.",
+        "All tests pass: uv run pytest tests/unit/core/test_*embedding*.py -v shows 100% pass.",
+        "Test coverage for embedding modules >= 80% (checked via pytest-cov).",
+        "Tests use mocked models and do not download actual SentenceTransformer.",
+        "Tests cover happy paths and edge cases (empty data, missing embeddings, malformed JSON).",
+        "Each test has a docstring explaining what is being tested.",
+        "Fixtures are reusable and shared across test files via conftest.py."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/unit/core/test_*embedding*.py -v",
+        "uv run pytest tests/unit/core/test_*embedding*.py --cov=src/agent_recall/core/semantic_embedder --cov=src/agent_recall/core/embedding_indexer --cov=src/agent_recall/core/retrieve --cov-report=term-missing",
+        "uv run ruff check tests/unit/core/test_*embedding*.py",
+        "uv run ty check tests/unit/core/"
+      ],
+      "passes": false,
+      "notes": "Create conftest.py in tests/unit/core/ with shared fixtures: @pytest.fixture def mock_storage(), @pytest.fixture def sample_chunks(), @pytest.fixture def mock_embedder()."
+    },
+    {
+      "id": "AR-511",
+      "title": "Write integration test for end-to-end embedding workflow",
+      "priority": 2,
+      "description": "Create tests/integration/test_embedding_e2e.py that tests: (1) ingest 20 test chunks, (2) verify no embeddings exist, (3) run indexer, (4) verify all chunks are embedded, (5) query via hybrid search, (6) verify results are semantically correct. Ensures all components integrate properly.",
+      "user_story": "As QA, I need an end-to-end test that verifies the complete embedding pipeline from ingestion through retrieval, so I catch integration regressions early.",
+      "steps": [
+        "Create tests/integration/test_embedding_e2e.py with module docstring.",
+        "Create fixture test_db that: (a) creates temp SQLite db, (b) initializes via storage.initialize_db(), (c) yields storage, (d) deletes db after test.",
+        "Write test_embedding_pipeline_end_to_end(test_db) that: (a) creates 20 Chunk objects covering auth, API, database topics, (b) inserts via storage.insert_chunk(), (c) verifies storage.get_chunks_without_embeddings() returns 20 chunks, (d) runs EmbeddingIndexer.index_missing_embeddings(), (e) verifies stats={'indexed': 20, 'skipped': 0}, (f) verifies storage.get_chunks_without_embeddings() now returns [], (g) creates Retriever, (h) calls search_hybrid('JWT authentication'), (i) verifies results include auth-related chunks ranked first, (j) calls search_hybrid('database optimization'), (k) verifies results include db-related chunks ranked first.",
+        "Add assertions on result ranking: first result similarity score > 0.6, is_relevant_to_query(result, query) returns True for top 3.",
+        "Add timing assertions: total execution < 60 seconds, embedding phase < 30 seconds."
+      ],
+      "acceptance_criteria": [
+        "Test file exists at tests/integration/test_embedding_e2e.py.",
+        "Test inserts 20 chunks successfully.",
+        "Pre-indexing verification: storage.get_chunks_without_embeddings() returns exactly 20.",
+        "Indexing succeeds: EmbeddingIndexer.index_missing_embeddings() returns {'indexed': 20, 'skipped': 0}.",
+        "Post-indexing verification: storage.get_chunks_without_embeddings() returns empty list.",
+        "Hybrid search query 'JWT' returns auth-related chunks first.",
+        "Hybrid search query 'database' returns database-related chunks first.",
+        "No errors or exceptions during any step.",
+        "Total execution time < 60 seconds."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/integration/test_embedding_e2e.py -v -s",
+        "uv run pytest tests/integration/test_embedding_e2e.py::test_embedding_pipeline_end_to_end --durations=10"
+      ],
+      "passes": false,
+      "notes": "This test uses real embeddings (not mocked), so it runs slower (~20-40s). Run separately in CI with marker: pytest tests/integration/ -m slow. Use real SentenceTransformer for this test to verify actual behavior."
+    },
+    {
+      "id": "AR-512",
+      "title": "Write comprehensive user documentation for semantic embeddings feature",
+      "priority": 3,
+      "description": "Create docs/embeddings-guide.md (>= 1000 words) explaining what embeddings are, why they help Agent-Recall, how to configure them, performance characteristics, and troubleshooting. Update README.md to mention embeddings. This helps users understand and adopt the feature.",
+      "user_story": "As a new user, I want to understand what embeddings are, why they improve Agent-Recall, and how to configure them, so I can make informed decisions about enabling the feature.",
+      "steps": [
+        "Create docs/embeddings-guide.md with the following sections in order: (1) Overview section explaining embeddings using non-technical analogy (e.g., 'meaning vs spelling'), (2) Why Embeddings Help section with concrete examples ('JWT error' matches 'token validation'), (3) How It Works section with architecture diagram (text -> tokenize -> embed -> store -> retrieve -> rank), (4) Quick Start section showing default behavior and when embeddings are enabled, (5) Configuration section documenting all EmbeddingSettings fields with YAML examples, (6) Performance Characteristics section with real benchmarks (10K chunks = X MB, Y seconds to index), (7) Hybrid Search Explained section showing FTS vs Semantic vs Hybrid, (8) Disabling Embeddings section with fallback behavior, (9) Troubleshooting section with >= 4 common issues and solutions, (10) FAQ section with >= 5 questions.",
+        "Update README.md to add new section 'Semantic Search' under Advanced Capabilities that: (a) briefly explains embeddings, (b) links to docs/embeddings-guide.md, (c) shows example query.",
+        "Include code examples in guide: config.yaml with embeddings section, CLI commands (agent-recall sync, agent-recall embedding-stats).",
+        "Include performance table: '1000 chunks: 50MB disk, 5 min to embed (one-time)' and similar for 10K, 100K chunks.",
+        "Include troubleshooting table with Problem/Cause/Solution columns for: slow sync, high disk usage, poor retrieval quality, embedding errors."
+      ],
+      "acceptance_criteria": [
+        "docs/embeddings-guide.md exists and is >= 1000 words.",
+        "Guide includes all 10 sections listed above.",
+        "Guide explains embeddings without assuming ML knowledge.",
+        "Guide includes architecture diagram (ASCII or markdown table format).",
+        "Guide includes real performance benchmarks with typical hardware assumptions.",
+        "Guide includes YAML configuration examples.",
+        "Guide includes >= 4 troubleshooting scenarios with solutions.",
+        "Guide includes >= 5 FAQ items.",
+        "README.md has new 'Semantic Search' section linking to guide.",
+        "All code examples are syntactically correct and tested."
+      ],
+      "validation_commands": [
+        "wc -w docs/embeddings-guide.md (verify >= 1000 words)",
+        "grep -c '^##' docs/embeddings-guide.md (verify >= 10 sections)",
+        "grep -E '(config\\.yaml|agent-recall)' docs/embeddings-guide.md (verify examples present)",
+        "grep -i 'troubleshooting\\|faq\\|performance' docs/embeddings-guide.md"
+      ],
+      "passes": false,
+      "notes": "Use Markdown headings (##) for sections so they appear in auto-generated TOC. Include links to source code files (e.g., 'see src/agent_recall/core/semantic_embedder.py for implementation details'). Keep language accessible to non-ML-experts."
+    },
+    {
+      "id": "AR-513",
+      "title": "Benchmark embedding pipeline and document optimization strategies",
+      "priority": 3,
+      "description": "Run benchmarks on embedding indexing speed, query latency, and disk usage across different chunk counts (1K, 10K, 100K). Document results and provide optimization recommendations (batch tuning, caching). This helps operators understand costs and plan deployments.",
+      "user_story": "As an operator planning production deployment, I need realistic performance metrics and optimization strategies so I can tune the system for my scale.",
+      "steps": [
+        "Create tests/benchmarks/benchmark_embeddings.py with pytest-benchmark framework.",
+        "Implement benchmark_indexing_speed(benchmark, n_chunks) that generates n chunks and measures time to embed all via EmbeddingIndexer with batch_size=32.",
+        "Implement benchmark_retrieval_latency(benchmark, n_chunks) that generates n embedded chunks and measures time for 100 sequential hybrid searches.",
+        "Implement benchmark_disk_usage() that measures .db file size after indexing 1K, 10K, 100K chunks.",
+        "Run all benchmarks and save results to docs/BENCHMARKS.md as markdown table.",
+        "Document optimization strategies: (a) batch_size tuning (16 vs 32 vs 64), (b) in-memory caching for small datasets, (c) when to use FAISS for 100K+ chunks.",
+        "Add CLI command 'agent-recall benchmark' that runs subset of benchmarks and displays results."
+      ],
+      "acceptance_criteria": [
+        "Benchmark file exists at tests/benchmarks/benchmark_embeddings.py.",
+        "At least 3 benchmarks implemented (indexing, retrieval, disk usage).",
+        "docs/BENCHMARKS.md exists with results for 1K, 10K, 100K chunks.",
+        "Benchmark results show indexing speed ~100-200 chunks/sec on CPU.",
+        "Benchmark results show retrieval latency ~5-10ms per query on CPU.",
+        "Database size is < 20MB per 10K chunks (1.5KB per embedding + metadata).",
+        "Optimization strategies are documented with expected improvements.",
+        "CLI benchmark command completes in < 5 minutes on sample data."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/benchmarks/benchmark_embeddings.py -v",
+        "grep -E '(1K|10K|100K)' docs/BENCHMARKS.md",
+        "uv run agent-recall benchmark --help"
+      ],
+      "passes": false,
+      "notes": "Use pytest-benchmark (pip install pytest-benchmark). Run on consistent hardware for reproducibility. Document CPU model and RAM in results. Include both cold (first run) and warm (cached) timings."
+    },
+    {
+      "id": "AR-514",
+      "title": "Implement CLI commands for embedding management and monitoring",
+      "priority": 2,
+      "description": "Add CLI commands: 'agent-recall embedding-stats' (show coverage, size, health), 'agent-recall reindex-embeddings' (force re-embed all chunks), 'agent-recall embedding-search' (test semantic search interactively). These provide operators with debugging and testing tools.",
+      "user_story": "As an operator, I want CLI commands to monitor embedding health, test search quality, and force re-indexing without writing code.",
+      "steps": [
+        "Create src/agent_recall/cli/embedding_commands.py with click commands.",
+        "Implement 'embedding-stats' command: calls EmbeddingDiagnostics, displays coverage %, disk usage, stale embedding count, average similarity score.",
+        "Implement 'reindex-embeddings' command with --force flag: (a) validates --force is set, (b) marks all embeddings as stale, (c) runs EmbeddingIndexer.index_missing_embeddings(), (d) displays progress and final stats.",
+        "Implement 'embedding-search' command with --query arg: (a) takes interactive input or --query flag, (b) runs search_hybrid(query), (c) displays top 5 results with score and text excerpt.",
+        "Implement 'embedding-test-quality' command: (a) runs 10 test queries (hardcoded), (b) displays results for each, (c) computes average top-1 relevance score (manual rating).",
+        "Register all commands in src/agent_recall/cli/__init__.py under a 'embedding' command group."
+      ],
+      "acceptance_criteria": [
+        "CLI group 'agent-recall embedding' exists.",
+        "'agent-recall embedding stats' displays coverage, size, health metrics.",
+        "'agent-recall embedding reindex --force' re-embeds all chunks.",
+        "'agent-recall embedding search --query \"JWT auth\"' returns top 5 results.",
+        "'agent-recall embedding search' (without query) prompts for interactive input.",
+        "'agent-recall embedding test-quality' runs 10 test queries and displays results.",
+        "All commands have clear help text: 'agent-recall embedding [command] --help'.",
+        "Commands handle errors gracefully (no unembedded chunks, empty database, etc.)."
+      ],
+      "validation_commands": [
+        "uv run agent-recall embedding --help",
+        "uv run agent-recall embedding stats",
+        "uv run agent-recall embedding search --query 'test'",
+        "uv run agent-recall embedding test-quality"
+      ],
+      "passes": false,
+      "notes": "Use click.echo() for colorized output (click supports color). Use click.prompt() for interactive input. Make commands idempotent: running twice should be safe."
+    },
+    {
+      "id": "AR-260225-11",
+      "title": "Create migration script to add embeddings to existing Agent-Recall databases",
+      "priority": 2,
+      "description": "Create src/agent_recall/storage/migrations/migrate_to_embeddings.py that: (1) detects old database schema (pre-embeddings), (2) adds embedding and embedding_version columns safely, (3) backs up database before migration, (4) runs indexing on all chunks. This ensures smooth upgrade path for existing users.",
+      "user_story": "As an existing Agent-Recall user upgrading to the embeddings release, I want automatic schema migration and indexing so my database is ready to use embeddings without manual SQL.",
+      "steps": [
+        "Create src/agent_recall/storage/migrations/ directory if not exists.",
+        "Create src/agent_recall/storage/migrations/migrate_to_embeddings.py with function migrate_database(storage: Storage, backup: bool = True) -> dict.",
+        "Implement backup logic: (a) copies .db to .db.backup-{timestamp}, (b) verifies backup is readable, (c) returns backup path.",
+        "Implement schema migration: (a) checks if 'embedding' column exists in chunks table, (b) if not, runs ALTER TABLE chunks ADD COLUMN embedding TEXT, (c) runs ALTER TABLE chunks ADD COLUMN embedding_version INTEGER DEFAULT 0.",
+        "Implement indexing: (a) after schema update, calls EmbeddingIndexer.index_missing_embeddings(), (b) displays progress, (c) logs total chunks embedded.",
+        "Create CLI command 'agent-recall migrate-embeddings' that calls migrate_database() with user confirmation.",
+        "Make migration idempotent: running twice should not cause errors, just skip already-migrated chunks."
+      ],
+      "acceptance_criteria": [
+        "Migration script exists at src/agent_recall/storage/migrations/migrate_to_embeddings.py.",
+        "Running migrate_database() on old database creates .db.backup file.",
+        "Running migrate_database() adds embedding and embedding_version columns.",
+        "After migration, all chunks can be retrieved and have embedding=None until re-indexed.",
+        "CLI command 'agent-recall migrate-embeddings' prompts for confirmation before running.",
+        "Migration is idempotent: running twice does not error or duplicate embeddings.",
+        "Migration includes rollback instructions in CLI output (how to restore from backup).",
+        "Migration completes in < 5 minutes for typical 10K-chunk database."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/unit/storage/test_migration_embeddings.py -v",
+        "uv run agent-recall migrate-embeddings --help",
+        "uv run agent-recall migrate-embeddings --dry-run"
+      ],
+      "passes": false,
+      "notes": "Add --dry-run flag to preview changes without applying. Include schema inspection: print 'Found X chunks, will migrate Y from backup' before running. Test on real old database schema."
+    },
+    {
+      "id": "AR-260225-12",
+      "title": "Update CHANGELOG.md and create release notes for semantic embeddings feature",
+      "priority": 3,
+      "description": "Add comprehensive entry to CHANGELOG.md documenting all embedding-related changes (new PRDs, new modules, new CLI commands). Create RELEASE_NOTES.md with migration guide for upgrading from pre-embedding versions.",
+      "user_story": "As a user upgrading agent-recall, I want clear release notes and migration instructions so I understand what changed and how to adopt embeddings.",
+      "steps": [
+        "Open CHANGELOG.md and add section for new version (e.g., '## [0.2.0] - 2026-02-25').",
+        "Add 'Added' subsection listing: Semantic embeddings via sentence-transformers, Hybrid retrieval (FTS + semantic), EmbeddingIndexer for batch vectorization, Vector similarity search, Embedding configuration options, CLI commands for embedding management, Migration script for existing databases.",
+        "Add 'Changed' subsection: ContextAssembler now uses hybrid retrieval by default, Config schema extended with embedding settings.",
+        "Add 'Fixed' subsection (if any): N/A.",
+        "Create RELEASE_NOTES.md with sections: (1) Overview of embeddings feature, (2) What changed (config schema, retrieval behavior), (3) Migration guide (run migrate-embeddings or manually), (4) Performance impact (sync time +5-10sec, storage +1.5KB per chunk), (5) Troubleshooting, (6) Credits/acknowledgments.",
+        "Add upgrade checklist in release notes: backup database, run migrate-embeddings, run agent-recall embedding stats to verify, update .agent/config.yaml if needed."
+      ],
+      "acceptance_criteria": [
+        "CHANGELOG.md entry exists for embeddings release with all major changes listed.",
+        "RELEASE_NOTES.md exists and is >= 500 words.",
+        "Release notes include clear migration instructions.",
+        "Release notes include performance impact estimates.",
+        "Release notes include troubleshooting section for common issues.",
+        "Release notes include upgrade checklist.",
+        "All PRD IDs (AR-501 through AR-515) are mentioned or referenced in release notes."
+      ],
+      "validation_commands": [
+        "grep -c 'embeddings\\|semantic' CHANGELOG.md",
+        "wc -w RELEASE_NOTES.md",
+        "grep -E '(AR-[0-9]+|migrate|config|troubleshoot)' RELEASE_NOTES.md"
+      ],
+      "passes": false,
+      "notes": "Keep tone professional but accessible. Include a 'Quick Start' section for users who just want embeddings to work with defaults. Mention that embeddings are opt-in via config, not mandatory."
+    },
+    {
+      "id": "AR-260225-13",
+      "title": "Implement optional in-memory caching layer for embeddings",
+      "priority": 3,
+      "description": "Create src/agent_recall/core/embedding_cache.py with EmbeddingCache class that caches recently loaded embeddings in memory (LRU eviction). This speeds up repeated queries by avoiding repeated database lookups and deserialization.",
+      "user_story": "As a developer using Agent-Recall for frequent queries, I want in-memory caching of embeddings so retrieval is faster after the first query.",
+      "steps": [
+        "Create src/agent_recall/core/embedding_cache.py with EmbeddingCache class.",
+        "Implement __init__(self, max_size: int = 10000) using functools.lru_cache or OrderedDict for LRU behavior.",
+        "Implement get(chunk_id: UUID) -> np.ndarray | None that returns cached embedding or None.",
+        "Implement put(chunk_id: UUID, embedding: np.ndarray) -> None that stores in cache.",
+        "Implement clear() -> None that flushes cache (useful for testing).",
+        "Integrate into Retriever: before deserializing embedding from JSON, check cache. After deserializing, store in cache.",
+        "Add configuration option: embedding.cache_enabled: bool = True, embedding.cache_size: int = 10000."
+      ],
+      "acceptance_criteria": [
+        "EmbeddingCache class exists with get, put, clear methods.",
+        "Cache uses LRU eviction when max_size is reached.",
+        "First retrieval of chunk embedding hits database and caches result.",
+        "Second retrieval of same chunk hits cache (not database).",
+        "Cache.clear() removes all entries.",
+        "Retriever integrates caching transparently (no API changes).",
+        "Configuration allows enabling/disabling cache and tuning size."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/unit/core/test_embedding_cache.py -v",
+        "uv run ruff check src/agent_recall/core/embedding_cache.py",
+        "uv run ty check src/agent_recall/core/embedding_cache.py"
+      ],
+      "passes": false,
+      "notes": "Measure cache hit rate in logs: logger.debug(f'Embedding cache hit rate: {hits}/{total} ({100*hits/total:.1f}%)'). Make cache size configurable. For large databases (100K+ chunks), keep cache disabled to avoid OOM."
+    },
+    {
+      "id": "AR-260225-14",
+      "title": "Add Prometheus metrics and structured logging for embedding operations",
+      "priority": 3,
+      "description": "Instrument embedding pipeline with Prometheus metrics (indexing_duration_seconds, retrieval_latency_seconds, cache_hit_rate) and structured logging. This enables monitoring and performance debugging in production deployments.",
+      "user_story": "As a DevOps engineer running Agent-Recall in production, I want Prometheus metrics and structured logs so I can monitor embedding performance, detect bottlenecks, and debug issues without accessing code.",
+      "steps": [
+        "Add prometheus_client>=0.19.0 to pyproject.toml dependencies.",
+        "Create src/agent_recall/core/embedding_metrics.py with module docstring.",
+        "Import: from prometheus_client import Counter, Histogram, Gauge, import time, import logging.",
+        "Define metrics at module level:",
+        "  - indexing_duration_seconds = Histogram('ar_embedding_indexing_duration_seconds', 'Time to index batch of chunks', ['batch_size'], buckets=[0.1, 0.5, 1.0, 5.0, 10.0, 30.0])",
+        "  - retrieval_latency_ms = Histogram('ar_embedding_retrieval_latency_milliseconds', 'Query latency per operation', ['search_type'], buckets=[1, 5, 10, 50, 100, 500])",
+        "  - cache_hit_rate = Gauge('ar_embedding_cache_hit_rate', 'Current embedding cache hit rate (0-1)')",
+        "  - chunks_indexed_total = Counter('ar_embedding_chunks_indexed_total', 'Total chunks embedded', ['status'])",
+        "  - vector_searches_total = Counter('ar_embedding_vector_searches_total', 'Total vector similarity searches', ['status'])",
+        "Create logging wrapper: def log_embedding_event(event_name: str, **kwargs) -> None that logs structured JSON via logger.info(event_name, extra=kwargs).",
+        "Instrument EmbeddingIndexer.index_missing_embeddings(): (a) record start time, (b) after indexing, record indexing_duration_seconds with batch_size label, (c) record chunks_indexed_total for each chunk with status='success' or 'error'.",
+        "Instrument Retriever.search_hybrid(): (a) record start time, (b) after search, record retrieval_latency_ms with search_type='hybrid', (c) log event with query_length, results_count, latency_ms.",
+        "Instrument Retriever.search_by_vector_similarity(): similar instrumentation with search_type='semantic'.",
+        "Instrument Retriever.search_chunks_fts(): similar instrumentation with search_type='fts'.",
+        "Add EmbeddingCache instrumentation: track cache hits vs misses, update cache_hit_rate gauge after each retrieval."
+      ],
+      "acceptance_criteria": [
+        "prometheus_client is in pyproject.toml dependencies.",
+        "embedding_metrics.py defines 5+ metrics (Counter, Histogram, Gauge).",
+        "All metrics use ar_ prefix following Prometheus conventions.",
+        "indexing_duration_seconds histogram records batch indexing time with batch_size label.",
+        "retrieval_latency_ms histogram records query time with search_type label (fts, semantic, hybrid).",
+        "cache_hit_rate gauge is updated after each retrieval to (hits / total_lookups).",
+        "chunks_indexed_total counter increments for each embedded chunk with status label.",
+        "vector_searches_total counter increments for each search with status label.",
+        "log_embedding_event() function logs structured JSON to logger.",
+        "Metrics are accessible and exportable via prometheus_client.REGISTRY.",
+        "No performance regression: adding metrics adds < 1ms latency per operation.",
+        "All tests pass: uv run pytest tests/unit/core/test_embedding_metrics.py -v"
+      ],
+      "validation_commands": [
+        "uv run pytest tests/unit/core/test_embedding_metrics.py -v",
+        "python -c 'from agent_recall.core.embedding_metrics import indexing_duration_seconds; print(indexing_duration_seconds._name)'",
+        "uv run ruff check src/agent_recall/core/embedding_metrics.py",
+        "uv run ty check src/agent_recall/core/embedding_metrics.py"
+      ],
+      "passes": false,
+      "notes": "Use logger.getLogger(__name__) at module level to get structured logging. Metrics follow Prometheus best practices: _seconds suffix for durations, _total for counters, _milliseconds for sub-second latencies. Test with mock prometheus_client if needed to avoid external dependencies in tests."
+    },
+    {
+      "id": "AR-260225-15",
+      "title": "Add optional FAISS integration for fast approximate nearest neighbor search on 100K+ chunk deployments",
+      "priority": 3,
+      "description": "Create src/agent_recall/core/embedding_faiss.py with optional FAISS (Facebook AI Similarity Search) backend that enables O(log n) approximate nearest neighbor search instead of O(n) brute-force. When embedding.use_faiss=true and database has >= 10K chunks, automatically build and use FAISS index for sub-10ms retrieval latency at scale.",
+      "user_story": "As an operator with 100K+ knowledge chunks, I need sub-10ms vector search latency so retrieval doesn't become a bottleneck. Brute-force cosine similarity would take 500ms+, making context assembly too slow.",
+      "steps": [
+        "Add faiss-cpu>=1.8.0 to pyproject.toml in optional extras_require: extras={'faiss': ['faiss-cpu>=1.8.0']}. Do NOT add to main dependencies.",
+        "Create src/agent_recall/core/embedding_faiss.py with module docstring explaining FAISS approach.",
+        "Import: try: import faiss; FAISS_AVAILABLE = True except ImportError: FAISS_AVAILABLE = False.",
+        "Create class FAISSEmbeddingIndex:",
+        "  - __init__(self, embedding_dim: int = 384, use_gpu: bool = False) -> None: (a) store dimension, (b) self.index = None, (c) self.id_map: dict[int, UUID] = {}.",
+        "  - build_index(self, embeddings: list[np.ndarray], chunk_ids: list[UUID]) -> None: (a) convert embeddings to float32 numpy array (n_chunks, 384), (b) create IVFFlat index with nlist=max(100, sqrt(len(embeddings))), (c) train index if needed, (d) add vectors and build id_map.",
+        "  - search(self, query_embedding: np.ndarray, top_k: int = 10, threshold: float = 0.0) -> list[tuple[UUID, float]]: (a) query FAISS index with top_k, (b) convert distances to similarity scores (1 / (1 + distance) or similar), (c) filter by threshold, (d) return [(chunk_id, score), ...].",
+        "  - save_index(self, path: str) -> None: use faiss.write_index(self.index, path) and pickle id_map.",
+        "  - load_index(self, path: str) -> None: use faiss.read_index(path) and unpickle id_map.",
+        "  - is_available() -> bool: return FAISS_AVAILABLE.",
+        "Add configuration options to EmbeddingSettings (AR-509): use_faiss: bool = False, faiss_auto_build_threshold: int = 10000 (auto-enable at 10K+ chunks), faiss_index_path: str = '.agent/embeddings.faiss'.",
+        "Integrate into Retriever.search_by_vector_similarity(): (a) if config.embedding.use_faiss and self.faiss_index available, use self.faiss_index.search(), (b) else fallback to brute-force, (c) handle FAISS unavailable gracefully.",
+        "Add to EmbeddingIndexer.index_missing_embeddings(): (a) after embedding, rebuild FAISS index if use_faiss=true.",
+        "Add CLI command 'agent-recall embedding-build-faiss' to manually rebuild FAISS index."
+      ],
+      "acceptance_criteria": [
+        "FAISS is optional dependency: app works without faiss-cpu installed.",
+        "FAISSEmbeddingIndex class exists with build_index, search, save_index, load_index methods.",
+        "With FAISS: 100K chunks queried in < 10ms; without FAISS: > 500ms (demonstrated in benchmarks).",
+        "FAISS index is persisted to disk at .agent/embeddings.faiss (configurable path).",
+        "FAISS index is automatically rebuilt when embeddings change significantly (>10% new chunks).",
+        "Config option use_faiss enables/disables FAISS without code changes.",
+        "If FAISS is not installed and use_faiss=true, app logs warning and falls back to brute-force.",
+        "FAISS auto-enables at 10K+ chunks if use_faiss not explicitly set.",
+        "search() returns [(UUID, similarity_score), ...] in descending similarity order.",
+        "Searches with FAISS threshold filtering only return results above threshold."
+      ],
+      "validation_commands": [
+        "pip install 'agent-recall[faiss]' (test FAISS installation)",
+        "uv run pytest tests/unit/core/test_embedding_faiss.py -v -k 'not test_large_scale'",
+        "uv run pytest tests/integration/test_embedding_faiss_large.py --durations=5 (optional large-scale test)",
+        "uv run agent-recall embedding-build-faiss --help",
+        "uv run ruff check src/agent_recall/core/embedding_faiss.py",
+        "uv run ty check src/agent_recall/core/embedding_faiss.py"
+      ],
+      "passes": false,
+      "notes": "FAISS is NOT required. Design app to work without it. Document that FAISS is recommended for 100K+ chunks. Use IVFFlat (not HNSW) for faster training and lower memory. FAISS index is ~15MB per 10K chunks. Test on real 100K chunk dataset to verify speedup."
+    },
+    {
+      "id": "AR-260225-16",
+      "title": "Final integration testing, documentation, and production readiness validation for semantic embeddings",
+      "priority": 1,
+      "description": "Run comprehensive end-to-end tests verifying all 19 previous embedding PRDs (AR-501 through AR-519) work together seamlessly. Execute performance benchmarks, verify CLI commands, validate migrations, update documentation, and gate release on acceptance criteria. This is the final PRD before launching embeddings feature.",
+      "user_story": "As the release manager, I need to verify that the entire semantic embeddings feature is production-ready, meets performance targets, is well-documented, and can be safely released to users.",
+      "steps": [
+        "Execute comprehensive test suite: uv run pytest tests/unit/core/test_*embedding*.py tests/integration/test_embedding_e2e.py -v --cov=src/agent_recall/core --cov-report=html.",
+        "Verify test coverage >= 80% for embedding modules: generate coverage report and review uncovered lines.",
+        "Run performance benchmarks: uv run pytest tests/benchmarks/benchmark_embeddings.py -v --benchmark-only --benchmark-json=benchmarks.json.",
+        "Verify benchmark results against targets: indexing >= 100 chunks/sec, retrieval <= 10ms, FAISS retrieval <= 10ms, storage <= 2KB per chunk.",
+        "Test all CLI commands: (a) agent-recall sync (verify embeddings auto-index), (b) agent-recall embedding stats (verify output), (c) agent-recall embedding search --query 'test', (d) agent-recall embedding reindex --force, (e) agent-recall embedding test-quality, (f) agent-recall embedding-build-faiss, (g) agent-recall migrate-embeddings --dry-run.",
+        "Verify configuration: (a) load config.yaml with embeddings section, (b) validate all embedding settings, (c) test invalid config raises clear errors, (d) test defaults applied when section missing.",
+        "Test migration path: (a) create pre-embeddings database (using old schema), (b) run migrate_embeddings(), (c) verify schema is updated, (d) verify chunks are indexed, (e) verify hybrid search works on migrated data.",
+        "Generate API documentation: (a) auto-generate docstring-based docs for semantic_embedder.py, embedding_indexer.py, retrieve.py, (b) add to docs/API.md, (c) verify code examples are correct.",
+        "Update README.md: (a) add 'Semantic Search' section (200+ words), (b) include config example, (c) include performance table, (d) link to docs/embeddings-guide.md.",
+        "Update CHANGELOG.md: (a) add [0.2.0] section, (b) list all embedding-related changes, (c) reference all 19 PRDs.",
+        "Create RELEASE_NOTES.md: (a) feature overview (500+ words), (b) migration guide for upgrading, (c) performance impact, (d) troubleshooting, (e) upgrade checklist.",
+        "Verify backward compatibility: (a) app starts with old config (no embeddings section), (b) FTS-only retrieval works, (c) embeddings are optional, not required.",
+        "Performance validation: (a) profile on small (1K chunks), medium (10K), and large (100K) datasets, (b) verify no memory leaks, (c) verify sync time delta is < 15 seconds per 1K chunks.",
+        "Documentation validation: (a) verify all code examples are tested and work, (b) verify all CLI examples are accurate, (c) verify docs/embeddings-guide.md is >= 1000 words."
+      ],
+      "acceptance_criteria": [
+        "All unit tests pass: >= 25 embedding-specific tests, 100% pass rate.",
+        "All integration tests pass: E2E flow (ingest → embed → retrieve) works end-to-end.",
+        "All benchmarks complete: results are documented in docs/BENCHMARKS.md with actual numbers.",
+        "Benchmark results meet targets: indexing >= 100 chunks/sec, retrieval <= 10ms (brute-force), retrieval <= 10ms (FAISS), storage <= 2KB per chunk.",
+        "Test coverage >= 80% for embedding modules (semantic_embedder.py, embedding_indexer.py, retrieve.py, embedding_cache.py, embedding_faiss.py, embedding_metrics.py, embedding_diagnostics.py).",
+        "All CLI commands execute without errors.",
+        "Migration script successfully migrates pre-embeddings database.",
+        "Configuration loading correctly applies defaults and validates settings.",
+        "README.md includes semantic search section with config example.",
+        "CHANGELOG.md documents all changes with PRD references.",
+        "RELEASE_NOTES.md includes migration guide, performance impact, troubleshooting.",
+        "Backward compatibility maintained: old config files work without embeddings section.",
+        "Performance profiling shows no memory leaks or excessive CPU usage.",
+        "All documentation examples are tested and accurate.",
+        "Feature is fully documented: README, embeddings-guide, API docs, CLI help, RELEASE_NOTES."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/unit/core/test_*embedding*.py tests/integration/test_embedding_e2e.py -v --cov=src/agent_recall/core --cov-report=html.",
+        "uv run pytest tests/benchmarks/benchmark_embeddings.py -v --benchmark-only --benchmark-json=benchmarks.json.",
+        "uv run pytest tests/unit/core/test_*embedding*.py tests/integration/test_embedding_e2e.py -v --cov=src/agent_recall/core --cov-report=html.",
+        "uv run pytest tests/unit/core/test_config.py -v",
+        "uv run pytest tests/unit/core/test_context.py -v",
+        "uv run pytest tests/unit/core/test_embedding_cache.py -v",
+        "uv run pytest tests/unit/core/test_embedding_faiss.py -v",
+        "uv run pytest tests/unit/core/test_embedding_metrics.py -v",
+        "uv run pytest tests/unit/core/test_embedding_diagnostics.py -v",
+        "uv run pytest tests/integration/test_embedding_e2e.py -v -s",
+        "uv run pytest tests/integration/test_embedding_e2e.py::test_embedding_pipeline_end_to_end --durations=10",
+        "uv run agent-recall benchmark --help",
+        "uv run agent-recall migrate-embeddings --help"
+      ],
+      "passes": false,
+      "notes": "Verify all tests pass and coverage is >= 80%."
     }
   ]
 }

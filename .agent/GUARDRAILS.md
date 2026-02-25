@@ -23,3 +23,5 @@
 - [GOTCHA] Textual's compose() method requires an active app context - can't call it directly in unit tests without running within an App.
 - [GOTCHA] DashboardPanels dataclass required updating all test fixtures when adding a new field (queue panel), similar to forecast panel case noted in GUARDRAILS.md
 - [GOTCHA] Implementation was already complete from prior work - PRD item just needed to be marked as passed.
+- [GOTCHA] Method was initially added to wrong class (_HTTPClient instead of RemoteStorage) - had to fix by removing from wrong location and adding to correct class, and also to _HTTPClient as it also inherits from Storage.
+- [GOTCHA] Storage ABC did not have a list_chunks method to retrieve all chunks - had to add it as an abstract method.

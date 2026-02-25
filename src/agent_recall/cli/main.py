@@ -1374,6 +1374,11 @@ def sync(
         "-f",
         help="Force compaction even if no new learnings",
     ),
+    skip_embeddings: bool = typer.Option(
+        False,
+        "--skip-embeddings",
+        help="Skip computing semantic embeddings for chunks",
+    ),
     verbose: bool = typer.Option(
         False,
         "--verbose",
@@ -1481,15 +1486,27 @@ def sync(
 
         try:
             if compact:
-                results = asyncio.run(
-                    auto_sync.sync_and_compact(
-                        since=since,
-                        sources=sources,
-                        session_ids=session_ids,
-                        max_sessions=max_sessions,
-                        force_compact=force,
+                if skip_embeddings:
+                    results = asyncio.run(
+                        auto_sync.sync_and_compact(
+                            since=since,
+                            sources=sources,
+                            session_ids=session_ids,
+                            max_sessions=max_sessions,
+                            force_compact=force,
+                            skip_embeddings=True,
+                        )
                     )
-                )
+                else:
+                    results = asyncio.run(
+                        auto_sync.sync_and_compact(
+                            since=since,
+                            sources=sources,
+                            session_ids=session_ids,
+                            max_sessions=max_sessions,
+                            force_compact=force,
+                        )
+                    )
             else:
                 results = asyncio.run(
                     auto_sync.sync(

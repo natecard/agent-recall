@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from agent_recall.core.compact import CompactionEngine
@@ -184,6 +185,43 @@ async def test_compaction_generates_embeddings_when_enabled(storage, files) -> N
     assert len(chunks) == 1
     assert chunks[0].embedding is not None
     assert len(chunks[0].embedding or []) == 16
+
+
+@pytest.mark.asyncio
+async def test_compaction_uses_semantic_embedder_for_384_dimensions(
+    storage, files, monkeypatch
+) -> None:
+    files.write_config(
+        {
+            "llm": {"provider": "openai", "model": "gpt-4o-mini"},
+            "retrieval": {"embedding_enabled": True, "embedding_dimensions": 384},
+        }
+    )
+
+    expected_embedding = [0.75] * 384
+    monkeypatch.setattr(
+        "agent_recall.core.compact.embed_single",
+        lambda text: np.array(expected_embedding, dtype=np.float32),
+    )
+
+    def _should_not_use_legacy(text: str, dimensions: int = 64) -> list[float]:
+        msg = "legacy deterministic generator should not be used for 384-d vectors"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr("agent_recall.core.compact.generate_embedding", _should_not_use_legacy)
+
+    session_mgr = SessionManager(storage)
+    log_writer = LogWriter(storage)
+    session = session_mgr.start("Improve auth")
+    log_writer.log(content="Use OAuth device flow for CLI login", label=SemanticLabel.PATTERN)
+    session_mgr.end(session.id, "Completed")
+
+    engine = CompactionEngine(storage=storage, files=files, llm=FakeLLMProvider())
+    await engine.compact(force=True)
+
+    chunks = storage.search_chunks_fts("OAuth", top_k=5)
+    assert len(chunks) == 1
+    assert chunks[0].embedding == expected_embedding
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ import pytest
 from agent_recall.core.sync import AutoSync
 from agent_recall.ingest.base import RawMessage, RawSession, SessionIngester
 from agent_recall.llm.base import LLMProvider, LLMRateLimitError, LLMResponse, Message
+from agent_recall.storage.models import Chunk, ChunkSource, SemanticLabel
 
 
 class AdaptiveLLM(LLMProvider):
@@ -325,6 +326,76 @@ async def test_sync_and_compact_includes_compaction_results(storage, files, tmp_
 
     assert "compaction" in results
     assert results["sessions_processed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_and_compact_backfills_missing_embeddings_when_enabled(
+    storage, files, tmp_path: Path, monkeypatch
+) -> None:
+    files.write_config({"retrieval": {"embedding_enabled": True, "embedding_dimensions": 384}})
+
+    preexisting = Chunk(
+        source=ChunkSource.MANUAL,
+        source_ids=[],
+        content="legacy chunk without embedding",
+        label=SemanticLabel.PATTERN,
+        embedding=None,
+    )
+    storage.store_chunk(preexisting)
+
+    monkeypatch.setattr(
+        "agent_recall.core.embedding_indexer.embed_batch_to_lists",
+        lambda texts: [[0.33] * 384 for _ in texts],
+    )
+
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[FakeIngester("cursor", [session_path])],
+    )
+
+    results = await sync.sync_and_compact()
+
+    assert results.get("embedding_indexing") == {"indexed": 1, "skipped": 0}
+    embedded_chunks = storage.list_chunks_with_embeddings()
+    assert any(chunk.id == preexisting.id for chunk in embedded_chunks)
+
+
+@pytest.mark.asyncio
+async def test_sync_and_compact_skip_embeddings_does_not_backfill(
+    storage, files, tmp_path: Path
+) -> None:
+    files.write_config({"retrieval": {"embedding_enabled": True, "embedding_dimensions": 384}})
+
+    preexisting = Chunk(
+        source=ChunkSource.MANUAL,
+        source_ids=[],
+        content="legacy chunk without embedding",
+        label=SemanticLabel.PATTERN,
+        embedding=None,
+    )
+    storage.store_chunk(preexisting)
+
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[FakeIngester("cursor", [session_path])],
+    )
+
+    results = await sync.sync_and_compact(skip_embeddings=True)
+
+    assert "embedding_indexing" not in results
+    still_missing = [chunk for chunk in storage.list_chunks() if chunk.id == preexisting.id]
+    assert len(still_missing) == 1
+    assert still_missing[0].embedding is None
 
 
 @pytest.mark.asyncio

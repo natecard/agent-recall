@@ -102,3 +102,6 @@
 - [PATTERN] Run full gate first, patch expectations, then rerun suite.
 - [PATTERN] Promote relevant actions in modals using `VIEW_PRIORITY_MAP`.
 - [PATTERN] Check existing implementation before starting new work.
+- [PATTERN] Use delegation patterns for consistent API access.
+- [PATTERN] Add focused tests for store operations & view registration.
+- [PATTERN] Run full gate first, patch failing assertion expectations without changing runtime behavior, then rerun the full suite.

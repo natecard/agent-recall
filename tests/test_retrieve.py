@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import numpy as np
+
 from agent_recall.core.embeddings import generate_embedding
 from agent_recall.core.retrieve import Retriever
 from agent_recall.storage.models import Chunk, ChunkSource, SemanticLabel
@@ -155,3 +157,29 @@ def test_retrieval_optional_rerank_tie_stays_deterministic(storage, monkeypatch)
     results = retriever.search(query=query, top_k=2, rerank=True, rerank_candidate_k=2)
 
     assert [chunk.id for chunk in results] == [first.id, second.id]
+
+
+def test_retrieval_uses_semantic_embedder_for_384_dimension(storage, monkeypatch) -> None:
+    query = "semantic query"
+    embedding = [0.5] * 384
+    chunk = Chunk(
+        source=ChunkSource.MANUAL,
+        source_ids=[],
+        content="semantic candidate",
+        label=SemanticLabel.PATTERN,
+        embedding=embedding,
+    )
+    storage.store_chunk(chunk)
+
+    monkeypatch.setattr("agent_recall.core.retrieve.embed_single", lambda text: np.array(embedding))
+
+    def _should_not_use_legacy(text: str, dimensions: int = 64) -> list[float]:
+        msg = "legacy deterministic generator should not be used for 384-d vectors"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr("agent_recall.core.retrieve.generate_embedding", _should_not_use_legacy)
+
+    retriever = Retriever(storage)
+    results = retriever.search(query, top_k=5, backend="hybrid")
+
+    assert any(result.id == chunk.id for result in results)

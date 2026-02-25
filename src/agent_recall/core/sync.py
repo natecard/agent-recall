@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_recall.core.compact import CompactionEngine
+from agent_recall.core.embedding_indexer import EmbeddingIndexer
 from agent_recall.core.extract import TranscriptExtractor
 from agent_recall.ingest import SessionIngester, get_default_ingesters
 from agent_recall.ingest.base import RawSession
@@ -317,6 +318,7 @@ class AutoSync:
         force_compact: bool = False,
         reset_checkpoints: bool = False,
         reset_full: bool = False,
+        skip_embeddings: bool = False,
     ) -> dict[str, Any]:
         sync_results = await self.sync(
             since=since,
@@ -334,7 +336,22 @@ class AutoSync:
             compact_engine = CompactionEngine(self.storage, self.files, self.llm)
             sync_results["compaction"] = await compact_engine.compact(force=force_compact)
 
+        if self._embedding_indexing_enabled() and not skip_embeddings:
+            indexer = EmbeddingIndexer(self.storage)
+            sync_results["embedding_indexing"] = indexer.index_missing_embeddings()
+
         return sync_results
+
+    def _embedding_indexing_enabled(self) -> bool:
+        config = self.files.read_config()
+        if not isinstance(config, dict):
+            return False
+
+        retrieval_cfg = config.get("retrieval")
+        if not isinstance(retrieval_cfg, dict):
+            return False
+
+        return bool(retrieval_cfg.get("embedding_enabled", False))
 
     def list_sessions(
         self,
