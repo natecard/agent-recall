@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import re
+from collections.abc import Sequence
 from uuid import UUID
 
 from agent_recall.core.embeddings import cosine_similarity, generate_embedding
@@ -9,6 +11,7 @@ from agent_recall.storage.base import Storage
 from agent_recall.storage.models import Chunk, SemanticLabel
 
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
+logger = logging.getLogger(__name__)
 
 
 class Retriever:
@@ -55,6 +58,22 @@ class Retriever:
 
         return chunks[:top_k]
 
+    def search_by_vector_similarity(
+        self,
+        query: str,
+        top_k: int = 10,
+        min_similarity: float = 0.3,
+    ) -> list[Chunk]:
+        limit = max(1, int(top_k))
+        threshold = max(0.0, float(min_similarity))
+        scored = self._rank_vector_candidates(query=query, min_similarity=threshold)
+        logger.debug(
+            "Vector search found %d chunks with similarity >= %.3f",
+            len(scored),
+            threshold,
+        )
+        return [chunk for chunk, _score in scored[:limit]]
+
     def _search_hybrid(self, query: str, top_k: int) -> list[Chunk]:
         candidate_k = max(top_k, top_k * 4)
         fts_chunks = self.storage.search_chunks_fts(query=query, top_k=candidate_k)
@@ -98,22 +117,37 @@ class Retriever:
         scored.sort(key=lambda row: (-row[0], -row[1], row[2], row[3]))
         return [chunk for *_meta, chunk in scored[:top_k]]
 
-    def _rank_vector_candidates(self, query: str) -> list[tuple[Chunk, float]]:
+    def _rank_vector_candidates(
+        self,
+        query: str,
+        min_similarity: float = 0.0,
+    ) -> list[tuple[Chunk, float]]:
         chunks = self.storage.list_chunks_with_embeddings()
         if not chunks:
             return []
 
-        dimensions = next((len(chunk.embedding) for chunk in chunks if chunk.embedding), 0)
+        dimensions = next(
+            (
+                len(normalized)
+                for chunk in chunks
+                if (normalized := self._coerce_embedding(chunk.embedding)) is not None
+            ),
+            0,
+        )
         if dimensions <= 0:
             return []
 
         query_embedding = self._build_query_embedding(query=query, dimensions=dimensions)
         scored: list[tuple[Chunk, float]] = []
         for chunk in chunks:
-            if chunk.embedding is None or len(chunk.embedding) != dimensions:
+            normalized = self._coerce_embedding(chunk.embedding)
+            if normalized is None:
+                logger.warning("Skipping malformed embedding for chunk_id=%s", chunk.id)
                 continue
-            similarity = cosine_similarity(query_embedding, chunk.embedding)
-            if similarity > 0.0:
+            if len(normalized) != dimensions:
+                continue
+            similarity = cosine_similarity(query_embedding, normalized)
+            if similarity >= min_similarity:
                 scored.append((chunk, similarity))
 
         scored.sort(key=lambda row: (-row[1], str(row[0].id)))
@@ -183,3 +217,17 @@ class Retriever:
             except Exception:  # noqa: BLE001
                 pass
         return generate_embedding(query, dimensions=dimensions)
+
+    @staticmethod
+    def _coerce_embedding(raw: object) -> list[float] | None:
+        if not isinstance(raw, Sequence) or isinstance(raw, str | bytes):
+            return None
+
+        values: list[float] = []
+        for item in raw:
+            if isinstance(item, int | float):
+                values.append(float(item))
+            else:
+                return None
+
+        return values if values else None

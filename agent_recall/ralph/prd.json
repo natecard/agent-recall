@@ -166,12 +166,12 @@
       "description": "Extend src/agent_recall/core/retrieve.py with a new method search_by_vector_similarity() that embeds the query, computes cosine similarity with all indexed chunks, and returns top-k results ranked by similarity score. This enables semantic search as an alternative or complement to full-text search.",
       "user_story": "As the retrieval engine, I need to search chunks semantically by converting the user query to embeddings and finding similar chunks in the database, so that queries like 'JWT validation issue' match 'token authentication error' even without exact keyword overlap.",
       "steps": [
-        "Open src/agent_recall/core/retrieve.py and locate the Retriever class.",
-        "Import: from agent_recall.core.semantic_embedder import embed_single, from scipy.spatial.distance import cosine import numpy as np.",
-        "Implement method search_by_vector_similarity(self, query: str, top_k: int = 10, min_similarity: float = 0.3) -> list[Chunk] that: (a) calls embed_single(query) to get query_embedding, (b) queries storage for all chunks where embedding IS NOT NULL, (c) for each chunk, deserializes embedding from JSON, (d) computes cosine_similarity = 1 - cosine(query_embedding, chunk_embedding), (e) filters results where cosine_similarity >= min_similarity, (f) sorts by similarity descending, (g) returns top_k chunks.",
-        "Implement helper method _deserialize_embedding(embedding_json: str) -> np.ndarray that calls json.loads() and converts to numpy array.",
-        "Add optional embedding_stats logging: logger.debug(f'Vector search found {len(results)} chunks with similarity >= {min_similarity}').",
-        "Ensure the method is resilient: if a chunk's embedding is malformed, skip it and log a warning rather than crashing."
+        "[DONE] Open src/agent_recall/core/retrieve.py and locate the Retriever class.",
+        "[DONE] Import: from agent_recall.core.semantic_embedder import embed_single, from scipy.spatial.distance import cosine import numpy as np.",
+        "[DONE] Implement method search_by_vector_similarity(self, query: str, top_k: int = 10, min_similarity: float = 0.3) -> list[Chunk] that: (a) calls embed_single(query) to get query_embedding, (b) queries storage for all chunks where embedding IS NOT NULL, (c) for each chunk, deserializes embedding from JSON, (d) computes cosine_similarity = 1 - cosine(query_embedding, chunk_embedding), (e) filters results where cosine_similarity >= min_similarity, (f) sorts by similarity descending, (g) returns top_k chunks.",
+        "[DONE] Implement helper method _deserialize_embedding(embedding_json: str) -> np.ndarray that calls json.loads() and converts to numpy array.",
+        "[DONE] Add optional embedding_stats logging: logger.debug(f'Vector search found {len(results)} chunks with similarity >= {min_similarity}').",
+        "[DONE] Ensure the method is resilient: if a chunk's embedding is malformed, skip it and log a warning rather than crashing."
       ],
       "acceptance_criteria": [
         "search_by_vector_similarity('JWT auth') returns list[Chunk] (empty list if no matches).",
@@ -190,7 +190,7 @@
         "uv run ruff check src/agent_recall/core/retrieve.py",
         "uv run ty check src/agent_recall/core/retrieve.py"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "For performance, consider caching chunk embeddings in memory if database size < 100K chunks. Cosine similarity in NumPy is faster than scipy for large batches; consider np.dot(query, chunk) / (||query|| * ||chunk||) instead of scipy.spatial.distance.cosine."
     },
     {
