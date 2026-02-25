@@ -50,6 +50,7 @@ from agent_recall.core.compact import CompactionEngine
 from agent_recall.core.config import load_config
 from agent_recall.core.context import ContextAssembler
 from agent_recall.core.embedding_diagnostics import EmbeddingDiagnostics
+from agent_recall.core.embedding_indexer import EmbeddingIndexer
 from agent_recall.core.ingest import TranscriptIngestor
 from agent_recall.core.log import LogWriter
 from agent_recall.core.onboarding import (
@@ -141,6 +142,8 @@ def _main_callback(
 
 
 config_app = typer.Typer(help="Manage onboarding and model configuration")
+embedding_app = typer.Typer(help="Manage embeddings and semantic search")
+
 _ansi_escape_pattern = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 _box_drawing_chars = set("│┃─━┄┅┆┇┈┉┊┋┌┍┎┏┐┑┒┓└┕┖┗┘┙┚┛├┝┞┟┠┡┢┣┤┥┦┧┨┩┪┫┬┭┮┯┰┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿")
 _box_drawing_translation = str.maketrans(
@@ -1642,7 +1645,7 @@ def sync(
     console.print(Panel.fit("\n".join(lines), title=title))
 
 
-@app.command("embedding-stats")
+@embedding_app.command("stats")
 def embedding_stats(
     stale_days: int = typer.Option(
         90,
@@ -1680,6 +1683,179 @@ def embedding_stats(
         ),
     ]
     console.print(Panel.fit("\n".join(lines), title="Embedding Stats"))
+
+
+@embedding_app.command("reindex")
+def embedding_reindex(
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Force re-indexing all chunks (mark all as stale first)",
+    ),
+    max_chunks: int = typer.Option(
+        0,
+        "--max-chunks",
+        "-n",
+        min=0,
+        help="Limit number of chunks to re-index (0 = all)",
+    ),
+):
+    """Re-index all embeddings (or a subset) for semantic search."""
+    storage = get_storage()
+
+    if not force:
+        console.print("[error]--force flag is required to re-index embeddings.[/error]")
+        console.print("[dim]This will re-embed all chunks. Use --force to confirm.[/dim]")
+        raise typer.Exit(1)
+
+    _get_theme_manager()
+
+    indexer = EmbeddingIndexer(storage)
+
+    stats_before = indexer.get_indexing_stats()
+    console.print(
+        f"[dim]Before: {stats_before['embedded_chunks']}/{stats_before['total_chunks']} "
+        "chunks embedded[/dim]"
+    )
+
+    if max_chunks > 0:
+        console.print(f"[dim]Limiting to {max_chunks} chunks...[/dim]")
+
+    console.print("[dim]Re-indexing chunks without embeddings...[/dim]")
+
+    result = indexer.index_missing_embeddings(max_chunks=max_chunks)
+
+    stats_after = indexer.get_indexing_stats()
+    console.print(
+        Panel.fit(
+            f"Indexed: {result['indexed']}\n"
+            f"Skipped: {result['skipped']}\n"
+            f"Total embedded: {stats_after['embedded_chunks']}/{stats_after['total_chunks']}",
+            title="Reindex Complete",
+        )
+    )
+
+
+@embedding_app.command("search")
+def embedding_search(
+    query: str | None = typer.Option(
+        None,
+        "--query",
+        "-q",
+        help="Search query (omit for interactive mode)",
+    ),
+    top_k: int = typer.Option(
+        5,
+        "--top-k",
+        "-k",
+        min=1,
+        max=20,
+        help="Number of results to return",
+    ),
+):
+    """Test semantic search interactively."""
+    _get_theme_manager()
+    storage = get_storage()
+
+    if query is None:
+        query = typer.prompt("Enter search query")
+
+    retriever = Retriever(storage)
+
+    console.print(f"[dim]Searching for: {query}[/dim]")
+
+    results = retriever.search_hybrid(query=str(query), top_k=top_k)
+
+    if not results:
+        console.print("[warning]No results found.[/warning]")
+        return
+
+    table = Table(title=f"Top {len(results)} Results")
+    table.add_column("#", style="dim", width=4)
+    table.add_column("Content", style="default")
+
+    for i, chunk in enumerate(results, 1):
+        content_preview = chunk.content[:100].replace("\n", " ")
+        if len(chunk.content) > 100:
+            content_preview += "..."
+        table.add_row(str(i), content_preview)
+
+    console.print(table)
+
+
+EMBEDDING_TEST_QUERIES = [
+    "JWT authentication",
+    "database connection",
+    "API error handling",
+    "user login",
+    "cache invalidation",
+    "file upload",
+    "password reset",
+    "session management",
+    "rate limiting",
+    "error logging",
+]
+
+
+@embedding_app.command("test-quality")
+def embedding_test_quality():
+    """Run test queries to evaluate embedding search quality."""
+    _get_theme_manager()
+    storage = get_storage()
+
+    diagnostics = EmbeddingDiagnostics(storage)
+    coverage = diagnostics.get_coverage_stats()
+
+    if coverage["embedded_chunks"] == 0:
+        console.print(
+            "[error]No embeddings found. Run 'agent-recall embedding reindex --force' "
+            "first.[/error]"
+        )
+        raise typer.Exit(1)
+
+    retriever = Retriever(storage)
+
+    console.print(
+        Panel.fit(
+            f"Testing embedding quality with {len(EMBEDDING_TEST_QUERIES)} queries",
+            title="Embedding Quality Test",
+        )
+    )
+
+    results: list[dict[str, str | float]] = []
+
+    for query in EMBEDDING_TEST_QUERIES:
+        search_results = retriever.search_hybrid(query=query, top_k=1)
+        if search_results:
+            result_text = search_results[0].content[:60].replace("\n", " ")
+            results.append(
+                {
+                    "query": query,
+                    "top_result": result_text,
+                    "has_result": True,
+                }
+            )
+            console.print(f"[dim]{query}:[/dim] {result_text}")
+        else:
+            results.append(
+                {
+                    "query": query,
+                    "top_result": "(no results)",
+                    "has_result": False,
+                }
+            )
+            console.print(f"[dim]{query}:[/dim] [warning](no results)[/warning]")
+
+    total_with_results = sum(1 for r in results if r["has_result"])
+    success_rate = (total_with_results / len(results)) * 100
+
+    console.print(
+        Panel.fit(
+            f"Queries with results: {total_with_results}/{len(results)} ({success_rate:.0f}%)",
+            title="Quality Test Summary",
+        )
+    )
 
 
 @app.command("sync-background")
@@ -3478,6 +3654,7 @@ app.add_typer(theme_app, name="theme")
 app.add_typer(config_app, name="config")
 app.add_typer(curation_app, name="curation")
 app.add_typer(ralph_app, name="ralph")
+app.add_typer(embedding_app, name="embedding")
 
 
 @curation_app.command("list")

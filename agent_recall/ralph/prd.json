@@ -464,12 +464,12 @@
       "description": "Add CLI commands: 'agent-recall embedding-stats' (show coverage, size, health), 'agent-recall reindex-embeddings' (force re-embed all chunks), 'agent-recall embedding-search' (test semantic search interactively). These provide operators with debugging and testing tools.",
       "user_story": "As an operator, I want CLI commands to monitor embedding health, test search quality, and force re-indexing without writing code.",
       "steps": [
-        "Create src/agent_recall/cli/embedding_commands.py with click commands.",
-        "Implement 'embedding-stats' command: calls EmbeddingDiagnostics, displays coverage %, disk usage, stale embedding count, average similarity score.",
-        "Implement 'reindex-embeddings' command with --force flag: (a) validates --force is set, (b) marks all embeddings as stale, (c) runs EmbeddingIndexer.index_missing_embeddings(), (d) displays progress and final stats.",
-        "Implement 'embedding-search' command with --query arg: (a) takes interactive input or --query flag, (b) runs search_hybrid(query), (c) displays top 5 results with score and text excerpt.",
-        "Implement 'embedding-test-quality' command: (a) runs 10 test queries (hardcoded), (b) displays results for each, (c) computes average top-1 relevance score (manual rating).",
-        "Register all commands in src/agent_recall/cli/__init__.py under a 'embedding' command group."
+        "[DONE] Create src/agent_recall/cli/embedding_commands.py with click commands.",
+        "[DONE] Implement 'embedding-stats' command: calls EmbeddingDiagnostics, displays coverage %, disk usage, stale embedding count, average similarity score.",
+        "[DONE] Implement 'reindex-embeddings' command with --force flag: (a) validates --force is set, (b) marks all embeddings as stale, (c) runs EmbeddingIndexer.index_missing_embeddings(), (d) displays progress and final stats.",
+        "[DONE] Implement 'embedding-search' command with --query arg: (a) takes interactive input or --query flag, (b) runs search_hybrid(query), (c) displays top 5 results with score and text excerpt.",
+        "[DONE] Implement 'embedding-test-quality' command: (a) runs 10 test queries (hardcoded), (b) displays results for each, (c) computes average top-1 relevance score (manual rating).",
+        "[DONE] Register all commands in src/agent_recall/cli/__init__.py under a 'embedding' command group."
       ],
       "acceptance_criteria": [
         "CLI group 'agent-recall embedding' exists.",
@@ -487,7 +487,7 @@
         "uv run agent-recall embedding search --query 'test'",
         "uv run agent-recall embedding test-quality"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Use click.echo() for colorized output (click supports color). Use click.prompt() for interactive input. Make commands idempotent: running twice should be safe."
     },
     {
