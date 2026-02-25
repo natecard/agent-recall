@@ -164,6 +164,15 @@ class Storage(ABC):
         ...
 
     @abstractmethod
+    def list_chunks(self) -> list[Chunk]:
+        """List all chunks in storage.
+
+        Returns:
+            List of all chunks, regardless of whether they have embeddings.
+        """
+        ...
+
+    @abstractmethod
     def search_chunks_by_embedding(
         self, embedding: list[float], limit: int = 10
     ) -> list[ScoredChunk]:

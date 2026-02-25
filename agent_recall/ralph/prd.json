@@ -13,176 +13,17 @@
   },
   "items": [
     {
-      "id": "AR-260220-08",
-      "priority": 1,
-      "title": "Source Health Check with Status Indicators",
-      "description": "Extend the InteractiveSourcesWidget with a per-source health check protocol. Each ingester should expose a lightweight probe (not a full ingest) that checks connectivity/path availability and returns a HealthStatus (ok, degraded, unavailable) plus a latency or last-seen timestamp. The TUI renders color-coded status dots next to each source and a Ctrl+R shortcut to re-probe all sources.",
-      "user_story": "As a developer, I want to see at a glance which of my configured ingest sources are healthy, degraded, or broken in the TUI sources view, so I can diagnose issues without running a full ingest cycle.",
-      "steps": [
-        "[DONE] Define a HealthStatus enum (OK, DEGRADED, UNAVAILABLE) and a SourceHealthResult dataclass (status, latency_ms, last_seen_path, error_message) in src/agent_recall/ingest/health.py",
-        "[DONE] Add a check_health() -> SourceHealthResult method to the base ingester interface in src/agent_recall/ingest/base.py",
-        "[DONE] Implement check_health() for each existing ingester (claude_code, cursor, file, etc.) — for file-based ingesters check path existence; for API-based ones attempt a lightweight HEAD/ping",
-        "[DONE] Update InteractiveSourcesWidget to display a colored status indicator (● green / ● yellow / ● red) next to each source name reflecting the last known HealthResult",
-        "[DONE] Add 'Ctrl+R' keybinding to re-run all health probes via WorkerMixin's worker thread; show a brief 'Checking...' spinner during the probe",
-        "[DONE] Persist the last health check result to .agent/source_health.json so it is available immediately on TUI start without re-probing",
-        "[DONE] Add the Ctrl+R hint to the sources view footer"
-      ],
-      "acceptance_criteria": [
-        "Each source in view:sources displays a color-coded health dot (green/yellow/red) based on the last health check result",
-        "Pressing Ctrl+R in view:sources triggers a re-probe of all sources; the dots update when probes complete",
-        "A 'Checking...' indicator is shown during an in-progress probe and disappears on completion",
-        "The health state is persisted between TUI sessions — the last known status is shown immediately on startup without waiting for a re-probe",
-        "Health check failures do not crash the TUI or block other panel interactions; errors are shown inline in the status indicator tooltip"
-      ],
-      "validation_commands": [
-        "uv run pytest tests/ -k source_health -v",
-        "uv run agent-recall open"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-260220-09",
-      "priority": 2,
-      "title": "Timeline Iteration Annotations",
-      "description": "Extend the IterationDetailModal accessible from InteractiveTimelineWidget to allow the user to attach a short free-text annotation to any iteration. Annotations are stored as JSON sidecars next to the iteration diff files in .agent/ralph/iterations/. The timeline view renders an annotation indicator (📝) next to annotated iterations, and the modal displays the annotation text with an edit option.",
-      "user_story": "As a developer reviewing past Ralph runs, I want to annotate specific iterations with notes about what I learned or why something failed, so I can build a retrospective knowledge trail directly inside the TUI.",
-      "steps": [
-        "[DONE] Define an IterationAnnotation dataclass (iteration: int, text: str, created_at: datetime, updated_at: datetime) and add load_annotation / save_annotation methods to IterationReportStore",
-        "[DONE] Store annotations as .agent/ralph/iterations/{iteration:03d}.annotation.json sidecar files alongside the existing diff files",
-        "[DONE] Update IterationDetailModal to show the annotation text (or 'No annotation' placeholder) with an 'Add/Edit note' button (keybinding 'a')",
-        "[DONE] Pressing 'a' in the modal opens an inline text input; on confirm (Enter) the annotation is saved via save_annotation; on Escape the input is dismissed without saving",
-        "[DONE] Update InteractiveTimelineWidget to render a 📝 indicator next to iterations that have a non-empty annotation",
-        "[DONE] The annotation indicator should also appear in the timeline's iteration list panel, not just inside the modal"
-      ],
-      "acceptance_criteria": [
-        "Selecting an iteration in view:timeline and opening the detail modal shows any existing annotation or a 'No annotation' placeholder",
-        "Pressing 'a' in the modal opens a text input; submitting it saves the annotation to the correct sidecar file",
-        "After saving, the modal immediately reflects the new annotation text without requiring a TUI restart",
-        "Iterations with annotations display a 📝 indicator in the timeline list",
-        "Annotation files are correctly named {iteration:03d}.annotation.json and stored alongside diff files",
-        "Pressing Escape during text input cancels without overwriting an existing annotation"
-      ],
-      "validation_commands": [
-        "uv run pytest tests/ -k iteration_annotation -v",
-        "uv run agent-recall open"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-260220-10",
-      "priority": 3,
-      "title": "Context-Aware Ctrl+P Command Palette",
-      "description": "Make the Ctrl+P command palette view-aware so it surfaces the most relevant actions first based on the currently active dashboard view. When on view:knowledge, knowledge-specific actions (edit, compact, export) appear at the top; on view:ralph, ralph-specific actions (run, pause, view-diff, select items) lead the list. Global actions remain available via normal search.",
-      "user_story": "As a power user, I want the Ctrl+P palette to intelligently surface actions relevant to what I'm currently looking at, so I spend less time scrolling through a flat global action list.",
-      "steps": [
-        "[DONE] Add a current_view: str property to the dashboard app that reflects the active named view (matches the existing view name registry)",
-        "[DONE] Refactor _build_command_suggestions in commands_mixin.py to accept an optional context_view: str parameter",
-        "[DONE] Define a VIEW_PRIORITY_MAP dict mapping view names to lists of action IDs that should be promoted to the top of the palette when that view is active",
-        "[DONE] When Ctrl+P is pressed, pass self.current_view to _build_command_suggestions; promoted actions are prepended before the global list with a visual separator (e.g. a dim '── current view ──' label row)",
-        "[DONE] Ensure the text search in the palette still searches the full global list regardless of the context filter",
-        "[DONE] Add view context labels to promoted actions (e.g. '[knowledge]' tag) to communicate why they appear at the top",
-        "[DONE] Update existing tests for command palette construction to cover context-aware promotion logic"
-      ],
-      "acceptance_criteria": [
-        "Opening Ctrl+P while on view:knowledge shows knowledge actions (edit entries, compact, export) at the top before global actions",
-        "Opening Ctrl+P while on view:ralph shows ralph actions (run loop, pause, view diff, select PRD items) at the top",
-        "Typing in the palette search box still returns global results — context promotion does not hide matching non-context actions",
-        "A visual separator is shown between context-promoted and global actions",
-        "The palette behaves identically to the current implementation when on a view with no defined context priorities (e.g. view:console)",
-        "All existing palette keyboard navigation (arrow keys, Enter, Escape) continues to work correctly"
-      ],
-      "validation_commands": [
-        "uv run pytest tests/ -k palette_context -v",
-        "uv run agent-recall open"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-260225-01",
-      "title": "Add vector search to Storage interface and SQLite implementation",
-      "description": "Extend the Storage abstract base class with a `search_chunks_by_embedding` method. Implement this method in `SQLiteStorage` leveraging the `sqlite-vec` extension for hardware-accelerated vector search. Update the `HTTPStorage` client to raise `NotImplementedError` temporarily. This establishes the pattern for server-side similarity search.",
-      "user_story": "As a backend developer, I need to perform similarity searches directly within the storage layer so that I don't have to pull all chunks into memory to calculate cosine similarity.",
-      "steps": [
-        "[DONE] Update `src/storage/base.py`: Add abstract method `search_chunks_by_embedding(embedding: list[float], limit: int = 10) -> list[ScoredChunk]`.",
-        "[DONE] Update `src/storage/sqlite.py`: Implement `search_chunks_by_embedding`. Ensure the SQL query utilizes `sqlite-vec` functions (e.g., `vec_distance_cosine` or `vec_top_k`) to rank results by proximity to the query vector.",
-        "[DONE] Update `src/storage/http.py`: Implement `search_chunks_by_embedding` to strictly raise `NotImplementedError`.",
-        "[DONE] Ensure `SQLiteStorage` initialization loads the `sqlite-vec` extension if not already loaded."
-      ],
-      "acceptance_criteria": [
-        "`Storage` ABC requires `search_chunks_by_embedding` implementation.",
-        "`SQLiteStorage.search_chunks_by_embedding` returns a list of chunks sorted by similarity (descending score/ascending distance transformed to score).",
-        "`HTTPStorage.search_chunks_by_embedding` raises `NotImplementedError` when called.",
-        "No existing calls to `list_chunks_with_embeddings` are used for similarity purposes.",
-        "Tests confirm that searching with a known vector returns the expected nearest neighbor from a SQLite database."
-      ],
-      "validation_commands": [
-        "uv run pytest tests/storage/test_sqlite.py",
-        "uv run mypy src/storage"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-260225-02",
-      "title": "Implement ScoredChunk model",
-      "description": "Add a `ScoredChunk` model to `src/models.py`. This model should represent a `Chunk` coupled with a `score` (float) field. It will serve as the standardized return type for all embedding search operations across local and cloud backends.",
-      "user_story": "As a developer, I need a unified data model for search results that includes similarity scores, so that the frontend and application logic can handle ranked results consistently regardless of the underlying storage engine.",
-      "steps": [
-        "[DONE] Open `src/models.py`.",
-        "[DONE] Import the existing `Chunk` model.",
-        "[DONE] Define class `ScoredChunk` inheriting from `Chunk` (or composed of it, depending on existing Pydantic patterns).",
-        "[DONE] Add a field `score: float` to `ScoredChunk`.",
-        "[DONE] Ensure strict typing validation for the score field."
-      ],
-      "acceptance_criteria": [
-        "`ScoredChunk` is available in `src/models.py`.",
-        "`ScoredChunk` validates that it contains all `Chunk` fields plus a float `score`.",
-        "`Storage.search_chunks_by_embedding` type hints are updated to return `list[ScoredChunk]`.",
-        "Serialization of `ScoredChunk` (e.g., `model_dump_json`) includes the score."
-      ],
-      "validation_commands": [
-        "uv run pytest tests/test_models.py",
-        "uv run mypy src/models.py"
-      ],
-      "passes": true
-    },
-    {
-      "id": "AR-260225-03",
-      "title": "Decouple storage and indexing in ingest pipeline",
-      "description": "Refactor the `store_chunk` usage in the ingestion pipeline logic. Instead of a single atomic call that implies both storage and indexing, split the operation into two distinct phases: first storing the chunk content (without embedding) and then indexing the vector. This prepares the codebase for split-backend architectures.",
-      "user_story": "As a system architect, I want the ingest pipeline to treat content storage and vector indexing as separate operations so that we can eventually move vector indexing to a specialized service without rewriting the core loop.",
-      "steps": [
-        "[DONE] Locate the main ingestion loop (likely in `src/ingest/` or `src/pipeline.py`).",
-        "[DONE] Identify where `storage.store_chunk(chunk)` is currently called.",
-        "[DONE] Modify the loop to create a copy of the chunk without the embedding: `chunk_no_vec = chunk.model_copy(update={'embedding': None})`.",
-        "[DONE] Call `storage.store_chunk(chunk_no_vec)` first.",
-        "[DONE] Immediately follow with a call to the embedding indexer: `storage.index(chunk.id, chunk.embedding)` (assuming `storage` currently implements the `EmbeddingBackend` interface or similar).",
-        "[DONE] If `storage.index` does not exist, expose the vector insertion logic of `SQLiteStorage` as a public method or separate interface method."
-      ],
-      "acceptance_criteria": [
-        "The ingest pipeline makes two separate calls per chunk processing iteration.",
-        "The first call to `store_chunk` passes a chunk object where `embedding` is None or omitted.",
-        "The second call explicitly passes the ID and Vector to an indexing method.",
-        "Data integrity is maintained: the resulting database still contains both the chunk text and the vector.",
-        "Refactor is a 'no-op' in terms of system behavior/output."
-      ],
-      "validation_commands": [
-        "uv run pytest tests/ingest/test_pipeline.py",
-        "uv run ruff check src/ingest"
-      ],
-      "passes": true
-    },
-    {
       "id": "AR-260225-04",
       "title": "Add storage replication utility",
       "description": "Create a standalone utility function `replicate_chunks_to` in `src/storage/utils.py`. This function takes a source `Storage` and a target `Storage` and copies chunks from source to target. This serves as the primitive for 'export to cloud' features.",
       "user_story": "As a user, I want to be able to sync my local knowledge base to a cloud environment or share it with a team member, requiring a reliable mechanism to copy data between storage instances.",
       "steps": [
-        "Create `src/storage/utils.py` if it does not exist.",
-        "Define `def replicate_chunks_to(source: Storage, target: Storage) -> int:`.",
-        "Implement the logic: Iterate through chunks in `source` (using `list_chunks` or an iterator).",
-        "For each chunk, call `target.store_chunk(chunk)`.",
-        "Ideally, handle batching if the Storage API supports it.",
-        "Return the count of replicated chunks."
+        "[DONE] Create `src/storage/utils.py` if it does not exist.",
+        "[DONE] Define `def replicate_chunks_to(source: Storage, target: Storage) -> int:`.",
+        "[DONE] Implement the logic: Iterate through chunks in `source` (using `list_chunks` or an iterator).",
+        "[DONE] For each chunk, call `target.store_chunk(chunk)`.",
+        "[DONE] Handle embeddings: call `target.index_chunk_embedding()` after storing.",
+        "[DONE] Return the count of replicated chunks."
       ],
       "acceptance_criteria": [
         "`replicate_chunks_to` is importable from `src.storage.utils`.",
@@ -195,7 +36,7 @@
         "uv run pytest tests/storage/test_replication.py",
         "uv run mypy src/storage/utils.py"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }

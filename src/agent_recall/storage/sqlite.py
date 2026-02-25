@@ -621,6 +621,16 @@ class SQLiteStorage(Storage):
             ).fetchall()
         return [self._row_to_chunk(row) for row in rows]
 
+    def list_chunks(self) -> list[Chunk]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM chunks
+                   WHERE tenant_id = ? AND project_id = ?
+                   ORDER BY created_at DESC, id ASC""",
+                (self.tenant_id, self.project_id),
+            ).fetchall()
+        return [self._row_to_chunk(row) for row in rows]
+
     def _has_vec_extension(self, conn: sqlite3.Connection) -> bool:
         try:
             conn.execute("SELECT vec_version()").fetchone()

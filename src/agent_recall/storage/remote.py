@@ -280,6 +280,11 @@ class _HTTPClient(Storage):
         response.raise_for_status()
         return [Chunk.model_validate(c) for c in response.json()]
 
+    def list_chunks(self) -> list[Chunk]:
+        response = self._client.get("/chunks")
+        response.raise_for_status()
+        return [Chunk.model_validate(c) for c in response.json()]
+
     def search_chunks_by_embedding(
         self, embedding: list[float], limit: int = 10
     ) -> list[ScoredChunk]:
@@ -586,6 +591,9 @@ class RemoteStorage(Storage):
 
     def list_chunks_with_embeddings(self) -> list[Chunk]:
         return self._execute("list_chunks_with_embeddings")
+
+    def list_chunks(self) -> list[Chunk]:
+        return self._execute("list_chunks")
 
     def search_chunks_by_embedding(
         self, embedding: list[float], limit: int = 10
