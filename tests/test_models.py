@@ -75,3 +75,38 @@ def test_storage_config_supports_shared_backend() -> None:
     assert config.storage.shared.api_key_env == "TEAM_MEMORY_API_KEY"
     assert config.storage.shared.timeout_seconds == 6.5
     assert config.storage.shared.retry_attempts == 4
+
+
+def test_embedding_settings_defaults_present() -> None:
+    config = AgentRecallConfig.model_validate({})
+
+    assert config.embeddings.model_name == "all-MiniLM-L6-v2"
+    assert config.embeddings.batch_size == 32
+    assert config.embeddings.min_similarity_threshold == 0.3
+    assert config.embeddings.hybrid_search_enabled is True
+    assert config.embeddings.fts_weight == 0.4
+    assert config.embeddings.semantic_weight == 0.6
+
+
+def test_embedding_settings_validation_errors() -> None:
+    with pytest.raises(ValidationError):
+        AgentRecallConfig.model_validate({"embeddings": {"batch_size": 0}})
+
+    with pytest.raises(ValidationError):
+        AgentRecallConfig.model_validate(
+            {
+                "embeddings": {
+                    "min_similarity_threshold": 1.5,
+                }
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        AgentRecallConfig.model_validate(
+            {
+                "embeddings": {
+                    "fts_weight": 0.0,
+                    "semantic_weight": 0.0,
+                }
+            }
+        )

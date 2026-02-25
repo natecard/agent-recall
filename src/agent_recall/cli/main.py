@@ -49,6 +49,7 @@ from agent_recall.core.background_sync import BackgroundSyncManager
 from agent_recall.core.compact import CompactionEngine
 from agent_recall.core.config import load_config
 from agent_recall.core.context import ContextAssembler
+from agent_recall.core.embedding_diagnostics import EmbeddingDiagnostics
 from agent_recall.core.ingest import TranscriptIngestor
 from agent_recall.core.log import LogWriter
 from agent_recall.core.onboarding import (
@@ -1639,6 +1640,46 @@ def sync(
         title = "[dim]Sync Complete (no new sessions)[/dim]"
 
     console.print(Panel.fit("\n".join(lines), title=title))
+
+
+@app.command("embedding-stats")
+def embedding_stats(
+    stale_days: int = typer.Option(
+        90,
+        "--stale-days",
+        min=0,
+        help="Threshold in days to consider embeddings stale",
+    ),
+):
+    """Show embedding coverage, similarity diagnostics, and size estimates."""
+    storage = get_storage()
+    diagnostics = EmbeddingDiagnostics(storage)
+
+    coverage = diagnostics.get_coverage_stats()
+    similarity = diagnostics.get_similarity_distribution()
+    stale = diagnostics.check_stale_embeddings(threshold_days=stale_days)
+    size = diagnostics.estimate_embedding_size()
+
+    lines = [
+        f"Total chunks:      {coverage['total_chunks']}",
+        f"Embedded chunks:   {coverage['embedded_chunks']}",
+        f"Coverage:          {float(coverage['coverage_percent']):.1f}%",
+        f"Pending:           {coverage['pending']}",
+        "",
+        "Similarity distribution:",
+        (
+            f"  mean={similarity['mean']:.4f} median={similarity['median']:.4f} "
+            f"std={similarity['std']:.4f} min={similarity['min']:.4f} "
+            f"max={similarity['max']:.4f}"
+        ),
+        "",
+        f"Stale chunks (>{stale['threshold_days']}d): {stale['stale_chunks']}",
+        (
+            f"Estimated embedding bytes: {size['total_bytes']} "
+            f"(~{float(size['per_chunk_kb']):.2f} KB/chunk)"
+        ),
+    ]
+    console.print(Panel.fit("\n".join(lines), title="Embedding Stats"))
 
 
 @app.command("sync-background")

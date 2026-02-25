@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def utcnow() -> datetime:
@@ -199,6 +199,24 @@ class RetrievalConfig(BaseModel):
     rerank_candidate_k: int = Field(default=20, ge=1)
     embedding_enabled: bool = False
     embedding_dimensions: int = Field(default=64, ge=8, le=4096)
+
+
+class EmbeddingSettings(BaseModel):
+    """Embedding configuration settings."""
+
+    model_name: str = "all-MiniLM-L6-v2"
+    batch_size: int = Field(default=32, gt=0)
+    min_similarity_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
+    hybrid_search_enabled: bool = True
+    fts_weight: float = Field(default=0.4, ge=0.0, le=1.0)
+    semantic_weight: float = Field(default=0.6, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _validate_weights(self) -> EmbeddingSettings:
+        if self.fts_weight == 0 and self.semantic_weight == 0:
+            msg = "At least one of fts_weight or semantic_weight must be > 0"
+            raise ValueError(msg)
+        return self
 
 
 class SharedStorageConfig(BaseModel):
@@ -414,6 +432,7 @@ class AgentRecallConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    embeddings: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     theme: ThemeConfig = Field(default_factory=ThemeConfig)
     tui: TuiConfig = Field(default_factory=TuiConfig)

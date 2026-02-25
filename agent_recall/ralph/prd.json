@@ -263,15 +263,15 @@
       "description": "Create src/agent_recall/core/embedding_diagnostics.py with functions to measure embedding quality, detect stale embeddings, and report coverage. Add a CLI command 'agent-recall embedding-stats' to expose these metrics. This helps operators understand the quality and completeness of their embedding index.",
       "user_story": "As an operator, I need to understand the health of my embedding index (how many chunks are embedded, what the average similarity distribution looks like, whether embeddings are stale) so I can detect issues and decide when to re-index.",
       "steps": [
-        "Create src/agent_recall/core/embedding_diagnostics.py with module docstring.",
-        "Import: import numpy as np, from agent_recall.storage.base import Storage, from datetime import datetime, timedelta.",
-        "Implement class EmbeddingDiagnostics(storage: Storage).",
-        "Implement method get_coverage_stats() -> dict that returns: {'total_chunks': int, 'embedded_chunks': int, 'coverage_percent': float, 'pending': int}.",
-        "Implement method get_similarity_distribution() -> dict that: (a) loads all embeddings, (b) computes pairwise cosine similarities, (c) returns {'mean': float, 'median': float, 'std': float, 'min': float, 'max': float}.",
-        "Implement method check_stale_embeddings(threshold_days: int = 90) -> dict that counts chunks where (now - updated_at) > threshold_days.",
-        "Implement method estimate_embedding_size() -> dict that returns {'total_bytes': int, 'per_chunk_kb': float}.",
-        "Create a CLI command in src/agent_recall/cli/commands.py: @click.command('embedding-stats') def embedding_stats(): diagnostics = EmbeddingDiagnostics(storage); stats = diagnostics.get_coverage_stats(); click.echo(f'Coverage: {stats[\"coverage_percent\"]:.1f}%'); ...",
-        "Ensure the command is registered in the main CLI group."
+        "[DONE] Create src/agent_recall/core/embedding_diagnostics.py with module docstring.",
+        "[DONE] Import: import numpy as np, from agent_recall.storage.base import Storage, from datetime import datetime, timedelta.",
+        "[DONE] Implement class EmbeddingDiagnostics(storage: Storage).",
+        "[DONE] Implement method get_coverage_stats() -> dict that returns: {'total_chunks': int, 'embedded_chunks': int, 'coverage_percent': float, 'pending': int}.",
+        "[DONE] Implement method get_similarity_distribution() -> dict that: (a) loads all embeddings, (b) computes pairwise cosine similarities, (c) returns {'mean': float, 'median': float, 'std': float, 'min': float, 'max': float}.",
+        "[DONE] Implement method check_stale_embeddings(threshold_days: int = 90) -> dict that counts chunks where (now - updated_at) > threshold_days.",
+        "[DONE] Implement method estimate_embedding_size() -> dict that returns {'total_bytes': int, 'per_chunk_kb': float}.",
+        "[DONE] Create a CLI command in src/agent_recall/cli/commands.py: @click.command('embedding-stats') def embedding_stats(): diagnostics = EmbeddingDiagnostics(storage); stats = diagnostics.get_coverage_stats(); click.echo(f'Coverage: {stats[\"coverage_percent\"]:.1f}%'); ...",
+        "[DONE] Ensure the command is registered in the main CLI group."
       ],
       "acceptance_criteria": [
         "Running 'agent-recall embedding-stats' displays embedding coverage, similarity stats, and disk usage.",
@@ -288,7 +288,7 @@
         "uv run ruff check src/agent_recall/core/embedding_diagnostics.py",
         "uv run ty check src/agent_recall/core/embedding_diagnostics.py"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Pairwise similarity computation on large databases (100K+ chunks) can be slow. Optimize by sampling: compute similarities only on random 1000-chunk subset for distribution estimation."
     },
     {
@@ -298,12 +298,12 @@
       "description": "Extend src/agent_recall/core/config.py to add an EmbeddingSettings dataclass with model_name, batch_size, min_similarity_threshold, and hybrid_enabled fields. Update the Config dataclass to include embedding settings. This allows operators to configure embeddings via .agent/config.yaml without code changes.",
       "user_story": "As an operator, I want to configure embedding behavior (batch sizes, similarity thresholds, hybrid search toggle) via config.yaml, so I can tune performance and behavior across different environments.",
       "steps": [
-        "Open src/agent_recall/core/config.py and locate existing dataclass definitions.",
-        "Create a new dataclass EmbeddingSettings with fields: model_name: str = 'all-MiniLM-L6-v2', batch_size: int = 32, min_similarity_threshold: float = 0.3, hybrid_search_enabled: bool = True, fts_weight: float = 0.4, semantic_weight: float = 0.6.",
-        "Add validation in __post_init__: assert batch_size > 0, 'batch_size must be > 0'; assert 0 <= min_similarity_threshold <= 1, 'threshold must be [0,1]'; assert 0 <= fts_weight <= 1 and 0 <= semantic_weight <= 1, 'weights must be [0,1]'.",
-        "Update the Config dataclass to add field: embeddings: EmbeddingSettings = field(default_factory=EmbeddingSettings).",
-        "Update the config loading function to parse the 'embeddings' section from config.yaml if present, else use defaults.",
-        "Add a classmethod Config.from_yaml() that reads .agent/config.yaml and constructs Config with proper defaults for missing sections."
+        "[DONE] Open src/agent_recall/core/config.py and locate existing dataclass definitions.",
+        "[DONE] Create a new dataclass EmbeddingSettings with fields: model_name: str = 'all-MiniLM-L6-v2', batch_size: int = 32, min_similarity_threshold: float = 0.3, hybrid_search_enabled: bool = True, fts_weight: float = 0.4, semantic_weight: float = 0.6.",
+        "[DONE] Add validation in __post_init__: assert batch_size > 0, 'batch_size must be > 0'; assert 0 <= min_similarity_threshold <= 1, 'threshold must be [0,1]'; assert 0 <= fts_weight <= 1 and 0 <= semantic_weight <= 1, 'weights must be [0,1]'.",
+        "[DONE] Update the Config dataclass to add field: embeddings: EmbeddingSettings = field(default_factory=EmbeddingSettings).",
+        "[DONE] Update the config loading function to parse the 'embeddings' section from config.yaml if present, else use defaults.",
+        "[DONE] Add a classmethod Config.from_yaml() that reads .agent/config.yaml and constructs Config with proper defaults for missing sections."
       ],
       "acceptance_criteria": [
         "EmbeddingSettings dataclass exists with all 6 fields.",
@@ -322,7 +322,7 @@
         "uv run ruff check src/agent_recall/core/config.py",
         "uv run ty check src/agent_recall/core/config.py"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Ensure EmbeddingSettings is immutable (frozen=True) so config cannot be accidentally modified at runtime. Use dataclass field() with validators if using Python 3.10+."
     },
     {
