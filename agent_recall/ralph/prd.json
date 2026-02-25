@@ -96,6 +96,106 @@
         "uv run agent-recall open"
       ],
       "passes": true
+    },
+    {
+      "id": "AR-260225-01",
+      "title": "Add vector search to Storage interface and SQLite implementation",
+      "description": "Extend the Storage abstract base class with a `search_chunks_by_embedding` method. Implement this method in `SQLiteStorage` leveraging the `sqlite-vec` extension for hardware-accelerated vector search. Update the `HTTPStorage` client to raise `NotImplementedError` temporarily. This establishes the pattern for server-side similarity search.",
+      "user_story": "As a backend developer, I need to perform similarity searches directly within the storage layer so that I don't have to pull all chunks into memory to calculate cosine similarity.",
+      "steps": [
+        "[DONE] Update `src/storage/base.py`: Add abstract method `search_chunks_by_embedding(embedding: list[float], limit: int = 10) -> list[ScoredChunk]`.",
+        "[DONE] Update `src/storage/sqlite.py`: Implement `search_chunks_by_embedding`. Ensure the SQL query utilizes `sqlite-vec` functions (e.g., `vec_distance_cosine` or `vec_top_k`) to rank results by proximity to the query vector.",
+        "[DONE] Update `src/storage/http.py`: Implement `search_chunks_by_embedding` to strictly raise `NotImplementedError`.",
+        "[DONE] Ensure `SQLiteStorage` initialization loads the `sqlite-vec` extension if not already loaded."
+      ],
+      "acceptance_criteria": [
+        "`Storage` ABC requires `search_chunks_by_embedding` implementation.",
+        "`SQLiteStorage.search_chunks_by_embedding` returns a list of chunks sorted by similarity (descending score/ascending distance transformed to score).",
+        "`HTTPStorage.search_chunks_by_embedding` raises `NotImplementedError` when called.",
+        "No existing calls to `list_chunks_with_embeddings` are used for similarity purposes.",
+        "Tests confirm that searching with a known vector returns the expected nearest neighbor from a SQLite database."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/storage/test_sqlite.py",
+        "uv run mypy src/storage"
+      ],
+      "passes": true
+    },
+    {
+      "id": "AR-260225-02",
+      "title": "Implement ScoredChunk model",
+      "description": "Add a `ScoredChunk` model to `src/models.py`. This model should represent a `Chunk` coupled with a `score` (float) field. It will serve as the standardized return type for all embedding search operations across local and cloud backends.",
+      "user_story": "As a developer, I need a unified data model for search results that includes similarity scores, so that the frontend and application logic can handle ranked results consistently regardless of the underlying storage engine.",
+      "steps": [
+        "[DONE] Open `src/models.py`.",
+        "[DONE] Import the existing `Chunk` model.",
+        "[DONE] Define class `ScoredChunk` inheriting from `Chunk` (or composed of it, depending on existing Pydantic patterns).",
+        "[DONE] Add a field `score: float` to `ScoredChunk`.",
+        "[DONE] Ensure strict typing validation for the score field."
+      ],
+      "acceptance_criteria": [
+        "`ScoredChunk` is available in `src/models.py`.",
+        "`ScoredChunk` validates that it contains all `Chunk` fields plus a float `score`.",
+        "`Storage.search_chunks_by_embedding` type hints are updated to return `list[ScoredChunk]`.",
+        "Serialization of `ScoredChunk` (e.g., `model_dump_json`) includes the score."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/test_models.py",
+        "uv run mypy src/models.py"
+      ],
+      "passes": true
+    },
+    {
+      "id": "AR-260225-03",
+      "title": "Decouple storage and indexing in ingest pipeline",
+      "description": "Refactor the `store_chunk` usage in the ingestion pipeline logic. Instead of a single atomic call that implies both storage and indexing, split the operation into two distinct phases: first storing the chunk content (without embedding) and then indexing the vector. This prepares the codebase for split-backend architectures.",
+      "user_story": "As a system architect, I want the ingest pipeline to treat content storage and vector indexing as separate operations so that we can eventually move vector indexing to a specialized service without rewriting the core loop.",
+      "steps": [
+        "Locate the main ingestion loop (likely in `src/ingest/` or `src/pipeline.py`).",
+        "Identify where `storage.store_chunk(chunk)` is currently called.",
+        "Modify the loop to create a copy of the chunk without the embedding: `chunk_no_vec = chunk.model_copy(update={'embedding': None})`.",
+        "Call `storage.store_chunk(chunk_no_vec)` first.",
+        "Immediately follow with a call to the embedding indexer: `storage.index(chunk.id, chunk.embedding)` (assuming `storage` currently implements the `EmbeddingBackend` interface or similar).",
+        "If `storage.index` does not exist, expose the vector insertion logic of `SQLiteStorage` as a public method or separate interface method."
+      ],
+      "acceptance_criteria": [
+        "The ingest pipeline makes two separate calls per chunk processing iteration.",
+        "The first call to `store_chunk` passes a chunk object where `embedding` is None or omitted.",
+        "The second call explicitly passes the ID and Vector to an indexing method.",
+        "Data integrity is maintained: the resulting database still contains both the chunk text and the vector.",
+        "Refactor is a 'no-op' in terms of system behavior/output."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/ingest/test_pipeline.py",
+        "uv run ruff check src/ingest"
+      ],
+      "passes": false
+    },
+    {
+      "id": "AR-260225-04",
+      "title": "Add storage replication utility",
+      "description": "Create a standalone utility function `replicate_chunks_to` in `src/storage/utils.py`. This function takes a source `Storage` and a target `Storage` and copies chunks from source to target. This serves as the primitive for 'export to cloud' features.",
+      "user_story": "As a user, I want to be able to sync my local knowledge base to a cloud environment or share it with a team member, requiring a reliable mechanism to copy data between storage instances.",
+      "steps": [
+        "Create `src/storage/utils.py` if it does not exist.",
+        "Define `def replicate_chunks_to(source: Storage, target: Storage) -> int:`.",
+        "Implement the logic: Iterate through chunks in `source` (using `list_chunks` or an iterator).",
+        "For each chunk, call `target.store_chunk(chunk)`.",
+        "Ideally, handle batching if the Storage API supports it.",
+        "Return the count of replicated chunks."
+      ],
+      "acceptance_criteria": [
+        "`replicate_chunks_to` is importable from `src.storage.utils`.",
+        "Function accepts any two implementations of the `Storage` ABC (e.g., SQLite to SQLite, or SQLite to HTTP).",
+        "All chunks present in the source are upserted into the target.",
+        "Embeddings and metadata are preserved during replication.",
+        "The function returns the total number of chunks processed."
+      ],
+      "validation_commands": [
+        "uv run pytest tests/storage/test_replication.py",
+        "uv run mypy src/storage/utils.py"
+      ],
+      "passes": false
     }
   ]
 }

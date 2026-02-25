@@ -27,9 +27,6 @@ APP_CSS = """
     .mr-2 { margin-right: 2; }
     .mr-4 { margin-right: 4; }
     .mr-8 { margin-right: 8; }
-    .gap-2 { gap: 2; }
-    .gap-4 { gap: 4; }
-    .gap-8 { gap: 8; }
 
     #root {
         height: 1fr;

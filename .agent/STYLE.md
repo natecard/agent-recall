@@ -100,3 +100,5 @@
 - [PATTERN] Follow existing widget composition patterns.
 - [PATTERN] Check for empty sidebar/main content before container creation.
 - [PATTERN] Run full gate first, patch expectations, then rerun suite.
+- [PATTERN] Promote relevant actions in modals using `VIEW_PRIORITY_MAP`.
+- [PATTERN] Check existing implementation before starting new work.

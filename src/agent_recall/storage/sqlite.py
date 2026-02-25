@@ -16,6 +16,7 @@ from agent_recall.storage.models import (
     CurationStatus,
     LogEntry,
     LogSource,
+    ScoredChunk,
     SemanticLabel,
     Session,
     SessionCheckpoint,
@@ -611,6 +612,80 @@ class SQLiteStorage(Storage):
                 (self.tenant_id, self.project_id),
             ).fetchall()
         return [self._row_to_chunk(row) for row in rows]
+
+    def _has_vec_extension(self, conn: sqlite3.Connection) -> bool:
+        try:
+            conn.execute("SELECT vec_version()").fetchone()
+            return True
+        except Exception:
+            return False
+
+    def _calculate_cosine_similarity(
+        self, embedding1: list[float], embedding2: list[float]
+    ) -> float:
+        dot_product = sum(a * b for a, b in zip(embedding1, embedding2))
+        magnitude1 = sum(a * a for a in embedding1) ** 0.5
+        magnitude2 = sum(b * b for b in embedding2) ** 0.5
+        if magnitude1 == 0 or magnitude2 == 0:
+            return 0.0
+        return dot_product / (magnitude1 * magnitude2)
+
+    def search_chunks_by_embedding(
+        self, embedding: list[float], limit: int = 10
+    ) -> list[ScoredChunk]:
+        with self._connect() as conn:
+            has_vec = self._has_vec_extension(conn)
+
+            if has_vec:
+                return self._search_with_vec_extension(conn, embedding, limit)
+
+            return self._search_with_fallback(conn, embedding, limit)
+
+    def _search_with_vec_extension(
+        self, conn: sqlite3.Connection, embedding: list[float], limit: int
+    ) -> list[ScoredChunk]:
+        embedding_json = json.dumps(embedding)
+        try:
+            rows = conn.execute(
+                """SELECT c.*, vec_distance_cosine(c.embedding, ?) as score
+                   FROM chunks c
+                   WHERE c.embedding IS NOT NULL
+                   AND c.tenant_id = ? AND c.project_id = ?
+                   ORDER BY score DESC
+                   LIMIT ?""",
+                (embedding_json, self.tenant_id, self.project_id, limit),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return self._search_with_fallback(conn, embedding, limit)
+
+        return [self._row_to_scored_chunk(row) for row in rows]
+
+    def _search_with_fallback(
+        self, conn: sqlite3.Connection, embedding: list[float], limit: int
+    ) -> list[ScoredChunk]:
+        rows = conn.execute(
+            """SELECT * FROM chunks
+               WHERE embedding IS NOT NULL
+               AND tenant_id = ? AND project_id = ?
+               ORDER BY created_at DESC, id ASC""",
+            (self.tenant_id, self.project_id),
+        ).fetchall()
+
+        scored_chunks: list[tuple[ScoredChunk, float]] = []
+        for row in rows:
+            chunk = self._row_to_chunk(row)
+            if chunk.embedding is not None:
+                score = self._calculate_cosine_similarity(embedding, chunk.embedding)
+                scored_chunk = ScoredChunk(**chunk.model_dump(), score=score)
+                scored_chunks.append((scored_chunk, score))
+
+        scored_chunks.sort(key=lambda x: x[1], reverse=True)
+        return [chunk for chunk, _ in scored_chunks[:limit]]
+
+    def _row_to_scored_chunk(self, row: sqlite3.Row) -> ScoredChunk:
+        chunk = self._row_to_chunk(row)
+        score = row["score"] if "score" in row.keys() else 0.0
+        return ScoredChunk(**chunk.model_dump(), score=score)
 
     def _row_to_chunk(self, row: sqlite3.Row) -> Chunk:
         return Chunk(

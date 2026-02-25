@@ -24,6 +24,7 @@ from agent_recall.storage.models import (
     Chunk,
     CurationStatus,
     LogEntry,
+    ScoredChunk,
     SemanticLabel,
     Session,
     SessionCheckpoint,
@@ -278,6 +279,14 @@ class _HTTPClient(Storage):
         response = self._client.get("/chunks/embeddings")
         response.raise_for_status()
         return [Chunk.model_validate(c) for c in response.json()]
+
+    def search_chunks_by_embedding(
+        self, embedding: list[float], limit: int = 10
+    ) -> list[ScoredChunk]:
+        raise NotImplementedError(
+            "Vector search is not yet implemented for HTTP storage backend. "
+            "Use SQLiteStorage for vector search capabilities."
+        )
 
     def is_session_processed(self, source_session_id: str) -> bool:
         # We might want base64 or similar if session IDs contain slashes
@@ -568,6 +577,11 @@ class RemoteStorage(Storage):
 
     def list_chunks_with_embeddings(self) -> list[Chunk]:
         return self._execute("list_chunks_with_embeddings")
+
+    def search_chunks_by_embedding(
+        self, embedding: list[float], limit: int = 10
+    ) -> list[ScoredChunk]:
+        return self._execute("search_chunks_by_embedding", embedding, limit=limit)
 
     def is_session_processed(self, source_session_id: str) -> bool:
         return self._execute("is_session_processed", source_session_id)

@@ -106,6 +106,14 @@ class Chunk(BaseModel):
     embedding: list[float] | None = None
 
 
+class ScoredChunk(Chunk):
+    """A Chunk coupled with a similarity score from vector search operations."""
+
+    score: float = Field(
+        ..., description="Similarity score from vector search (higher = more similar)"
+    )
+
+
 class AuditAction(StrEnum):
     """Audit actions for shared storage mutations."""
 

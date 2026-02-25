@@ -10,6 +10,7 @@ from agent_recall.storage.models import (
     Chunk,
     CurationStatus,
     LogEntry,
+    ScoredChunk,
     SemanticLabel,
     Session,
     SessionCheckpoint,
@@ -147,6 +148,21 @@ class Storage(ABC):
     @abstractmethod
     def list_chunks_with_embeddings(self) -> list[Chunk]:
         """List all chunks that have associated embeddings."""
+        ...
+
+    @abstractmethod
+    def search_chunks_by_embedding(
+        self, embedding: list[float], limit: int = 10
+    ) -> list[ScoredChunk]:
+        """Search chunks by vector embedding similarity.
+
+        Args:
+            embedding: The query embedding vector.
+            limit: Maximum number of results to return.
+
+        Returns:
+            List of ScoredChunk objects sorted by similarity (highest score first).
+        """
         ...
 
     @abstractmethod
