@@ -431,13 +431,13 @@
       "description": "Run benchmarks on embedding indexing speed, query latency, and disk usage across different chunk counts (1K, 10K, 100K). Document results and provide optimization recommendations (batch tuning, caching). This helps operators understand costs and plan deployments.",
       "user_story": "As an operator planning production deployment, I need realistic performance metrics and optimization strategies so I can tune the system for my scale.",
       "steps": [
-        "Create tests/benchmarks/benchmark_embeddings.py with pytest-benchmark framework.",
-        "Implement benchmark_indexing_speed(benchmark, n_chunks) that generates n chunks and measures time to embed all via EmbeddingIndexer with batch_size=32.",
-        "Implement benchmark_retrieval_latency(benchmark, n_chunks) that generates n embedded chunks and measures time for 100 sequential hybrid searches.",
-        "Implement benchmark_disk_usage() that measures .db file size after indexing 1K, 10K, 100K chunks.",
-        "Run all benchmarks and save results to docs/BENCHMARKS.md as markdown table.",
-        "Document optimization strategies: (a) batch_size tuning (16 vs 32 vs 64), (b) in-memory caching for small datasets, (c) when to use FAISS for 100K+ chunks.",
-        "Add CLI command 'agent-recall benchmark' that runs subset of benchmarks and displays results."
+        "[DONE] Create tests/benchmarks/benchmark_embeddings.py with pytest-benchmark framework.",
+        "[DONE] Implement benchmark_indexing_speed(benchmark, n_chunks) that generates n chunks and measures time to embed all via EmbeddingIndexer with batch_size=32.",
+        "[DONE] Implement benchmark_retrieval_latency(benchmark, n_chunks) that generates n embedded chunks and measures time for 100 sequential hybrid searches.",
+        "[DONE] Implement benchmark_disk_usage() that measures .db file size after indexing 1K, 10K, 100K chunks.",
+        "[DONE] Run all benchmarks and save results to docs/BENCHMARKS.md as markdown table.",
+        "[DONE] Document optimization strategies: (a) batch_size tuning (16 vs 32 vs 64), (b) in-memory caching for small datasets, (c) when to use FAISS for 100K+ chunks.",
+        "[DONE] Add CLI command 'agent-recall benchmark' that runs subset of benchmarks and displays results."
       ],
       "acceptance_criteria": [
         "Benchmark file exists at tests/benchmarks/benchmark_embeddings.py.",
@@ -454,7 +454,7 @@
         "grep -E '(1K|10K|100K)' docs/BENCHMARKS.md",
         "uv run agent-recall benchmark --help"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Use pytest-benchmark (pip install pytest-benchmark). Run on consistent hardware for reproducibility. Document CPU model and RAM in results. Include both cold (first run) and warm (cached) timings."
     },
     {

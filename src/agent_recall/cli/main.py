@@ -1862,6 +1862,127 @@ def embedding_test_quality():
     )
 
 
+@embedding_app.command("benchmark")
+def embedding_benchmark_cmd(
+    quick: bool = typer.Option(
+        False,
+        "--quick",
+        help="Run quick benchmark (1K chunks only)",
+    ),
+    size: str = typer.Option(
+        "1k",
+        "--size",
+        help="Chunk count: 1k, 10k, or 100k",
+    ),
+):
+    """Run performance benchmarks for embedding pipeline."""
+    import shutil
+    import tempfile
+    import time
+
+    from agent_recall.core.embedding_indexer import EmbeddingIndexer
+    from agent_recall.core.retrieve import Retriever
+    from agent_recall.storage.models import Chunk, ChunkSource, SemanticLabel
+    from agent_recall.storage.sqlite import SQLiteStorage
+
+    _get_theme_manager()
+
+    chunk_counts = {"1k": 1000, "10k": 10000, "100k": 100000}
+
+    if quick:
+        sizes = [1000]
+    else:
+        size_lower = size.lower().strip()
+        if size_lower not in chunk_counts:
+            console.print(f"[error]Invalid size: {size}. Use 1k, 10k, or 100k.[/error]")
+            raise typer.Exit(1)
+        sizes = [chunk_counts[size_lower]]
+
+    console.print(
+        Panel.fit(
+            "Embedding Pipeline Benchmark",
+            title="Benchmark",
+        )
+    )
+
+    for n_chunks in sizes:
+        console.print(f"\n[bold]Running benchmark for {n_chunks} chunks...[/bold]")
+
+        temp_dir = tempfile.mkdtemp()
+        db_path = Path(temp_dir) / "benchmark.db"
+
+        try:
+            storage = SQLiteStorage(db_path)
+
+            topics = [
+                "authentication",
+                "database",
+                "api",
+                "cache",
+                "security",
+                "performance",
+            ]
+
+            console.print(f"  Creating {n_chunks} test chunks...")
+            for i in range(n_chunks):
+                topic = topics[i % len(topics)]
+                content = f"Benchmark chunk {i} about {topic} with sample content for testing."
+                chunk = Chunk(
+                    source=ChunkSource.MANUAL,
+                    source_ids=[],
+                    content=content,
+                    label=SemanticLabel.PATTERN,
+                )
+                storage.store_chunk(chunk)
+
+            console.print("  Indexing embeddings...")
+            indexer = EmbeddingIndexer(storage, batch_size=32)
+
+            start_time = time.time()
+            indexer.index_missing_embeddings()
+            indexing_time = time.time() - start_time
+
+            chunks_per_sec = n_chunks / indexing_time if indexing_time > 0 else 0
+
+            console.print("  Running retrieval queries...")
+            retriever = Retriever(storage, backend="hybrid")
+
+            queries = [
+                "authentication token",
+                "database connection",
+                "api endpoint",
+            ]
+
+            start_time = time.time()
+            for _ in range(10):
+                for query in queries:
+                    retriever.search_hybrid(query, top_k=5)
+            retrieval_time = time.time() - start_time
+            queries_run = 10 * len(queries)
+            ms_per_query = (retrieval_time / queries_run) * 1000
+
+            db_size_mb = db_path.stat().st_size / (1024 * 1024)
+            kb_per_chunk = (db_path.stat().st_size / n_chunks) / 1024
+
+            table = Table(title=f"Results: {n_chunks} chunks")
+            table.add_column("Metric", style="cyan")
+            table.add_column("Value", style="green")
+
+            table.add_row("Indexing Time", f"{indexing_time:.2f}s")
+            table.add_row("Indexing Speed", f"{chunks_per_sec:.1f} chunks/sec")
+            table.add_row("Retrieval Time", f"{retrieval_time:.2f}s")
+            table.add_row("Latency per Query", f"{ms_per_query:.1f} ms")
+            table.add_row("DB Size", f"{db_size_mb:.2f} MB")
+            table.add_row("Size per Chunk", f"{kb_per_chunk:.2f} KB")
+
+            console.print(table)
+
+        finally:
+            shutil.rmtree(temp_dir)
+
+    console.print("\n[dim]For full benchmark results, see docs/BENCHMARKS.md[/dim]")
+
+
 @embedding_app.command("migrate-embeddings")
 def migrate_embeddings_cmd(
     dry_run: bool = typer.Option(
