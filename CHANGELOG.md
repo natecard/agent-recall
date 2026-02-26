@@ -25,9 +25,26 @@ While in beta (0.x.y), the API is considered unstable:
 - Production hardening for Codex ingestion with comprehensive fixture-based testing (AR-005)
 - Package metadata finalized for production adoption (AR-008)
 - CI pipeline for automated testing across Python 3.11, 3.12, and 3.13
+- Semantic embeddings via sentence-transformers (AR-501, AR-502, AR-503, AR-504, AR-505)
+- Hybrid retrieval combining FTS and semantic search (AR-506, AR-507)
+- EmbeddingIndexer for batch vectorization (AR-508)
+- Vector similarity search with cosine similarity (AR-509)
+- Embedding configuration options in config.yaml (AR-509)
+- CLI commands for embedding management: stats, reindex, search, test-quality (AR-510, AR-511)
+- Migration script for existing databases (AR-512)
+- Optional in-memory LRU caching for embeddings (AR-513)
+- Prometheus metrics and structured logging for embedding operations (AR-514)
+- Optional FAISS integration for large-scale deployments (AR-515)
+- Comprehensive user documentation for semantic embeddings (AR-260225-15)
+- Benchmark tests for embedding pipeline performance (AR-260225-16)
 
 ### Changed
 - Development status upgraded from Alpha to Beta
+- ContextAssembler now uses hybrid retrieval by default when embeddings enabled (AR-507)
+- Config schema extended with embedding settings (AR-509)
+
+### Fixed
+- Storage replication utility now properly handles chunk embeddings (AR-260225-04)
 
 ## [0.1.0] - 2025-02-12
 

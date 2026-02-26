@@ -530,12 +530,12 @@
       "description": "Add comprehensive entry to CHANGELOG.md documenting all embedding-related changes (new PRDs, new modules, new CLI commands). Create RELEASE_NOTES.md with migration guide for upgrading from pre-embedding versions.",
       "user_story": "As a user upgrading agent-recall, I want clear release notes and migration instructions so I understand what changed and how to adopt embeddings.",
       "steps": [
-        "Open CHANGELOG.md and add section for new version (e.g., '## [0.2.0] - 2026-02-25').",
-        "Add 'Added' subsection listing: Semantic embeddings via sentence-transformers, Hybrid retrieval (FTS + semantic), EmbeddingIndexer for batch vectorization, Vector similarity search, Embedding configuration options, CLI commands for embedding management, Migration script for existing databases.",
-        "Add 'Changed' subsection: ContextAssembler now uses hybrid retrieval by default, Config schema extended with embedding settings.",
-        "Add 'Fixed' subsection (if any): N/A.",
-        "Create RELEASE_NOTES.md with sections: (1) Overview of embeddings feature, (2) What changed (config schema, retrieval behavior), (3) Migration guide (run migrate-embeddings or manually), (4) Performance impact (sync time +5-10sec, storage +1.5KB per chunk), (5) Troubleshooting, (6) Credits/acknowledgments.",
-        "Add upgrade checklist in release notes: backup database, run migrate-embeddings, run agent-recall embedding stats to verify, update .agent/config.yaml if needed."
+        "[DONE] Open CHANGELOG.md and add section for new version (e.g., '## [0.2.0] - 2026-02-25').",
+        "[DONE] Add 'Added' subsection listing: Semantic embeddings via sentence-transformers, Hybrid retrieval (FTS + semantic), EmbeddingIndexer for batch vectorization, Vector similarity search, Embedding configuration options, CLI commands for embedding management, Migration script for existing databases.",
+        "[DONE] Add 'Changed' subsection: ContextAssembler now uses hybrid retrieval by default, Config schema extended with embedding settings.",
+        "[DONE] Add 'Fixed' subsection (if any): N/A.",
+        "[DONE] Create RELEASE_NOTES.md with sections: (1) Overview of embeddings feature, (2) What changed (config schema, retrieval behavior), (3) Migration guide (run migrate-embeddings or manually), (4) Performance impact (sync time +5-10sec, storage +1.5KB per chunk), (5) Troubleshooting, (6) Credits/acknowledgments.",
+        "[DONE] Add upgrade checklist in release notes: backup database, run migrate-embeddings, run agent-recall embedding stats to verify, update .agent/config.yaml if needed."
       ],
       "acceptance_criteria": [
         "CHANGELOG.md entry exists for embeddings release with all major changes listed.",
@@ -551,7 +551,7 @@
         "wc -w RELEASE_NOTES.md",
         "grep -E '(AR-[0-9]+|migrate|config|troubleshoot)' RELEASE_NOTES.md"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Keep tone professional but accessible. Include a 'Quick Start' section for users who just want embeddings to work with defaults. Mention that embeddings are opt-in via config, not mandatory."
     },
     {

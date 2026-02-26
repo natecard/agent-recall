@@ -1689,6 +1689,19 @@ def embedding_stats(
     console.print(Panel.fit("\n".join(lines), title="Embedding Stats"))
 
 
+@app.command("embedding-stats", hidden=True)
+def embedding_stats_legacy(
+    stale_days: int = typer.Option(
+        90,
+        "--stale-days",
+        min=0,
+        help="Threshold in days to consider embeddings stale",
+    ),
+):
+    """Backwards-compatible alias for `embedding stats`."""
+    embedding_stats(stale_days=stale_days)
+
+
 @embedding_app.command("reindex")
 def embedding_reindex(
     force: bool = typer.Option(
