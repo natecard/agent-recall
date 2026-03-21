@@ -126,6 +126,36 @@ class AuditAction(StrEnum):
     COMPLETE = "complete"
 
 
+class PipelineStage(StrEnum):
+    """Lifecycle stages for pipeline observability."""
+
+    INGEST = "ingest"
+    EXTRACT = "extract"
+    COMPACT = "compact"
+    APPLY = "apply"
+
+
+class PipelineEventAction(StrEnum):
+    """Lifecycle event action marker."""
+
+    START = "start"
+    COMPLETE = "complete"
+    ERROR = "error"
+
+
+class PipelineEvent(BaseModel):
+    """Telemetry event emitted by sync/compact/apply pipelines."""
+
+    id: UUID = Field(default_factory=uuid4)
+    run_id: str = Field(..., min_length=1)
+    stage: PipelineStage
+    action: PipelineEventAction
+    created_at: datetime = Field(default_factory=utcnow)
+    success: bool | None = None
+    duration_ms: float | None = Field(default=None, ge=0.0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class AuditEvent(BaseModel):
     """Immutable audit event for shared storage mutations."""
 
@@ -171,10 +201,11 @@ class LLMConfig(BaseModel):
 class CompactionConfig(BaseModel):
     """Compaction trigger thresholds."""
 
-    backend: Literal["llm", "coding_cli"] = Field(
+    backend: Literal["llm", "coding_cli", "mcp_external"] = Field(
         default="llm",
         description="Compaction backend: 'llm' uses configured LLM provider, "
-        "'coding_cli' uses coding CLI agent",
+        "'coding_cli' uses coding CLI agent, "
+        "'mcp_external' delegates note synthesis to an external MCP-connected agent",
     )
     max_recent_tokens: int = 1500
     max_tier_tokens: int = 10000
@@ -290,6 +321,12 @@ class TuiConfig(BaseModel):
     """TUI preferences stored in .agent/config.yaml."""
 
     terminal_panel_visible: bool = False
+
+
+class TelemetryConfig(BaseModel):
+    """Telemetry configuration for local pipeline observability."""
+
+    enabled: bool = True
 
 
 class RalphNotificationEvent(StrEnum):
@@ -434,6 +471,7 @@ class AgentRecallConfig(BaseModel):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     embeddings: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     storage: StorageConfig = Field(default_factory=StorageConfig)
+    telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
     theme: ThemeConfig = Field(default_factory=ThemeConfig)
     tui: TuiConfig = Field(default_factory=TuiConfig)
     ralph: RalphLoopConfig = Field(default_factory=RalphLoopConfig)

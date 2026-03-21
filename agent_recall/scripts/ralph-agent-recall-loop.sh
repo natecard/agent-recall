@@ -832,7 +832,7 @@ run_validation() {
 
   set +e
   local output
-  output="$(bash -lc "$VALIDATE_CMD" 2>&1)"
+  output="$(env -u BASH_ENV -u ENV bash --noprofile --norc -lc "$VALIDATE_CMD" 2>&1)"
   local exit_code=$?
   set -e
 
@@ -920,6 +920,7 @@ extract_actionable_validation_lines() {
       | sed '/^$/d' \
       | grep -Eiv '^(=+|-+|=+.*=+)$' \
       | grep -Eiv '(test session starts|test session ends|^platform |^rootdir:|^configfile:|^plugins:|^collected [0-9]+ items?)' \
+      | grep -Eiv '^.+/\.(bash_profile|bashrc|zprofile|zshrc|profile): line [0-9]+: ' \
       | head -n "$max_lines" || true
   )"
 

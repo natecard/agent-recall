@@ -4,6 +4,9 @@ llm:
 
 compaction:
   backend: llm
+  external:
+    write_target: runtime
+    pending_limit: 20
   max_recent_tokens: 1500
   max_tier_tokens: 10000
   max_sessions_before_compact: 5
@@ -44,6 +47,9 @@ storage:
     audit_actor: system
     timeout_seconds: 10.0
     retry_attempts: 2
+
+telemetry:
+  enabled: true
 
 theme:
   name: dark+

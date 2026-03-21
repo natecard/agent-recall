@@ -10,6 +10,17 @@ from agent_recall.ralph.iteration_store import IterationOutcome
 
 _ERROR_MARKERS = ("error", "failed", "exception", "assert")
 _SEPARATOR_CHARS = set("=-_*#")
+_VALIDATION_NOISE_PREFIXES = (
+    "test session starts",
+    "platform ",
+    "rootdir:",
+    "plugins:",
+    "collected ",
+)
+_SHELL_STARTUP_WARNING_RE = re.compile(
+    r"^.+/\.(?:bash_profile|bashrc|zprofile|zshrc|profile): line \d+: .+",
+    re.IGNORECASE,
+)
 
 
 def extract_outcome(
@@ -172,14 +183,17 @@ def extract_smart_diff(repo_dir: Path) -> dict[str, str | None]:
 
 
 def extract_validation_hint(validation_output: list[str]) -> str | None:
+    fallback: str | None = None
     for line in validation_output:
         stripped = line.strip()
-        if not stripped:
+        if _is_non_actionable_validation_line(stripped):
             continue
-        if _is_separator_line(stripped):
-            continue
-        return stripped
-    return None
+        normalized = _normalize_validation_hint(stripped)
+        if _looks_like_validation_error(normalized):
+            return normalized
+        if fallback is None:
+            fallback = normalized
+    return fallback
 
 
 def extract_from_artifacts(
@@ -205,6 +219,26 @@ def _is_separator_line(value: str) -> bool:
     if len(value) < 3:
         return False
     return all(char in _SEPARATOR_CHARS for char in value)
+
+
+def _is_non_actionable_validation_line(value: str) -> bool:
+    if not value:
+        return True
+    if _is_separator_line(value):
+        return True
+    lowered = value.lower()
+    if lowered.startswith(_VALIDATION_NOISE_PREFIXES):
+        return True
+    return _SHELL_STARTUP_WARNING_RE.match(value) is not None
+
+
+def _normalize_validation_hint(value: str) -> str:
+    return value.strip()
+
+
+def _looks_like_validation_error(value: str) -> bool:
+    lowered = value.lower()
+    return any(marker in lowered for marker in _ERROR_MARKERS)
 
 
 def _parse_token_json_line(line: str) -> tuple[dict[str, int], str | None] | None:

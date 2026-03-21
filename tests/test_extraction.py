@@ -93,6 +93,29 @@ def test_extract_validation_hint_skips_separators_and_blanks() -> None:
     assert extract_validation_hint(output) == "first actionable"
 
 
+def test_extract_validation_hint_prefers_error_over_harness_headers() -> None:
+    output = [
+        "============================= test session starts ==============================",
+        "platform darwin -- Python 3.12.0",
+        "E   AssertionError: expected 2 == 3",
+    ]
+    assert extract_validation_hint(output) == "E   AssertionError: expected 2 == 3"
+
+
+def test_extract_validation_hint_skips_shell_startup_warning() -> None:
+    output = [
+        (
+            "/Users/example/.bash_profile: line 21: "
+            "/Users/example/.deno/env: No such file or directory"
+        ),
+        "FAILED tests/test_example.py::test_case - AssertionError: boom",
+    ]
+    assert (
+        extract_validation_hint(output)
+        == "FAILED tests/test_example.py::test_case - AssertionError: boom"
+    )
+
+
 def test_extract_token_usage_parses_json_lines() -> None:
     output = [
         '{"usage": {"prompt_tokens": 12, "completion_tokens": 4}, "model": "gpt-test"}',

@@ -154,10 +154,11 @@ Migration path from local to shared:
 
 ## Advanced Capabilities
 
-Advanced command families (background sync, curation queue, tier maintenance, command inventory, Ralph loop automation, write-* helpers) are available, but intentionally kept out of the quick-start path.
+Advanced command families (background sync, curation queue, tier maintenance, command inventory, external compaction/MCP, Ralph loop automation, write-* helpers) are available, but intentionally kept out of the quick-start path.
 
 - Getting started guide: `docs/getting-started.md`
 - Full command reference: `docs/cli-reference.md`
+- Telemetry reference: `docs/telemetry.md`
 
 ### Semantic Search
 

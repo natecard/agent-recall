@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -326,6 +327,52 @@ async def test_sync_and_compact_includes_compaction_results(storage, files, tmp_
 
     assert "compaction" in results
     assert results["sessions_processed"] == 1
+    events_path = files.agent_dir / "metrics" / "pipeline-events.jsonl"
+    assert events_path.exists()
+    events = [
+        json.loads(line)
+        for line in events_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    stages = {event.get("stage") for event in events}
+    assert "extract" in stages
+    assert "ingest" in stages
+    assert "compact" in stages
+
+
+@pytest.mark.asyncio
+async def test_sync_and_compact_external_backend_reports_pending(
+    storage,
+    files,
+    tmp_path: Path,
+) -> None:
+    files.write_config(
+        {
+            "compaction": {
+                "backend": "mcp_external",
+                "external": {
+                    "pending_limit": 10,
+                },
+            }
+        }
+    )
+
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[FakeIngester("cursor", [session_path])],
+    )
+
+    results = await sync.sync_and_compact()
+
+    compaction = results.get("compaction", {})
+    assert compaction.get("backend") == "mcp_external"
+    assert compaction.get("external_required") is True
+    assert "pending_external_conversations" in compaction
 
 
 @pytest.mark.asyncio

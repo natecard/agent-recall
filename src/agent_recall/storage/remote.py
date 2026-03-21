@@ -190,6 +190,20 @@ class _HTTPClient(Storage):
         response.raise_for_status()
         return [LogEntry.model_validate(e) for e in response.json()]
 
+    def get_entries_by_source_session(
+        self,
+        source_session_id: str,
+        limit: int = 200,
+    ) -> list[LogEntry]:
+        response = self._client.get(
+            "/entries/by-source-session",
+            params={"source_session_id": source_session_id, "limit": limit},
+        )
+        if response.status_code == 404:
+            return []
+        response.raise_for_status()
+        return [LogEntry.model_validate(e) for e in response.json()]
+
     def get_entries_by_label(
         self,
         labels: list[SemanticLabel],
@@ -544,6 +558,13 @@ class RemoteStorage(Storage):
 
     def get_entries(self, session_id: UUID) -> list[LogEntry]:
         return self._execute("get_entries", session_id)
+
+    def get_entries_by_source_session(
+        self,
+        source_session_id: str,
+        limit: int = 200,
+    ) -> list[LogEntry]:
+        return self._execute("get_entries_by_source_session", source_session_id, limit=limit)
 
     def get_entries_by_label(
         self,

@@ -42,6 +42,7 @@ Changelog = "https://github.com/natecard/agent-recall/blob/main/CHANGELOG.md"
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.40"]
 google = ["google-genai>=1.62"]
+mcp = ["mcp>=1.0"]
 all-cloud = [
   "anthropic>=0.40",
   "google-genai>=1.62",

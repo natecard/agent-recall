@@ -8,10 +8,18 @@ from types import SimpleNamespace
 from typer.testing import CliRunner
 
 import agent_recall.cli.main as cli_main
+from agent_recall.core.telemetry import PipelineTelemetry
 from agent_recall.ingest.base import RawMessage, RawSession
 from agent_recall.llm.base import LLMProvider, LLMResponse, Message
 from agent_recall.storage.files import FileStorage
-from agent_recall.storage.models import Chunk, ChunkSource, CurationStatus, SemanticLabel
+from agent_recall.storage.models import (
+    Chunk,
+    ChunkSource,
+    CurationStatus,
+    LogEntry,
+    LogSource,
+    SemanticLabel,
+)
 from agent_recall.storage.sqlite import SQLiteStorage
 
 runner = CliRunner()
@@ -825,6 +833,145 @@ def test_cli_compact(monkeypatch) -> None:
         assert "Compaction complete" in result.output
 
 
+def test_cli_compact_external_backend_shows_guidance() -> None:
+    with runner.isolated_filesystem():
+        cli_main.get_storage.cache_clear()
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        files = FileStorage(Path(".agent"))
+        config = files.read_config()
+        config.setdefault("compaction", {})
+        config["compaction"]["backend"] = "mcp_external"
+        files.write_config(config)
+
+        result = runner.invoke(cli_main.app, ["compact"])
+        assert result.exit_code == 0
+        assert "External compaction mode active" in result.output
+        assert "external-compaction export" in result.output
+
+
+def test_cli_external_compaction_export_and_apply() -> None:
+    with runner.isolated_filesystem():
+        cli_main.get_storage.cache_clear()
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+        source_session_id = "codex-export-1"
+        storage.append_entry(
+            LogEntry(
+                source=LogSource.EXTRACTED,
+                source_session_id=source_session_id,
+                content="Avoid non-deterministic migration ordering",
+                label=SemanticLabel.GOTCHA,
+            )
+        )
+
+        export_result = runner.invoke(
+            cli_main.app,
+            ["external-compaction", "export", "--pending-only"],
+        )
+        assert export_result.exit_code == 0
+        exported = json.loads(export_result.output)
+        conversation_ids = [item["source_session_id"] for item in exported["conversations"]]
+        assert source_session_id in conversation_ids
+
+        notes_path = Path("notes.json")
+        notes_path.write_text(
+            json.dumps(
+                {
+                    "notes": [
+                        {
+                            "tier": "GUARDRAILS",
+                            "line": "- [GOTCHA] Sort migration inputs before execution.",
+                            "source_session_ids": [source_session_id],
+                        }
+                    ]
+                }
+            )
+        )
+
+        apply_result = runner.invoke(
+            cli_main.app,
+            ["external-compaction", "apply", "--input", str(notes_path)],
+        )
+        assert apply_result.exit_code == 0
+        assert "External notes applied" in apply_result.output
+
+        guardrails = Path(".agent/GUARDRAILS.md").read_text()
+        assert "Sort migration inputs before execution." in guardrails
+
+
+def test_cli_external_compaction_cleanup_state() -> None:
+    with runner.isolated_filesystem():
+        cli_main.get_storage.cache_clear()
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+        valid_session_id = "cleanup-valid-1"
+        storage.append_entry(
+            LogEntry(
+                source=LogSource.EXTRACTED,
+                source_session_id=valid_session_id,
+                content="Keep migrations reversible with checkpoints",
+                label=SemanticLabel.PATTERN,
+            )
+        )
+
+        state_path = Path(".agent") / "external_compaction_state.json"
+        state_path.write_text(
+            json.dumps(
+                {
+                    "sessions": {
+                        valid_session_id: {
+                            "source_hash": "valid-hash",
+                            "processed_at": "2026-03-21T00:00:00+00:00",
+                        },
+                        "cleanup-stale-1": {
+                            "source_hash": "stale-hash",
+                            "processed_at": "2026-03-21T00:00:00+00:00",
+                        },
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(
+            cli_main.app,
+            ["external-compaction", "cleanup-state", "--format", "json"],
+        )
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["removed_stale"] >= 1
+        assert payload["removed"] >= 1
+
+
+def test_cli_metrics_report_json_renders_recent_runs() -> None:
+    with runner.isolated_filesystem():
+        cli_main.get_storage.cache_clear()
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+
+        files = FileStorage(Path(".agent"))
+        telemetry = PipelineTelemetry.from_config(
+            agent_dir=files.agent_dir,
+            config=files.read_config(),
+        )
+        run_id = telemetry.create_run_id("sync")
+        telemetry.record_event(
+            run_id=run_id,
+            stage="extract",
+            action="complete",
+            success=True,
+            duration_ms=42.0,
+            metadata={"source": "cursor"},
+        )
+
+        result = runner.invoke(cli_main.app, ["metrics", "report", "--format", "json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["snapshot"]["counters"]["events_total"] >= 1
+        assert payload["recent_runs"][0]["run_id"] == run_id
+
+
 def test_cli_sync_no_compact(monkeypatch) -> None:
     called = {"sync": 0, "sync_and_compact": 0}
 
@@ -1523,6 +1670,19 @@ def test_cli_ingest_uses_spinner(monkeypatch) -> None:
         result = runner.invoke(cli_main.app, ["ingest", str(transcript)])
         assert result.exit_code == 0
         assert any("ingesting" in description.lower() for description in calls)
+        events_path = Path(".agent/metrics/pipeline-events.jsonl")
+        assert events_path.exists()
+        events = [
+            json.loads(line)
+            for line in events_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert any(
+            event.get("stage") == "ingest"
+            and event.get("action") == "complete"
+            and event.get("success") is True
+            for event in events
+        )
 
 
 def test_tui_slash_quit_command() -> None:

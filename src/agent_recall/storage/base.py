@@ -97,6 +97,15 @@ class Storage(ABC):
         ...
 
     @abstractmethod
+    def get_entries_by_source_session(
+        self,
+        source_session_id: str,
+        limit: int = 200,
+    ) -> list[LogEntry]:
+        """Retrieve log entries for a specific imported source session."""
+        ...
+
+    @abstractmethod
     def get_entries_by_label(
         self,
         labels: list[SemanticLabel],

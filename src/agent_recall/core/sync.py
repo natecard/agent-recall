@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -11,13 +12,14 @@ from typing import Any
 from agent_recall.core.compact import CompactionEngine
 from agent_recall.core.embedding_indexer import EmbeddingIndexer
 from agent_recall.core.extract import TranscriptExtractor
+from agent_recall.core.telemetry import PipelineTelemetry
 from agent_recall.ingest import SessionIngester, get_default_ingesters
 from agent_recall.ingest.base import RawSession
 from agent_recall.ingest.sources import normalize_source_name
 from agent_recall.llm.base import LLMProvider, LLMRateLimitError
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage
-from agent_recall.storage.models import SessionCheckpoint
+from agent_recall.storage.models import PipelineEventAction, PipelineStage, SessionCheckpoint
 
 
 @dataclass(frozen=True)
@@ -60,12 +62,18 @@ class AutoSync:
         max_sessions: int | None = None,
         reset_checkpoints: bool = False,
         reset_full: bool = False,
+        telemetry_run_id: str | None = None,
     ) -> dict[str, Any]:
         if self.extractor is None:
             msg = "LLM provider is required for sync"
             raise RuntimeError(msg)
 
         extractor = self.extractor
+        telemetry = PipelineTelemetry.from_config(
+            agent_dir=self.files.agent_dir,
+            config=self.files.read_config(),
+        )
+        run_id = telemetry_run_id or telemetry.create_run_id("sync")
 
         results: dict[str, Any] = {
             "sessions_discovered": 0,
@@ -191,6 +199,7 @@ class AutoSync:
                 entries: list[Any] = []
                 batch_events: list[dict[str, Any]] = []
                 extraction_error: str | None = None
+                extraction_started = time.perf_counter()
                 self._emit_progress(
                     {
                         "event": "extraction_session_started",
@@ -241,6 +250,19 @@ class AutoSync:
                         break
 
                 if extraction_error:
+                    extraction_duration_ms = (time.perf_counter() - extraction_started) * 1000.0
+                    telemetry.record_event(
+                        run_id=run_id,
+                        stage=PipelineStage.EXTRACT,
+                        action=PipelineEventAction.ERROR,
+                        success=False,
+                        duration_ms=extraction_duration_ms,
+                        metadata={
+                            "source": candidate.source_name,
+                            "session_id": candidate.session_id,
+                            "error": extraction_error,
+                        },
+                    )
                     results["errors"].append(extraction_error)
                     source_results["skipped"] += 1
                     source_results["extraction_failed"] += 1
@@ -257,6 +279,22 @@ class AutoSync:
                     )
                     continue
 
+                extraction_duration_ms = (time.perf_counter() - extraction_started) * 1000.0
+                telemetry.record_event(
+                    run_id=run_id,
+                    stage=PipelineStage.EXTRACT,
+                    action=PipelineEventAction.COMPLETE,
+                    success=True,
+                    duration_ms=extraction_duration_ms,
+                    metadata={
+                        "source": candidate.source_name,
+                        "session_id": candidate.session_id,
+                        "entries_extracted": len(entries),
+                        "llm_batches": len(batch_events),
+                    },
+                )
+
+                ingest_started = time.perf_counter()
                 for entry in entries:
                     self.storage.append_entry(entry)
 
@@ -292,9 +330,33 @@ class AutoSync:
                     results["errors"].append(warning)
                     diagnostic["warning"] = warning
                 results["session_diagnostics"].append(diagnostic)
+                ingest_duration_ms = (time.perf_counter() - ingest_started) * 1000.0
+                telemetry.record_event(
+                    run_id=run_id,
+                    stage=PipelineStage.INGEST,
+                    action=PipelineEventAction.COMPLETE,
+                    success=True,
+                    duration_ms=ingest_duration_ms,
+                    metadata={
+                        "source": candidate.source_name,
+                        "session_id": candidate.session_id,
+                        "entries_written": len(entries),
+                    },
+                )
             except Exception as exc:  # noqa: BLE001
                 results["errors"].append(
                     f"{candidate.source_name}:{candidate.session_path.name}: {exc}"
+                )
+                telemetry.record_event(
+                    run_id=run_id,
+                    stage=PipelineStage.INGEST,
+                    action=PipelineEventAction.ERROR,
+                    success=False,
+                    metadata={
+                        "source": candidate.source_name,
+                        "session_id": candidate.session_id,
+                        "error": str(exc),
+                    },
                 )
                 results["session_diagnostics"].append(
                     {
@@ -320,6 +382,11 @@ class AutoSync:
         reset_full: bool = False,
         skip_embeddings: bool = False,
     ) -> dict[str, Any]:
+        telemetry = PipelineTelemetry.from_config(
+            agent_dir=self.files.agent_dir,
+            config=self.files.read_config(),
+        )
+        run_id = telemetry.create_run_id("sync")
         sync_results = await self.sync(
             since=since,
             sources=sources,
@@ -327,14 +394,70 @@ class AutoSync:
             max_sessions=max_sessions,
             reset_checkpoints=reset_checkpoints,
             reset_full=reset_full,
+            telemetry_run_id=run_id,
         )
 
         if int(sync_results["learnings_extracted"]) > 0 or force_compact:
-            if self.llm is None:
-                msg = "LLM provider is required for compaction"
-                raise RuntimeError(msg)
-            compact_engine = CompactionEngine(self.storage, self.files, self.llm)
-            sync_results["compaction"] = await compact_engine.compact(force=force_compact)
+            backend = self._resolve_compaction_backend()
+            compact_started = time.perf_counter()
+            if backend == "mcp_external":
+                pending_limit = self._resolve_external_pending_limit()
+                pending_sessions = self.storage.list_recent_source_sessions(limit=pending_limit)
+                sync_results["compaction"] = {
+                    "backend": "mcp_external",
+                    "external_required": True,
+                    "pending_external_conversations": len(pending_sessions),
+                    "guardrails_updated": False,
+                    "style_updated": False,
+                    "recent_updated": False,
+                    "chunks_indexed": 0,
+                    "llm_requests": 0,
+                    "llm_responses": 0,
+                }
+                telemetry.record_event(
+                    run_id=run_id,
+                    stage=PipelineStage.COMPACT,
+                    action=PipelineEventAction.COMPLETE,
+                    success=True,
+                    duration_ms=(time.perf_counter() - compact_started) * 1000.0,
+                    metadata={
+                        "backend": "mcp_external",
+                        "external_required": True,
+                        "pending_external_conversations": len(pending_sessions),
+                    },
+                )
+            else:
+                if self.llm is None:
+                    msg = "LLM provider is required for compaction"
+                    raise RuntimeError(msg)
+                compact_engine = CompactionEngine(self.storage, self.files, self.llm)
+                try:
+                    sync_results["compaction"] = await compact_engine.compact(force=force_compact)
+                except Exception as exc:  # noqa: BLE001
+                    telemetry.record_event(
+                        run_id=run_id,
+                        stage=PipelineStage.COMPACT,
+                        action=PipelineEventAction.ERROR,
+                        success=False,
+                        duration_ms=(time.perf_counter() - compact_started) * 1000.0,
+                        metadata={"backend": backend, "error": str(exc)},
+                    )
+                    raise
+                telemetry.record_event(
+                    run_id=run_id,
+                    stage=PipelineStage.COMPACT,
+                    action=PipelineEventAction.COMPLETE,
+                    success=True,
+                    duration_ms=(time.perf_counter() - compact_started) * 1000.0,
+                    metadata={
+                        "backend": backend,
+                        "guardrails_updated": bool(
+                            sync_results["compaction"].get("guardrails_updated")
+                        ),
+                        "style_updated": bool(sync_results["compaction"].get("style_updated")),
+                        "recent_updated": bool(sync_results["compaction"].get("recent_updated")),
+                    },
+                )
 
         if self._embedding_indexing_enabled() and not skip_embeddings:
             indexer = EmbeddingIndexer(self.storage)
@@ -352,6 +475,35 @@ class AutoSync:
             return False
 
         return bool(retrieval_cfg.get("embedding_enabled", False))
+
+    def _resolve_compaction_backend(self) -> str:
+        config = self.files.read_config()
+        if not isinstance(config, dict):
+            return "llm"
+        compaction_cfg = config.get("compaction")
+        if not isinstance(compaction_cfg, dict):
+            return "llm"
+        backend = str(compaction_cfg.get("backend", "llm")).strip().lower()
+        if backend in {"llm", "coding_cli", "mcp_external"}:
+            return backend
+        return "llm"
+
+    def _resolve_external_pending_limit(self) -> int:
+        config = self.files.read_config()
+        if not isinstance(config, dict):
+            return 20
+        compaction_cfg = config.get("compaction")
+        if not isinstance(compaction_cfg, dict):
+            return 20
+        external_cfg = compaction_cfg.get("external")
+        if not isinstance(external_cfg, dict):
+            return 20
+        raw_limit = external_cfg.get("pending_limit", 20)
+        try:
+            parsed = int(raw_limit)
+        except (TypeError, ValueError):
+            parsed = 20
+        return max(1, parsed)
 
     def list_sessions(
         self,

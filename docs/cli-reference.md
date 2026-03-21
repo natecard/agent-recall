@@ -20,6 +20,7 @@
 - `agent-recall reset-sync [--source S] [--session-id ID]`
 - `agent-recall ingest <path> [--source-session-id ID]`
 - `agent-recall command-inventory`
+- `agent-recall metrics report [--limit N] [--format table|json]`
 - `agent-recall providers`
 - `agent-recall config model [--provider P] [--model M] [--base-url URL] [--temperature T] [--max-tokens N]`
 - `agent-recall config adapters [--enabled/--disabled] [--token-budget N] [--per-adapter-token-budget name=N]`
@@ -28,6 +29,7 @@
 - `agent-recall curation list|approve|reject`
 - `agent-recall compact-tiers / lint-tiers / tier-stats`
 - `agent-recall write-guardrails / write-style / write-recent`
+- `agent-recall external-compaction list|export|apply|mcp-server|cleanup-state`
 - `agent-recall ralph status|enable|disable [--max-iterations N] [--sleep-seconds N]`
 - `agent-recall ralph run --agent-cmd <cmd> [--max-iterations N] [--compact-mode always|on-failure|off] [--agent-transport pipe|pty|auto]`
 
@@ -46,3 +48,7 @@ Ralph transport troubleshooting:
 - Default transport is `pipe` to avoid macOS PTY `script` write-master false failures.
 - Use `--agent-transport pty` (or `RALPH_AGENT_TRANSPORT=pty`) only when PTY rendering is needed.
 - `--agent-output-mode stream-json` always uses `pipe` transport to preserve JSON marker parsing.
+
+Telemetry:
+- `agent-recall metrics report` summarizes local pipeline telemetry (`ingest`, `extract`, `compact`, `apply`).
+- Telemetry event schema and interpretation guide: `docs/telemetry.md`.

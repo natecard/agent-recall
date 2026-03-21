@@ -157,6 +157,42 @@ def get_command_contract() -> list[CommandContract]:
             surfaces=("cli", "tui"),
         ),
         CommandContract(
+            command="external-compaction",
+            aliases=(),
+            description="Run external compaction workflows for imported conversations",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="external-compaction list",
+            aliases=(),
+            description="List imported conversations pending external compaction",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="external-compaction export",
+            aliases=(),
+            description="Export payload JSON for external agent summarization",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="external-compaction apply",
+            aliases=(),
+            description="Apply externally generated notes into tier files",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="external-compaction mcp-server",
+            aliases=(),
+            description="Run MCP server exposing external compaction tools",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="external-compaction cleanup-state",
+            aliases=(),
+            description="Remove stale/invalid external compaction state rows",
+            surfaces=("cli",),
+        ),
+        CommandContract(
             command="open",
             aliases=("tui",),
             description="Open the TUI dashboard",
@@ -167,6 +203,18 @@ def get_command_contract() -> list[CommandContract]:
             command="command-inventory",
             aliases=(),
             description="Print command inventory for CLI, TUI, and palette",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="metrics",
+            aliases=(),
+            description="Inspect pipeline telemetry metrics",
+            surfaces=("cli",),
+        ),
+        CommandContract(
+            command="metrics report",
+            aliases=(),
+            description="Show telemetry counters and recent run summaries",
             surfaces=("cli",),
         ),
         CommandContract(

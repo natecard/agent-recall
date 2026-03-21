@@ -88,6 +88,11 @@ def test_embedding_settings_defaults_present() -> None:
     assert config.embeddings.semantic_weight == 0.6
 
 
+def test_telemetry_defaults_enabled() -> None:
+    config = AgentRecallConfig.model_validate({})
+    assert config.telemetry.enabled is True
+
+
 def test_embedding_settings_validation_errors() -> None:
     with pytest.raises(ValidationError):
         AgentRecallConfig.model_validate({"embeddings": {"batch_size": 0}})

@@ -529,6 +529,12 @@ class TestCompactionBackendSelection:
         config = CompactionConfig(backend="coding_cli")
         assert config.backend == "coding_cli"
 
+    def test_compaction_config_accepts_mcp_external(self) -> None:
+        from agent_recall.storage.models import CompactionConfig
+
+        config = CompactionConfig(backend="mcp_external")
+        assert config.backend == "mcp_external"
+
     @pytest.mark.asyncio
     async def test_compaction_works_with_coding_cli_provider(
         self, storage, files, monkeypatch

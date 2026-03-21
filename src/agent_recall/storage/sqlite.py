@@ -143,6 +143,18 @@ CREATE TABLE IF NOT EXISTS background_sync_status (
     pid INTEGER,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS external_compaction_state (
+    source_session_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    project_id TEXT NOT NULL DEFAULT 'default',
+    source_hash TEXT NOT NULL,
+    processed_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_external_compaction_state_processed_at
+ON external_compaction_state(tenant_id, project_id, processed_at DESC);
 """
 
 SCOPE_INDEXES_BY_TABLE = {
@@ -153,6 +165,7 @@ SCOPE_INDEXES_BY_TABLE = {
     "session_checkpoints": "idx_session_checkpoints_scope",
     "background_sync_status": "idx_background_sync_status_scope",
     "embedding_indices": "idx_embedding_indices_scope",
+    "external_compaction_state": "idx_external_compaction_state_scope",
 }
 
 
@@ -198,6 +211,7 @@ class SQLiteStorage(Storage):
             "session_checkpoints",
             "background_sync_status",
             "embedding_indices",
+            "external_compaction_state",
         ]
         with self._connect() as conn:
             for table in tables:
@@ -389,6 +403,25 @@ class SQLiteStorage(Storage):
                     "ORDER BY timestamp"
                 ),
                 (str(session_id), self.tenant_id, self.project_id),
+            ).fetchall()
+        return [self._row_to_entry(row) for row in rows]
+
+    def get_entries_by_source_session(
+        self,
+        source_session_id: str,
+        limit: int = 200,
+    ) -> list[LogEntry]:
+        normalized = source_session_id.strip()
+        if not normalized:
+            return []
+        with self._connect() as conn:
+            rows = conn.execute(
+                (
+                    "SELECT * FROM log_entries "
+                    "WHERE source_session_id = ? AND tenant_id = ? AND project_id = ? "
+                    "ORDER BY timestamp ASC LIMIT ?"
+                ),
+                (normalized, self.tenant_id, self.project_id, max(1, int(limit))),
             ).fetchall()
         return [self._row_to_entry(row) for row in rows]
 
@@ -1101,6 +1134,93 @@ class SQLiteStorage(Storage):
                 )
 
         return results
+
+    def list_external_compaction_states(self, limit: int | None = None) -> list[dict[str, str]]:
+        """List external compaction state rows for this namespace."""
+        query = (
+            "SELECT source_session_id, source_hash, processed_at, updated_at "
+            "FROM external_compaction_state "
+            "WHERE tenant_id = ? AND project_id = ? "
+            "ORDER BY processed_at DESC"
+        )
+        params: tuple[Any, ...]
+        if isinstance(limit, int) and limit > 0:
+            query += " LIMIT ?"
+            params = (self.tenant_id, self.project_id, int(limit))
+        else:
+            params = (self.tenant_id, self.project_id)
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [
+            {
+                "source_session_id": str(row["source_session_id"]),
+                "source_hash": str(row["source_hash"]),
+                "processed_at": str(row["processed_at"]),
+                "updated_at": str(row["updated_at"]),
+            }
+            for row in rows
+        ]
+
+    def upsert_external_compaction_state(
+        self,
+        source_session_id: str,
+        *,
+        source_hash: str,
+        processed_at: str,
+    ) -> None:
+        """Insert/update external compaction state for a source session."""
+        self._validate_namespace()
+        source_id = source_session_id.strip()
+        source_hash_value = source_hash.strip()
+        processed_at_value = processed_at.strip()
+        if not source_id:
+            raise ValueError("source_session_id is required")
+        if not source_hash_value:
+            raise ValueError("source_hash is required")
+        if not processed_at_value:
+            raise ValueError("processed_at is required")
+
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO external_compaction_state
+                    (
+                        source_session_id,
+                        tenant_id,
+                        project_id,
+                        source_hash,
+                        processed_at,
+                        updated_at
+                    )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_session_id) DO UPDATE SET
+                    source_hash=excluded.source_hash,
+                    processed_at=excluded.processed_at,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    source_id,
+                    self.tenant_id,
+                    self.project_id,
+                    source_hash_value,
+                    processed_at_value,
+                    now,
+                ),
+            )
+
+    def delete_external_compaction_state(self, source_session_id: str) -> int:
+        """Delete one external compaction state row."""
+        source_id = source_session_id.strip()
+        if not source_id:
+            return 0
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM external_compaction_state "
+                "WHERE source_session_id = ? AND tenant_id = ? AND project_id = ?",
+                (source_id, self.tenant_id, self.project_id),
+            )
+            return int(cursor.rowcount or 0)
 
     def get_background_sync_status(self) -> BackgroundSyncStatus:
         """Retrieve current background sync status, creating default if not exists."""

@@ -67,6 +67,7 @@ from agent_recall.core.onboarding import (
 from agent_recall.core.retrieve import Retriever
 from agent_recall.core.session import SessionManager
 from agent_recall.core.sync import AutoSync
+from agent_recall.core.telemetry import PipelineTelemetry
 from agent_recall.core.tier_compaction import (
     TierCompactionConfig,
     TierCompactionHook,
@@ -79,6 +80,11 @@ from agent_recall.core.tier_writer import (
     get_tier_statistics,
     lint_tier_file,
 )
+from agent_recall.external_compaction import (
+    ExternalCompactionService,
+    run_external_compaction_mcp,
+)
+from agent_recall.external_compaction.service import WriteTarget
 from agent_recall.ingest import get_default_ingesters, get_ingester
 from agent_recall.ingest.sources import (
     VALID_SOURCE_NAMES,
@@ -103,7 +109,14 @@ from agent_recall.storage.migrations.migrate_to_embeddings import (
     get_migration_preview,
     migrate_database,
 )
-from agent_recall.storage.models import CurationStatus, LLMConfig, RetrievalConfig, SemanticLabel
+from agent_recall.storage.models import (
+    CurationStatus,
+    LLMConfig,
+    PipelineEventAction,
+    PipelineStage,
+    RetrievalConfig,
+    SemanticLabel,
+)
 from agent_recall.storage.remote import resolve_shared_db_path
 
 app = typer.Typer(help="Agent Memory System - Persistent knowledge for AI coding agents")
@@ -256,6 +269,10 @@ llm:
   model: claude-sonnet-4-20250514
 
 compaction:
+  backend: llm
+  external:
+    write_target: runtime
+    pending_limit: 20
   max_recent_tokens: 1500
   max_sessions_before_compact: 5
   promote_pattern_after_occurrences: 3
@@ -291,6 +308,9 @@ storage:
     require_api_key: false
     timeout_seconds: 10.0
     retry_attempts: 2
+
+telemetry:
+  enabled: true
 
 theme:
   name: dark+
@@ -361,6 +381,48 @@ def get_files() -> FileStorage:
         except (NotImplementedError, ValueError):
             shared_tiers_dir = None
     return FileStorage(AGENT_DIR, shared_tiers_dir=shared_tiers_dir)
+
+
+def _build_external_compaction_service(
+    storage: Storage,
+    files: FileStorage,
+) -> ExternalCompactionService:
+    return ExternalCompactionService(
+        storage,
+        files,
+        agent_dir=AGENT_DIR,
+        repo_root=Path.cwd(),
+    )
+
+
+def _resolve_external_write_target(files: FileStorage) -> WriteTarget:
+    config = files.read_config()
+    if not isinstance(config, dict):
+        return "runtime"
+    compaction_cfg = config.get("compaction")
+    if not isinstance(compaction_cfg, dict):
+        return "runtime"
+    external_cfg = compaction_cfg.get("external")
+    if not isinstance(external_cfg, dict):
+        return "runtime"
+    raw_target = str(external_cfg.get("write_target", "runtime")).strip().lower()
+    if raw_target == "templates":
+        return "templates"
+    return "runtime"
+
+
+def _resolve_external_write_target_override(
+    files: FileStorage,
+    override: str | None,
+) -> WriteTarget:
+    if override is None:
+        return _resolve_external_write_target(files)
+    target = str(override).strip().lower()
+    if target not in {"runtime", "templates"}:
+        raise ValueError("write-target must be 'runtime' or 'templates'")
+    if target == "templates":
+        return "templates"
+    return "runtime"
 
 
 def get_llm():
@@ -1297,6 +1359,33 @@ def compact(force: bool = typer.Option(False, "--force", "-f", help="Force compa
     config_dict = files.read_config()
     compaction_cfg = config_dict.get("compaction", {}) if isinstance(config_dict, dict) else {}
     backend = compaction_cfg.get("backend", "llm") if isinstance(compaction_cfg, dict) else "llm"
+    backend = str(backend).strip().lower()
+
+    if backend == "mcp_external":
+        service = _build_external_compaction_service(storage, files)
+        raw_pending_limit = compaction_cfg.get("max_sessions_before_compact", 5)
+        try:
+            pending_limit = int(raw_pending_limit)
+        except (TypeError, ValueError):
+            pending_limit = 5
+        pending = service.list_imported_conversations(
+            limit=max(1, pending_limit),
+            pending_only=True,
+        )
+        console.print(
+            Panel.fit(
+                "[success]✓ External compaction mode active[/success]\n\n"
+                "No in-process synthesis was executed.\n"
+                "Use an external agent via MCP or JSON payload workflow:\n"
+                "  1) agent-recall external-compaction export --pending-only\n"
+                "  2) Agent generates notes JSON\n"
+                "  3) agent-recall external-compaction apply --input <notes.json>\n"
+                "  4) Optional: agent-recall external-compaction mcp-server\n\n"
+                f"Pending imported conversations: {len(pending)}",
+                title="Compaction Results",
+            )
+        )
+        return
 
     llm: LLMProvider
     if backend == "coding_cli":
@@ -1603,6 +1692,7 @@ def sync(
         comp = results["compaction"]
         lines.append("")
         lines.append("[bold]Knowledge synthesis:[/bold]")
+        lines.append(f"  Backend:            {comp.get('backend', 'llm')}")
         lines.append(
             f"  LLM requests:       {comp.get('llm_requests', 0)} "
             f"(responses: {comp.get('llm_responses', 0)})"
@@ -1611,6 +1701,12 @@ def sync(
         lines.append(f"  Style updated:      {'✓' if comp.get('style_updated') else '-'}")
         lines.append(f"  Recent updated:     {'✓' if comp.get('recent_updated') else '-'}")
         lines.append(f"  Chunks indexed:     {comp.get('chunks_indexed', 0)}")
+        if comp.get("external_required"):
+            lines.append("  External compaction required: yes")
+            lines.append(
+                f"  Pending conversations: {int(comp.get('pending_external_conversations', 0))}"
+            )
+            lines.append("  Next step: agent-recall external-compaction export --pending-only")
         changed_files = []
         if comp.get("guardrails_updated"):
             changed_files.append(".agent/GUARDRAILS.md")
@@ -3800,17 +3896,45 @@ def ingest(
     """Ingest a JSONL transcript into log entries."""
     _get_theme_manager()  # Ensure theme is loaded
     storage = get_storage()
+    files = get_files()
+    telemetry = PipelineTelemetry.from_config(agent_dir=files.agent_dir, config=files.read_config())
+    run_id = telemetry.create_run_id("ingest")
+    started = time.perf_counter()
     ingestor = TranscriptIngestor(storage)
 
-    count = run_with_spinner(
-        "Ingesting transcript...",
-        lambda: ingestor.ingest_jsonl(path=path, source_session_id=source_session_id),
+    try:
+        count = run_with_spinner(
+            "Ingesting transcript...",
+            lambda: ingestor.ingest_jsonl(path=path, source_session_id=source_session_id),
+        )
+    except Exception as exc:  # noqa: BLE001
+        telemetry.record_event(
+            run_id=run_id,
+            stage=PipelineStage.INGEST,
+            action=PipelineEventAction.ERROR,
+            success=False,
+            duration_ms=(time.perf_counter() - started) * 1000.0,
+            metadata={"source_session_id": source_session_id, "error": str(exc)},
+        )
+        raise
+
+    telemetry.record_event(
+        run_id=run_id,
+        stage=PipelineStage.INGEST,
+        action=PipelineEventAction.COMPLETE,
+        success=True,
+        duration_ms=(time.perf_counter() - started) * 1000.0,
+        metadata={"source_session_id": source_session_id, "entries_ingested": int(count)},
     )
     console.print(f"[success]✓ Ingested {count} transcript entries[/success]")
 
 
 theme_app = typer.Typer(help="Manage CLI themes")
+metrics_app = typer.Typer(help="Inspect pipeline telemetry metrics")
 curation_app = typer.Typer(help="Review and approve extracted learnings")
+external_compaction_app = typer.Typer(
+    help="Run external conversation compaction and optional MCP server tools"
+)
 
 
 @theme_app.command("list")
@@ -3886,11 +4010,319 @@ def theme_show():
     console.print(f"Current theme: [accent]{current_theme}[/accent]")
 
 
+@metrics_app.command("report")
+def metrics_report(
+    limit: int = typer.Option(5, "--limit", "-n", min=1, help="Number of recent runs to summarize"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Report pipeline telemetry counters and recent run summaries."""
+    _get_theme_manager()
+    files = get_files()
+    telemetry = PipelineTelemetry.from_config(agent_dir=files.agent_dir, config=files.read_config())
+    snapshot = telemetry.read_snapshot()
+    runs = telemetry.list_recent_runs(limit=limit)
+
+    output_format = format.strip().lower()
+    payload = {
+        "snapshot": snapshot,
+        "recent_runs": runs,
+    }
+    if output_format == "json":
+        console.print(json.dumps(payload, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+
+    counters = snapshot.get("counters", {})
+    events_total = int(counters.get("events_total", 0))
+    updated_at = snapshot.get("updated_at") or "-"
+    console.print(
+        Panel.fit(
+            f"Total events: {events_total}\nUpdated at: {updated_at}\nRecent runs: {len(runs)}",
+            title="metrics report",
+        )
+    )
+
+    by_stage = counters.get("by_stage", {})
+    if isinstance(by_stage, dict) and by_stage:
+        stage_table = Table(title="Counters by Stage", box=box.SIMPLE)
+        stage_table.add_column("Stage")
+        stage_table.add_column("Start", justify="right")
+        stage_table.add_column("Complete", justify="right")
+        stage_table.add_column("Error", justify="right")
+        stage_table.add_column("Success", justify="right")
+        stage_table.add_column("Failure", justify="right")
+        for stage, values in sorted(by_stage.items()):
+            if not isinstance(values, dict):
+                continue
+            stage_table.add_row(
+                str(stage),
+                str(int(values.get("start", 0))),
+                str(int(values.get("complete", 0))),
+                str(int(values.get("error", 0))),
+                str(int(values.get("success", 0))),
+                str(int(values.get("failure", 0))),
+            )
+        console.print(stage_table)
+
+    if not runs:
+        console.print("[dim]No telemetry runs recorded yet.[/dim]")
+        return
+
+    run_table = Table(title="Recent Pipeline Runs", box=box.SIMPLE)
+    run_table.add_column("Run ID", overflow="fold")
+    run_table.add_column("Started", overflow="fold")
+    run_table.add_column("Duration (ms)", justify="right")
+    run_table.add_column("Events", justify="right")
+    for run in runs:
+        run_table.add_row(
+            str(run.get("run_id", "")),
+            str(run.get("started_at", "-")),
+            f"{float(run.get('duration_ms', 0.0)):.1f}",
+            str(int(run.get("events_total", 0))),
+        )
+    console.print(run_table)
+
+
+@external_compaction_app.command("list")
+def external_compaction_list(
+    limit: int = typer.Option(20, "--limit", "-n", min=1, help="Maximum conversations"),
+    pending_only: bool = typer.Option(
+        True,
+        "--pending-only/--all",
+        help="Show only pending conversations (default) or all tracked conversations",
+    ),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """List imported conversations eligible for external compaction."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+    service = _build_external_compaction_service(storage, files)
+
+    conversations = service.list_imported_conversations(limit=limit, pending_only=pending_only)
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        console.print(json.dumps({"conversations": conversations}, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+
+    if not conversations:
+        console.print("[dim]No imported conversations found for external compaction.[/dim]")
+        return
+
+    table = Table(title="External Compaction Queue", box=box.SQUARE)
+    table.add_column("Source Session ID", overflow="fold")
+    table.add_column("Last Seen", overflow="fold")
+    table.add_column("Entries", justify="right")
+    table.add_column("Pending", justify="center")
+    for row in conversations:
+        table.add_row(
+            str(row.get("source_session_id", "")),
+            str(row.get("last_timestamp") or "-"),
+            str(int(row.get("entry_count", 0))),
+            "[warning]yes[/warning]" if bool(row.get("pending")) else "[success]no[/success]",
+        )
+    console.print(table)
+
+
+@external_compaction_app.command("export")
+def external_compaction_export(
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Optional output file path (prints JSON to stdout when omitted)",
+    ),
+    session_id: list[str] = typer.Option(
+        None,
+        "--session-id",
+        help="Specific source session ID(s); defaults to pending conversations",
+    ),
+    limit: int = typer.Option(20, "--limit", "-n", min=1, help="Max conversations to include"),
+    entry_limit: int = typer.Option(300, "--entry-limit", min=1, help="Max entries per session"),
+    pending_only: bool = typer.Option(
+        True,
+        "--pending-only/--all",
+        help="When no --session-id is provided, include pending only by default",
+    ),
+    write_target: str | None = typer.Option(
+        None,
+        "--write-target",
+        help="Tier write target: runtime or templates (defaults from config)",
+    ),
+):
+    """Export compaction payload JSON for an external agent."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+    service = _build_external_compaction_service(storage, files)
+
+    try:
+        target = _resolve_external_write_target_override(files, write_target)
+    except ValueError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    payload = service.build_payload(
+        source_session_ids=[item for item in session_id if item] if session_id else None,
+        limit=limit,
+        pending_only=pending_only,
+        entry_limit=entry_limit,
+        write_target=target,
+    )
+
+    rendered = json.dumps(payload, indent=2)
+    if output is None:
+        typer.echo(rendered)
+        return
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(rendered)
+    console.print(f"[success]✓ Exported external compaction payload to {output}[/success]")
+
+
+@external_compaction_app.command("apply")
+def external_compaction_apply(
+    input: Path = typer.Option(
+        ...,
+        "--input",
+        "-i",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help="JSON notes payload from external agent",
+    ),
+    write_target: str | None = typer.Option(
+        None,
+        "--write-target",
+        help="Tier write target: runtime or templates (defaults from config)",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        "-d",
+        help="Validate and summarize changes without writing",
+    ),
+    mark_processed: bool = typer.Option(
+        True,
+        "--mark-processed/--no-mark-processed",
+        help="Update external compaction state for referenced source sessions",
+    ),
+):
+    """Apply external compaction notes to GUARDRAILS/STYLE/RECENT tiers."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+    service = _build_external_compaction_service(storage, files)
+
+    try:
+        target = _resolve_external_write_target_override(files, write_target)
+    except ValueError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    try:
+        payload = json.loads(input.read_text())
+    except json.JSONDecodeError as exc:
+        console.print(f"[error]Invalid JSON input: {exc}[/error]")
+        raise typer.Exit(1) from None
+
+    try:
+        result = service.apply_notes_payload(
+            payload,
+            write_target=target,
+            dry_run=dry_run,
+            mark_processed=mark_processed,
+        )
+    except ValueError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    changed = result.get("tiers_changed", {})
+    changed_lines = ", ".join(f"{tier}={count}" for tier, count in changed.items()) or "none"
+    console.print(
+        Panel.fit(
+            f"[success]✓ External notes applied[/success]\n\n"
+            f"Write target: {result.get('write_target')}\n"
+            f"Dry run: {result.get('dry_run')}\n"
+            f"Notes received: {result.get('notes_received', 0)}\n"
+            f"Notes applied: {result.get('notes_applied', 0)}\n"
+            f"Tiers changed: {changed_lines}\n"
+            f"Sessions marked: {result.get('sessions_marked', 0)}",
+            title="external-compaction apply",
+        )
+    )
+
+
+@external_compaction_app.command("mcp-server")
+def external_compaction_mcp_server(
+    write_target: str | None = typer.Option(
+        None,
+        "--write-target",
+        help="Tier write target exposed by MCP tools: runtime or templates",
+    ),
+):
+    """Run MCP tools for external conversation compaction."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+    service = _build_external_compaction_service(storage, files)
+
+    try:
+        target = _resolve_external_write_target_override(files, write_target)
+    except ValueError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    try:
+        run_external_compaction_mcp(service, write_target=target)
+    except RuntimeError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+
+@external_compaction_app.command("cleanup-state")
+def external_compaction_cleanup_state(
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Clean stale/invalid external compaction state entries."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+    service = _build_external_compaction_service(storage, files)
+
+    result = service.cleanup_state()
+    output_format = format.strip().lower()
+    if output_format == "json":
+        console.print(json.dumps(result, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+
+    console.print(
+        Panel.fit(
+            f"Removed: {result.get('removed', 0)}\n"
+            f"Removed invalid: {result.get('removed_invalid', 0)}\n"
+            f"Removed stale: {result.get('removed_stale', 0)}",
+            title="external-compaction cleanup-state",
+        )
+    )
+
+
 app.add_typer(theme_app, name="theme")
+app.add_typer(metrics_app, name="metrics")
 app.add_typer(config_app, name="config")
 app.add_typer(curation_app, name="curation")
 app.add_typer(ralph_app, name="ralph")
 app.add_typer(embedding_app, name="embedding")
+app.add_typer(external_compaction_app, name="external-compaction")
 
 
 @curation_app.command("list")
