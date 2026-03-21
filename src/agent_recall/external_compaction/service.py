@@ -1,35 +1,139 @@
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
+import re
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
+from agent_recall.core.guardrail_enforcement import (
+    GuardrailSuppressionStore,
+    evaluate_guardrail_text,
+    is_guardrail_enforcement_enabled,
+    parse_guardrail_rules,
+)
 from agent_recall.core.telemetry import PipelineTelemetry
 from agent_recall.core.tier_writer import TIER_HEADERS
+from agent_recall.external_compaction.models import (
+    ExternalCompactionExportPayload,
+    external_notes_json_schema,
+    validate_external_notes_payload,
+)
+from agent_recall.external_compaction.write_guard import ExternalWriteScopeGuard, WriteTarget
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.models import LogEntry, PipelineEventAction, PipelineStage
-
-WriteTarget = Literal["runtime", "templates"]
 
 _SUPPORTED_TIERS = (
     KnowledgeTier.GUARDRAILS,
     KnowledgeTier.STYLE,
     KnowledgeTier.RECENT,
 )
-
-_TEMPLATE_FILE_BY_TIER: dict[KnowledgeTier, str] = {
-    KnowledgeTier.GUARDRAILS: "GUARDRAILS.md",
-    KnowledgeTier.STYLE: "STYLE.md",
-    KnowledgeTier.RECENT: "RECENT.md",
+_QUEUE_STATES = {"pending", "approved", "rejected", "applied"}
+_CONFLICT_POLICIES = {"prefer_newest", "queue_for_review"}
+_NEGATIVE_POLARITY_TOKENS = {
+    "avoid",
+    "ban",
+    "deny",
+    "disable",
+    "dont",
+    "never",
+    "no",
+    "not",
+    "without",
 }
+_POSITIVE_POLARITY_TOKENS = {
+    "always",
+    "enable",
+    "ensure",
+    "must",
+    "prefer",
+    "require",
+    "should",
+    "use",
+}
+_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "for",
+    "from",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "with",
+}
+_BULLET_PREFIX_RE = re.compile(r"^\s*-\s*\[[A-Z_]+\]\s*", re.IGNORECASE)
+_RECENT_PREFIX_RE = re.compile(r"^\s*\*\*\d{4}-\d{2}-\d{2}\*\*:\s*")
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
-def _normalize_line(text: str) -> str:
-    return " ".join(text.strip().lower().split())
+def _semantic_tokens(text: str) -> list[str]:
+    cleaned = _BULLET_PREFIX_RE.sub("", text.strip().lower())
+    cleaned = _RECENT_PREFIX_RE.sub("", cleaned)
+    return _TOKEN_RE.findall(cleaned)
+
+
+def _semantic_key(text: str) -> str:
+    return " ".join(_semantic_tokens(text))
+
+
+def _topic_key(text: str) -> str:
+    tokens = _semantic_tokens(text)
+    reduced = [
+        token
+        for token in tokens
+        if token not in _STOPWORDS
+        and token not in _NEGATIVE_POLARITY_TOKENS
+        and token not in _POSITIVE_POLARITY_TOKENS
+    ]
+    if not reduced:
+        reduced = [token for token in tokens if token not in _STOPWORDS]
+    return " ".join(reduced[:10])
+
+
+def _polarity(text: str) -> str:
+    tokens = set(_semantic_tokens(text))
+    has_negative = bool(tokens.intersection(_NEGATIVE_POLARITY_TOKENS))
+    has_positive = bool(tokens.intersection(_POSITIVE_POLARITY_TOKENS))
+    if has_negative and not has_positive:
+        return "negative"
+    if has_positive and not has_negative:
+        return "positive"
+    return "neutral"
+
+
+def _token_set(text: str) -> set[str]:
+    return {token for token in _semantic_tokens(text) if token not in _STOPWORDS}
+
+
+def _jaccard_similarity(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    union = left | right
+    if not union:
+        return 0.0
+    return len(left & right) / len(union)
+
+
+def _is_candidate_line(line: str) -> bool:
+    normalized = line.strip()
+    return bool(normalized) and (normalized.startswith("- [") or normalized.startswith("**"))
 
 
 def _to_iso(value: object) -> str | None:
@@ -40,6 +144,20 @@ def _to_iso(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+@dataclass(frozen=True)
+class _CandidateNote:
+    line: str
+    source_session_ids: tuple[str, ...]
+
+
+@dataclass
+class _MergeOutcome:
+    merged: str
+    notes_applied: int
+    applied_notes: list[_CandidateNote]
+    conflicts: list[dict[str, str]]
 
 
 class ExternalCompactionService:
@@ -53,12 +171,23 @@ class ExternalCompactionService:
         agent_dir: Path,
         repo_root: Path,
         state_path: Path | None = None,
+        write_guard: ExternalWriteScopeGuard | None = None,
     ) -> None:
         self.storage = storage
         self.files = files
         self.agent_dir = agent_dir
         self.repo_root = repo_root.resolve()
         self.state_path = state_path or (agent_dir / "external_compaction_state.json")
+        config = self.files.read_config()
+        self.write_guard = write_guard or ExternalWriteScopeGuard.from_config(
+            repo_root=self.repo_root,
+            config=config,
+        )
+        self.conflict_policy = self._resolve_conflict_policy(config)
+        self.guardrail_enforcement_enabled = is_guardrail_enforcement_enabled(config)
+        self.guardrail_suppressions = GuardrailSuppressionStore(
+            self.agent_dir / "guardrail_suppressions.json"
+        )
         self._backfill_state_to_storage()
 
     def list_imported_conversations(
@@ -160,21 +289,16 @@ class ExternalCompactionService:
             for source_session_id in selected
         ]
 
-        return {
-            "generated_at": datetime.now(UTC).isoformat(),
-            "write_target": target,
-            "tiers": self.read_tiers(write_target=target),
-            "conversations": conversations,
-            "notes_schema": {
-                "notes": [
-                    {
-                        "tier": "GUARDRAILS|STYLE|RECENT",
-                        "line": "- [TYPE] concise note (or RECENT date summary line)",
-                        "source_session_ids": ["source-session-id"],
-                    }
-                ]
-            },
-        }
+        payload = ExternalCompactionExportPayload.model_validate(
+            {
+                "generated_at": datetime.now(UTC),
+                "write_target": target,
+                "tiers": self.read_tiers(write_target=target),
+                "conversations": conversations,
+                "notes_schema": external_notes_json_schema(),
+            }
+        )
+        return payload.model_dump(mode="json")
 
     def apply_notes_payload(
         self,
@@ -193,36 +317,97 @@ class ExternalCompactionService:
         target = self._normalize_write_target(write_target)
         try:
             notes = self._parse_notes(payload)
-            grouped: dict[KnowledgeTier, list[str]] = {tier: [] for tier in _SUPPORTED_TIERS}
-            source_session_ids: set[str] = set()
+            guardrail_warnings: list[dict[str, Any]] = []
+            guardrail_blocks: list[dict[str, Any]] = []
+            if self.guardrail_enforcement_enabled:
+                rules = parse_guardrail_rules(self.files.read_tier(KnowledgeTier.GUARDRAILS))
+                for note in notes:
+                    note_text = str(note.get("line", "")).strip()
+                    if not note_text:
+                        continue
+                    violations = evaluate_guardrail_text(
+                        note_text,
+                        rules,
+                        suppression_store=self.guardrail_suppressions,
+                    )
+                    for violation in violations:
+                        payload_item = {
+                            "rule_id": violation.rule_id,
+                            "severity": violation.severity,
+                            "description": violation.description,
+                            "pattern": violation.pattern,
+                            "line": note_text,
+                        }
+                        if violation.severity == "block":
+                            guardrail_blocks.append(payload_item)
+                        else:
+                            guardrail_warnings.append(payload_item)
+
+            if guardrail_blocks:
+                first = guardrail_blocks[0]
+                raise ValueError(
+                    "Guardrail blocked external note apply: "
+                    f"{first['description']} (rule {first['rule_id']})"
+                )
+            grouped: dict[KnowledgeTier, list[_CandidateNote]] = {
+                tier: [] for tier in _SUPPORTED_TIERS
+            }
 
             for note in notes:
                 tier = note["tier"]
-                line = note["line"]
-                if line not in grouped[tier]:
-                    grouped[tier].append(line)
-                for source_id in note["source_session_ids"]:
-                    source_session_ids.add(source_id)
+                grouped[tier].append(
+                    _CandidateNote(
+                        line=note["line"],
+                        source_session_ids=tuple(
+                            sorted(
+                                {
+                                    str(item).strip()
+                                    for item in note["source_session_ids"]
+                                    if str(item).strip()
+                                }
+                            )
+                        ),
+                    )
+                )
 
             changed: dict[str, int] = {}
             notes_applied = 0
+            conflicts: list[dict[str, str]] = []
+            applied_source_session_ids: set[str] = set()
+            evidence_notes: list[dict[str, Any]] = []
 
             for tier in _SUPPORTED_TIERS:
-                candidate_lines = grouped[tier]
-                if not candidate_lines:
+                candidates = grouped[tier]
+                if not candidates:
                     continue
                 current = self._read_target_tier(tier, write_target=target)
-                merged, applied_for_tier = self._merge_lines(current, candidate_lines, tier=tier)
+                merge_outcome = self._merge_lines(current, candidates, tier=tier)
+                conflicts.extend(merge_outcome.conflicts)
+                applied_for_tier = merge_outcome.notes_applied
                 if applied_for_tier <= 0:
                     continue
                 changed[tier.value] = applied_for_tier
                 notes_applied += applied_for_tier
+                for applied_note in merge_outcome.applied_notes:
+                    for source_id in applied_note.source_session_ids:
+                        applied_source_session_ids.add(source_id)
+                    evidence_notes.append(
+                        {
+                            "tier": tier.value,
+                            "line": applied_note.line,
+                            "source_session_ids": list(applied_note.source_session_ids),
+                        }
+                    )
                 if not dry_run:
-                    self._write_target_tier(tier, merged, write_target=target)
+                    self._write_target_tier(tier, merge_outcome.merged, write_target=target)
 
             sessions_marked = 0
-            if mark_processed and not dry_run and source_session_ids:
-                sessions_marked = self._mark_sessions_processed(sorted(source_session_ids))
+            if mark_processed and not dry_run and applied_source_session_ids:
+                sessions_marked = self._mark_sessions_processed(sorted(applied_source_session_ids))
+
+            evidence_backlinks_written = 0
+            if not dry_run and evidence_notes:
+                evidence_backlinks_written = self._persist_evidence_backlinks(evidence_notes)
 
             result = {
                 "write_target": target,
@@ -231,6 +416,12 @@ class ExternalCompactionService:
                 "notes_applied": notes_applied,
                 "tiers_changed": changed,
                 "sessions_marked": sessions_marked,
+                "conflict_policy": self.conflict_policy,
+                "conflicts": conflicts,
+                "evidence_backlinks_written": evidence_backlinks_written,
+                "applied_notes": evidence_notes,
+                "guardrail_warnings": guardrail_warnings,
+                "guardrail_blocks": guardrail_blocks,
             }
             telemetry.record_event(
                 run_id=run_id,
@@ -245,6 +436,11 @@ class ExternalCompactionService:
                     "notes_applied": notes_applied,
                     "tiers_changed": changed,
                     "sessions_marked": sessions_marked,
+                    "conflict_policy": self.conflict_policy,
+                    "conflicts": len(conflicts),
+                    "evidence_backlinks_written": evidence_backlinks_written,
+                    "guardrail_warnings": len(guardrail_warnings),
+                    "guardrail_blocks": len(guardrail_blocks),
                 },
             )
             return result
@@ -306,59 +502,218 @@ class ExternalCompactionService:
             "removed_stale": removed_stale,
         }
 
-    def _parse_notes(self, payload: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
-        if isinstance(payload, list):
-            raw_notes = payload
-        elif isinstance(payload, dict):
-            container = payload.get("notes")
-            if isinstance(container, list):
-                raw_notes = container
-            else:
-                raw_notes = []
-        else:
-            raw_notes = []
+    def queue_notes_payload(
+        self,
+        payload: dict[str, Any] | list[dict[str, Any]],
+        *,
+        actor: str = "system",
+    ) -> dict[str, Any]:
+        notes = self._parse_notes(payload)
+        if not self._uses_storage_queue_backend():
+            raise RuntimeError("Queue operations require a storage backend with queue support.")
+        enqueue_fn = getattr(self.storage, "enqueue_external_compaction_queue")
+        queued = enqueue_fn(
+            [
+                {
+                    "tier": note["tier"].value,
+                    "line": note["line"],
+                    "source_session_ids": note["source_session_ids"],
+                }
+                for note in notes
+            ],
+            actor=actor,
+        )
+        return {"queued": len(queued), "items": queued}
 
-        parsed: list[dict[str, Any]] = []
-        for item in raw_notes:
-            if not isinstance(item, dict):
-                continue
+    def list_queue(
+        self,
+        *,
+        states: list[str] | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        if not self._uses_storage_queue_backend():
+            raise RuntimeError("Queue operations require a storage backend with queue support.")
+        normalized_states = [str(item).strip().lower() for item in (states or []) if item]
+        if any(state not in _QUEUE_STATES for state in normalized_states):
+            raise ValueError("states must be one or more of pending, approved, rejected, applied")
+        list_fn = getattr(self.storage, "list_external_compaction_queue")
+        return list_fn(states=normalized_states or None, limit=limit)
 
-            raw_tier = str(item.get("tier", "")).strip().upper()
-            if not raw_tier:
-                continue
+    def approve_queue(self, *, ids: list[int], actor: str = "system") -> dict[str, int]:
+        return self._transition_queue(ids=ids, target_state="approved", actor=actor)
+
+    def reject_queue(self, *, ids: list[int], actor: str = "system") -> dict[str, int]:
+        return self._transition_queue(ids=ids, target_state="rejected", actor=actor)
+
+    def patch_preview(
+        self,
+        *,
+        queue_ids: list[int] | None = None,
+        states: list[str] | None = None,
+        write_target: WriteTarget = "runtime",
+    ) -> dict[str, Any]:
+        target = self._normalize_write_target(write_target)
+        queue = self.list_queue(states=states or ["approved"], limit=500)
+        if queue_ids:
+            wanted = {int(item) for item in queue_ids if int(item) > 0}
+            queue = [item for item in queue if int(item.get("id", 0)) in wanted]
+
+        by_tier: dict[KnowledgeTier, list[_CandidateNote]] = {tier: [] for tier in _SUPPORTED_TIERS}
+        for item in queue:
             try:
-                tier = KnowledgeTier(raw_tier)
+                tier = KnowledgeTier(str(item.get("tier", "")).strip().upper())
             except ValueError:
                 continue
             if tier not in _SUPPORTED_TIERS:
                 continue
-
             line = str(item.get("line", "")).strip()
-            if not line or line.startswith("#"):
-                continue
+            if line and all(existing.line != line for existing in by_tier[tier]):
+                by_tier[tier].append(_CandidateNote(line=line, source_session_ids=tuple()))
 
-            if tier in {KnowledgeTier.GUARDRAILS, KnowledgeTier.STYLE} and not line.startswith(
-                "- "
-            ):
+        preview_by_tier: dict[str, str] = {}
+        combined: list[str] = []
+        notes_considered = 0
+        for tier in _SUPPORTED_TIERS:
+            candidates = by_tier[tier]
+            notes_considered += len(candidates)
+            if not candidates:
                 continue
-            if tier == KnowledgeTier.RECENT and not (
-                line.startswith("- ") or line.startswith("**")
-            ):
+            current = self._read_target_tier(tier, write_target=target)
+            merge_outcome = self._merge_lines(current, candidates, tier=tier)
+            diff_lines = list(
+                difflib.unified_diff(
+                    current.splitlines(),
+                    merge_outcome.merged.splitlines(),
+                    fromfile=f"{tier.value}.before",
+                    tofile=f"{tier.value}.after",
+                    lineterm="",
+                )
+            )
+            if not diff_lines:
                 continue
+            rendered = "\n".join(diff_lines)
+            preview_by_tier[tier.value] = rendered
+            combined.append(rendered)
 
-            source_ids_raw = item.get("source_session_ids", [])
-            source_ids: list[str] = []
-            if isinstance(source_ids_raw, list):
-                for source_id in source_ids_raw:
-                    cleaned = str(source_id).strip()
-                    if cleaned:
-                        source_ids.append(cleaned)
+        return {
+            "write_target": target,
+            "notes_considered": notes_considered,
+            "queue_items_considered": len(queue),
+            "diff_by_tier": preview_by_tier,
+            "combined_diff": "\n\n".join(combined),
+        }
 
+    def apply_approved_queue(
+        self,
+        *,
+        actor: str = "system",
+        write_target: WriteTarget = "runtime",
+        mark_processed: bool = True,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        queue = self.list_queue(states=["approved"], limit=500)
+        if not queue:
+            return {
+                "queue_items_considered": 0,
+                "queue_items_applied": 0,
+                "notes_applied": 0,
+                "tiers_changed": {},
+                "dry_run": dry_run,
+            }
+
+        payload = {
+            "notes": [
+                {
+                    "tier": str(item.get("tier", "")),
+                    "line": str(item.get("line", "")),
+                    "source_session_ids": list(item.get("source_session_ids", [])),
+                }
+                for item in queue
+            ]
+        }
+        applied = self.apply_notes_payload(
+            payload,
+            write_target=write_target,
+            dry_run=dry_run,
+            mark_processed=mark_processed,
+        )
+        queue_applied = 0
+        if not dry_run:
+            applied_notes = applied.get("applied_notes", [])
+            applied_keys: set[tuple[str, str, tuple[str, ...]]] = set()
+            if isinstance(applied_notes, list):
+                for note in applied_notes:
+                    if not isinstance(note, dict):
+                        continue
+                    tier = str(note.get("tier", "")).strip().upper()
+                    line = str(note.get("line", "")).strip()
+                    source_ids_raw = note.get("source_session_ids", [])
+                    source_ids = (
+                        sorted({str(item).strip() for item in source_ids_raw if str(item).strip()})
+                        if isinstance(source_ids_raw, list)
+                        else []
+                    )
+                    if tier and line:
+                        applied_keys.add((tier, line, tuple(source_ids)))
+
+            ids = []
+            for item in queue:
+                item_id = int(item.get("id", 0))
+                tier = str(item.get("tier", "")).strip().upper()
+                line = str(item.get("line", "")).strip()
+                source_ids_raw = item.get("source_session_ids", [])
+                source_ids = (
+                    sorted(
+                        {str(source).strip() for source in source_ids_raw if str(source).strip()}
+                    )
+                    if isinstance(source_ids_raw, list)
+                    else []
+                )
+                if item_id <= 0 or not tier or not line:
+                    continue
+                key = (tier, line, tuple(source_ids))
+                if key in applied_keys:
+                    ids.append(item_id)
+
+            if ids:
+                transition = self._transition_queue(ids=ids, target_state="applied", actor=actor)
+                queue_applied = transition["updated"]
+
+        return {
+            "queue_items_considered": len(queue),
+            "queue_items_applied": queue_applied,
+            "notes_applied": int(applied.get("notes_applied", 0)),
+            "tiers_changed": dict(applied.get("tiers_changed", {})),
+            "dry_run": dry_run,
+            "write_target": applied.get("write_target"),
+            "sessions_marked": int(applied.get("sessions_marked", 0)),
+            "conflict_policy": str(applied.get("conflict_policy", self.conflict_policy)),
+            "conflicts": list(applied.get("conflicts", [])),
+            "evidence_backlinks_written": int(applied.get("evidence_backlinks_written", 0)),
+        }
+
+    def _transition_queue(
+        self,
+        *,
+        ids: list[int],
+        target_state: str,
+        actor: str,
+    ) -> dict[str, int]:
+        if not self._uses_storage_queue_backend():
+            raise RuntimeError("Queue operations require a storage backend with queue support.")
+        update_fn = getattr(self.storage, "update_external_compaction_queue_state")
+        return update_fn(ids=ids, target_state=target_state, actor=actor)
+
+    def _parse_notes(self, payload: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
+        validated = validate_external_notes_payload(payload)
+        parsed: list[dict[str, Any]] = []
+        for note in validated.notes:
+            tier = KnowledgeTier(note.tier)
             parsed.append(
                 {
                     "tier": tier,
-                    "line": line,
-                    "source_session_ids": source_ids,
+                    "line": note.line,
+                    "source_session_ids": list(note.source_session_ids),
                 }
             )
 
@@ -367,34 +722,159 @@ class ExternalCompactionService:
     def _merge_lines(
         self,
         current: str,
-        new_lines: list[str],
+        new_notes: list[_CandidateNote],
         *,
         tier: KnowledgeTier,
-    ) -> tuple[str, int]:
+    ) -> _MergeOutcome:
         existing = current if current.strip() else TIER_HEADERS[tier]
         existing_lines = existing.splitlines()
-        seen = {_normalize_line(line) for line in existing_lines if line.strip()}
-
-        additions: list[str] = []
-        for line in new_lines:
-            normalized = _normalize_line(line)
-            if not normalized or normalized in seen:
+        semantic_seen = {
+            _semantic_key(line)
+            for line in existing_lines
+            if line.strip() and _is_candidate_line(line)
+        }
+        token_sets = [
+            _token_set(line) for line in existing_lines if line.strip() and _is_candidate_line(line)
+        ]
+        topic_polarity: dict[str, tuple[str, str]] = {}
+        for line in existing_lines:
+            if not line.strip() or not _is_candidate_line(line):
                 continue
-            seen.add(normalized)
+            topic = _topic_key(line)
+            if not topic:
+                continue
+            topic_polarity[topic] = (_polarity(line), line)
+
+        working_lines = list(existing_lines)
+        additions: list[str] = []
+        applied_notes: list[_CandidateNote] = []
+        conflicts: list[dict[str, str]] = []
+
+        for note in new_notes:
+            line = note.line.strip()
+            if not line:
+                continue
+            semantic = _semantic_key(line)
+            if semantic and semantic in semantic_seen:
+                continue
+            candidate_tokens = _token_set(line)
+            if any(_jaccard_similarity(candidate_tokens, tokens) >= 0.85 for tokens in token_sets):
+                continue
+
+            topic = _topic_key(line)
+            polarity = _polarity(line)
+            if topic and topic in topic_polarity:
+                existing_polarity, existing_line = topic_polarity[topic]
+                if (
+                    polarity != "neutral"
+                    and existing_polarity != "neutral"
+                    and existing_polarity != polarity
+                ):
+                    conflict = {
+                        "tier": tier.value,
+                        "existing_line": existing_line,
+                        "incoming_line": line,
+                        "policy": self.conflict_policy,
+                    }
+                    if self.conflict_policy == "queue_for_review":
+                        conflicts.append(conflict)
+                        continue
+                    conflict["resolution"] = "prefer_newest"
+                    conflicts.append(conflict)
+                    if existing_line in working_lines:
+                        working_lines.remove(existing_line)
+                    semantic_seen.discard(_semantic_key(existing_line))
+                    existing_tokens = _token_set(existing_line)
+                    token_sets = [tokens for tokens in token_sets if tokens != existing_tokens]
+
+            semantic_seen.add(semantic)
+            token_sets.append(candidate_tokens)
+            if topic:
+                topic_polarity[topic] = (polarity, line)
             additions.append(line)
+            applied_notes.append(note)
 
         if not additions:
-            return existing, 0
+            return _MergeOutcome(
+                merged=existing,
+                notes_applied=0,
+                applied_notes=[],
+                conflicts=conflicts,
+            )
 
-        merged = existing.rstrip() + "\n\n" + "\n".join(additions) + "\n"
-        return merged, len(additions)
+        merged = self._insert_lines_for_tier(working_lines, additions, tier=tier)
+        return _MergeOutcome(
+            merged=merged,
+            notes_applied=len(applied_notes),
+            applied_notes=applied_notes,
+            conflicts=conflicts,
+        )
+
+    def _insert_lines_for_tier(
+        self,
+        existing_lines: list[str],
+        additions: list[str],
+        *,
+        tier: KnowledgeTier,
+    ) -> str:
+        ralph_start = next(
+            (index for index, line in enumerate(existing_lines) if line.startswith("## ")),
+            len(existing_lines),
+        )
+        before_ralph = existing_lines[:ralph_start]
+        ralph_lines = existing_lines[ralph_start:]
+
+        if tier == KnowledgeTier.RECENT:
+            first_entry = next(
+                (index for index, line in enumerate(before_ralph) if _is_candidate_line(line)),
+                len(before_ralph),
+            )
+            preamble_lines = before_ralph[:first_entry]
+            entry_lines = before_ralph[first_entry:]
+            parts = [
+                "\n".join(preamble_lines).strip(),
+                "\n".join(additions).strip(),
+                "\n".join(entry_lines).strip(),
+                "\n".join(ralph_lines).strip(),
+            ]
+        else:
+            parts = [
+                "\n".join(before_ralph).strip(),
+                "\n".join(additions).strip(),
+                "\n".join(ralph_lines).strip(),
+            ]
+
+        rendered_parts = [part for part in parts if part]
+        if not rendered_parts:
+            return "\n"
+        return "\n\n".join(rendered_parts).rstrip() + "\n"
+
+    def _persist_evidence_backlinks(self, notes: list[dict[str, Any]]) -> int:
+        if not self._storage_supports("record_external_compaction_evidence"):
+            return 0
+        record_fn = getattr(self.storage, "record_external_compaction_evidence")
+        try:
+            return int(record_fn(notes))
+        except NotImplementedError:
+            return 0
+
+    @staticmethod
+    def _resolve_conflict_policy(config: dict[str, Any] | None) -> str:
+        if not isinstance(config, dict):
+            return "prefer_newest"
+        compaction_cfg = config.get("compaction")
+        if not isinstance(compaction_cfg, dict):
+            return "prefer_newest"
+        external_cfg = compaction_cfg.get("external")
+        if not isinstance(external_cfg, dict):
+            return "prefer_newest"
+        raw_policy = str(external_cfg.get("conflict_policy", "prefer_newest")).strip().lower()
+        if raw_policy in _CONFLICT_POLICIES:
+            return raw_policy
+        return "prefer_newest"
 
     def _template_path_for_tier(self, tier: KnowledgeTier) -> Path:
-        relative = Path("src") / "agent_recall" / "templates" / _TEMPLATE_FILE_BY_TIER[tier]
-        path = (self.repo_root / relative).resolve()
-        if self.repo_root not in path.parents:
-            raise ValueError(f"Template path escapes repo root: {path}")
-        return path
+        return self.write_guard.template_path_for_tier(tier)
 
     def _read_target_tier(self, tier: KnowledgeTier, *, write_target: WriteTarget) -> str:
         if write_target == "runtime":
@@ -519,13 +999,33 @@ class ExternalCompactionService:
 
     def _uses_storage_state_backend(self) -> bool:
         return all(
-            callable(getattr(self.storage, attr, None))
+            self._storage_supports(attr)
             for attr in (
                 "list_external_compaction_states",
                 "upsert_external_compaction_state",
                 "delete_external_compaction_state",
             )
         )
+
+    def _uses_storage_queue_backend(self) -> bool:
+        return all(
+            self._storage_supports(attr)
+            for attr in (
+                "enqueue_external_compaction_queue",
+                "list_external_compaction_queue",
+                "update_external_compaction_queue_state",
+            )
+        )
+
+    def _storage_supports(self, attr: str) -> bool:
+        method = getattr(self.storage, attr, None)
+        if not callable(method):
+            return False
+        base_method = getattr(Storage, attr, None)
+        if base_method is None:
+            return True
+        method_func = getattr(method, "__func__", method)
+        return method_func is not base_method
 
     def _backfill_state_to_storage(self) -> None:
         if not self._uses_storage_state_backend() or not self.state_path.exists():
@@ -564,9 +1064,5 @@ class ExternalCompactionService:
                 continue
             upsert_fn(source_id, source_hash=source_hash, processed_at=processed_at)
 
-    @staticmethod
-    def _normalize_write_target(write_target: WriteTarget | str) -> WriteTarget:
-        value = str(write_target).strip().lower()
-        if value not in {"runtime", "templates"}:
-            raise ValueError("write_target must be 'runtime' or 'templates'")
-        return value  # type: ignore[return-value]
+    def _normalize_write_target(self, write_target: WriteTarget | str) -> WriteTarget:
+        return self.write_guard.resolve_target(str(write_target))

@@ -29,7 +29,8 @@
 - `agent-recall curation list|approve|reject`
 - `agent-recall compact-tiers / lint-tiers / tier-stats`
 - `agent-recall write-guardrails / write-style / write-recent`
-- `agent-recall external-compaction list|export|apply|mcp-server|cleanup-state`
+- `agent-recall external-compaction list|export|apply|patch-preview|apply-approved|mcp-server|cleanup-state`
+- `agent-recall external-compaction queue add|list|approve|reject`
 - `agent-recall ralph status|enable|disable [--max-iterations N] [--sleep-seconds N]`
 - `agent-recall ralph run --agent-cmd <cmd> [--max-iterations N] [--compact-mode always|on-failure|off] [--agent-transport pipe|pty|auto]`
 
@@ -52,3 +53,19 @@ Ralph transport troubleshooting:
 Telemetry:
 - `agent-recall metrics report` summarizes local pipeline telemetry (`ingest`, `extract`, `compact`, `apply`).
 - Telemetry event schema and interpretation guide: `docs/telemetry.md`.
+
+External compaction flow (safe defaults):
+1. Run `agent-recall sync --compact`.
+2. Export pending conversations: `agent-recall external-compaction export --pending-only > notes.json`.
+3. Apply generated notes safely:
+`agent-recall external-compaction apply --input notes.json` (dry-run default)
+`agent-recall external-compaction apply --input notes.json --commit` (writes enabled)
+4. Optional review queue flow:
+`agent-recall external-compaction queue add --input notes.json`
+`agent-recall external-compaction queue list --state pending`
+`agent-recall external-compaction queue approve --id <id>`
+`agent-recall external-compaction patch-preview --state approved`
+`agent-recall external-compaction apply-approved --commit`
+
+Template writes are disabled by default. Enable `compaction.external.allow_template_writes: true`
+before using `--write-target templates`.

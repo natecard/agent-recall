@@ -269,6 +269,100 @@ def test_ralph_run_loop_emits_output_line_when_no_cli() -> None:
         assert "No coding CLI configured" in output_events[0]["line"]
 
 
+def test_ralph_run_loop_blocks_item_when_guardrail_rule_matches() -> None:
+    import asyncio
+
+    from agent_recall.ralph.loop import RalphLoop
+    from agent_recall.storage.files import FileStorage, KnowledgeTier
+    from agent_recall.storage.sqlite import SQLiteStorage
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        Path(".agent/config.yaml").write_text(
+            "guardrails:\n  enforcement:\n    enabled: true\n",
+            encoding="utf-8",
+        )
+        prd_path = Path(".agent") / "ralph" / "prd.json"
+        prd_path.parent.mkdir(parents=True, exist_ok=True)
+        prd_path.write_text(
+            json.dumps(
+                {"items": [{"id": "T-BLOCK", "title": "Run rm -rf / migration", "passes": False}]}
+            ),
+            encoding="utf-8",
+        )
+        agent_dir = Path(".agent")
+        storage = SQLiteStorage(agent_dir / "state.db")
+        files = FileStorage(agent_dir)
+        files.write_tier(
+            KnowledgeTier.GUARDRAILS,
+            "# Guardrails\n\n- [BLOCK] regex: rm\\s+-rf\\s+/\n",
+        )
+        loop = RalphLoop(agent_dir, storage, files)
+        loop.enable()
+
+        events: list[dict] = []
+        summary = asyncio.run(
+            loop.run_loop(
+                progress_callback=events.append,
+                coding_cli=None,
+                cli_model=None,
+            )
+        )
+        assert summary["failed"] == 1
+        blocked = [event for event in events if event.get("event") == "guardrail_blocked"]
+        assert blocked
+        output_lines = [
+            str(event.get("line", "")) for event in events if event.get("event") == "output_line"
+        ]
+        assert any("Guardrail blocked PRD item" in line for line in output_lines)
+
+
+def test_ralph_run_loop_warn_rule_emits_warning_but_continues() -> None:
+    import asyncio
+
+    from agent_recall.ralph.loop import RalphLoop
+    from agent_recall.storage.files import FileStorage, KnowledgeTier
+    from agent_recall.storage.sqlite import SQLiteStorage
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        Path(".agent/config.yaml").write_text(
+            "guardrails:\n  enforcement:\n    enabled: true\n",
+            encoding="utf-8",
+        )
+        prd_path = Path(".agent") / "ralph" / "prd.json"
+        prd_path.parent.mkdir(parents=True, exist_ok=True)
+        prd_path.write_text(
+            json.dumps(
+                {"items": [{"id": "T-WARN", "title": "Force push deployment", "passes": False}]}
+            ),
+            encoding="utf-8",
+        )
+        agent_dir = Path(".agent")
+        storage = SQLiteStorage(agent_dir / "state.db")
+        files = FileStorage(agent_dir)
+        files.write_tier(
+            KnowledgeTier.GUARDRAILS,
+            "# Guardrails\n\n- [WARN] `force push`\n",
+        )
+        loop = RalphLoop(agent_dir, storage, files)
+        loop.enable()
+
+        events: list[dict] = []
+        summary = asyncio.run(
+            loop.run_loop(
+                progress_callback=events.append,
+                coding_cli=None,
+                cli_model=None,
+            )
+        )
+        assert summary["passed"] == 1
+        warnings = [
+            str(event.get("line", "")) for event in events if event.get("event") == "output_line"
+        ]
+        assert any("Guardrail warning for item" in line for line in warnings)
+
+
 def test_ralph_run_loop_passes_coding_cli_params() -> None:
     """run_loop accepts coding_cli and cli_model without error."""
     import asyncio

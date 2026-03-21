@@ -4,10 +4,12 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import UUID
 
 from typer.testing import CliRunner
 
 import agent_recall.cli.main as cli_main
+from agent_recall.core.pr_context import DiffScope
 from agent_recall.core.telemetry import PipelineTelemetry
 from agent_recall.ingest.base import RawMessage, RawSession
 from agent_recall.llm.base import LLMProvider, LLMResponse, Message
@@ -285,7 +287,11 @@ def test_cli_context_uses_retrieval_config_defaults(monkeypatch) -> None:
             fusion_k: int = 60,
             rerank_enabled: bool = False,
             rerank_candidate_k: int = 20,
+            fts_weight: float = 0.4,
+            semantic_weight: float = 0.6,
+            feedback_weight: float = 0.2,
         ):
+            _ = (fts_weight, semantic_weight, feedback_weight)
             captured["backend"] = backend
             captured["fusion_k"] = fusion_k
             captured["rerank_enabled"] = rerank_enabled
@@ -367,6 +373,44 @@ def test_cli_context_reads_shared_tier_files_when_shared_backend_enabled() -> No
         assert "LOCAL_ONLY_GUARDRAIL" not in result.output
 
 
+def test_cli_context_for_pr_uses_scoped_template(monkeypatch) -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        cli_main.get_storage.cache_clear()
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+        storage.store_chunk(
+            Chunk(
+                source=ChunkSource.MANUAL,
+                source_ids=[],
+                content="adjust timeout handling in src/api/client.py",
+                label=SemanticLabel.PATTERN,
+                tags=["src/api/client.py", "api"],
+            )
+        )
+        monkeypatch.setattr(
+            cli_main,
+            "extract_git_diff_scope",
+            lambda **kwargs: DiffScope(
+                base_ref="origin/main",
+                head_ref="HEAD",
+                files=["src/api/client.py"],
+                modules=["src"],
+                renamed=[],
+                added=0,
+                modified=1,
+                deleted=0,
+                truncated=False,
+                error=None,
+            ),
+        )
+
+        result = runner.invoke(cli_main.app, ["context", "--for-pr", "--task", "api timeout"])
+        assert result.exit_code == 0
+        assert "## PR Scope" in result.output
+        assert "src/api/client.py" in result.output
+        assert "adjust timeout handling" in result.output
+
+
 def test_cli_retrieve_accepts_backend_and_tuning_overrides(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
@@ -378,7 +422,11 @@ def test_cli_retrieve_accepts_backend_and_tuning_overrides(monkeypatch) -> None:
             fusion_k: int = 60,
             rerank_enabled: bool = False,
             rerank_candidate_k: int = 20,
+            fts_weight: float = 0.4,
+            semantic_weight: float = 0.6,
+            feedback_weight: float = 0.2,
         ):
+            _ = (fts_weight, semantic_weight, feedback_weight)
             captured["backend"] = backend
             captured["fusion_k"] = fusion_k
             captured["rerank_enabled"] = rerank_enabled
@@ -457,7 +505,11 @@ def test_cli_retrieve_uses_retrieval_config_defaults(monkeypatch) -> None:
             fusion_k: int = 60,
             rerank_enabled: bool = False,
             rerank_candidate_k: int = 20,
+            fts_weight: float = 0.4,
+            semantic_weight: float = 0.6,
+            feedback_weight: float = 0.2,
         ):
+            _ = (fts_weight, semantic_weight, feedback_weight)
             captured["backend"] = backend
             captured["fusion_k"] = fusion_k
             captured["rerank_enabled"] = rerank_enabled
@@ -507,6 +559,384 @@ def test_cli_retrieve_uses_retrieval_config_defaults(monkeypatch) -> None:
         assert captured["rerank_candidate_k"] == 10
         assert captured["query"] == "semantic query"
         assert captured["top_k"] == 7
+
+
+def test_cli_retrieve_uses_memory_mode_backend_when_retrieval_default(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeRetriever:
+        def __init__(
+            self,
+            _storage,
+            backend: str = "fts5",
+            fusion_k: int = 60,
+            rerank_enabled: bool = False,
+            rerank_candidate_k: int = 20,
+            fts_weight: float = 0.4,
+            semantic_weight: float = 0.6,
+            feedback_weight: float = 0.2,
+        ):
+            _ = (
+                fusion_k,
+                rerank_enabled,
+                rerank_candidate_k,
+                fts_weight,
+                semantic_weight,
+                feedback_weight,
+            )
+            captured["backend"] = backend
+
+        def search(
+            self,
+            query: str,
+            top_k: int = 5,
+            labels=None,
+            backend=None,
+            rerank=None,
+            rerank_candidate_k=None,
+        ) -> list[Chunk]:
+            _ = (query, top_k, labels, backend, rerank, rerank_candidate_k)
+            return [
+                Chunk(
+                    source=ChunkSource.MANUAL,
+                    source_ids=[],
+                    content="memory mode result",
+                    label=SemanticLabel.PATTERN,
+                )
+            ]
+
+    monkeypatch.setattr(cli_main, "Retriever", FakeRetriever)
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        files = FileStorage(Path(".agent"))
+        config = files.read_config()
+        config["retrieval"] = {"backend": "fts5", "top_k": 5}
+        config["memory"] = {"mode": "vector_primary"}
+        files.write_config(config)
+
+        result = runner.invoke(cli_main.app, ["retrieve", "vector mode query"])
+        assert result.exit_code == 0
+        assert captured["backend"] == "vector_primary"
+
+
+def test_cli_feedback_add_and_list() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        cli_main.get_storage.cache_clear()
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+        chunk = Chunk(
+            source=ChunkSource.MANUAL,
+            source_ids=[],
+            content="bounded retry workers",
+            label=SemanticLabel.PATTERN,
+        )
+        storage.store_chunk(chunk)
+
+        add_result = runner.invoke(
+            cli_main.app,
+            [
+                "feedback",
+                "add",
+                "--query",
+                "bounded retry",
+                "--chunk-id",
+                str(chunk.id),
+                "--score",
+                "up",
+            ],
+        )
+        assert add_result.exit_code == 0
+
+        list_result = runner.invoke(
+            cli_main.app,
+            ["feedback", "list", "--query", "bounded retry"],
+        )
+        assert list_result.exit_code == 0
+        assert "bounded retry" in list_result.output
+
+
+def test_cli_feedback_evaluate_json() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        cli_main.get_storage.cache_clear()
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+        first = Chunk(
+            source=ChunkSource.MANUAL,
+            source_ids=[],
+            content="retry alpha",
+            label=SemanticLabel.PATTERN,
+        )
+        second = Chunk(
+            source=ChunkSource.MANUAL,
+            source_ids=[],
+            content="retry beta",
+            label=SemanticLabel.PATTERN,
+        )
+        storage.store_chunk(first)
+        storage.store_chunk(second)
+        storage.record_retrieval_feedback(query="retry", chunk_id=first.id, score=-1)
+        storage.record_retrieval_feedback(query="retry", chunk_id=second.id, score=1)
+
+        result = runner.invoke(cli_main.app, ["feedback", "evaluate", "--format", "json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert "queries_evaluated" in payload
+        assert "mean_feedback_score" in payload
+
+
+def test_cli_topic_threads_rebuild_and_summary() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        cli_main.get_storage.cache_clear()
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+        entry = LogEntry(
+            id=UUID("00000000-0000-0000-0000-000000000081"),
+            source=LogSource.EXTRACTED,
+            source_session_id="cursor-topic-1",
+            content="auth session cache invalidation",
+            label=SemanticLabel.PATTERN,
+            tags=["auth"],
+        )
+        storage.append_entry(entry)
+        storage.append_entry(
+            entry.model_copy(update={"id": UUID("00000000-0000-0000-0000-000000000082")})
+        )
+        storage.store_chunk(
+            Chunk(
+                source=ChunkSource.LOG_ENTRY,
+                source_ids=[entry.id],
+                content="auth session cache invalidation for stale tokens",
+                label=SemanticLabel.PATTERN,
+                tags=["src/auth/cache.py"],
+            )
+        )
+        storage.store_chunk(
+            Chunk(
+                source=ChunkSource.LOG_ENTRY,
+                source_ids=[UUID("00000000-0000-0000-0000-000000000082")],
+                content="auth cache invalidation for retry middleware",
+                label=SemanticLabel.PATTERN,
+                tags=["src/auth/retry.py"],
+            )
+        )
+
+        rebuild = runner.invoke(cli_main.app, ["topic-threads", "rebuild"])
+        assert rebuild.exit_code == 0
+        listed = runner.invoke(cli_main.app, ["topic-threads", "list"])
+        assert listed.exit_code == 0
+        assert "Topic Threads" in listed.output
+        summary = runner.invoke(cli_main.app, ["topic-threads", "summary"])
+        assert summary.exit_code == 0
+        assert "Top Active Topic Threads" in summary.output
+
+
+def test_cli_rule_confidence_refresh_and_status() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        guardrails_path = Path(".agent") / "GUARDRAILS.md"
+        style_path = Path(".agent") / "STYLE.md"
+        guardrails_path.write_text("# Guardrails\n\n- Keep tests deterministic\n", encoding="utf-8")
+        style_path.write_text("# Style\n\n- Prefer concise helpers\n", encoding="utf-8")
+
+        refresh = runner.invoke(
+            cli_main.app,
+            ["rule-confidence", "refresh", "--format", "json"],
+        )
+        assert refresh.exit_code == 0
+        payload = json.loads(refresh.output)
+        assert payload["rules_scanned"] >= 2
+
+        listed = runner.invoke(cli_main.app, ["rule-confidence", "list"])
+        assert listed.exit_code == 0
+        assert "Rule Confidence" in listed.output
+
+        decay = runner.invoke(cli_main.app, ["rule-confidence", "decay"])
+        assert decay.exit_code == 0
+
+        status = runner.invoke(cli_main.app, ["status"])
+        assert status.exit_code == 0
+        assert "Rule Confidence" in status.output
+        assert "Rules tracked:" in status.output
+
+
+def test_cli_memory_pack_export_validate_import() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        cli_main.get_storage.cache_clear()
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+        storage.store_chunk(
+            Chunk(
+                source=ChunkSource.MANUAL,
+                source_ids=[],
+                content="pack export chunk",
+                label=SemanticLabel.PATTERN,
+                tags=["pack"],
+            )
+        )
+        export_result = runner.invoke(
+            cli_main.app,
+            ["memory-pack", "export", "--output", "pack.json", "--format", "json"],
+        )
+        assert export_result.exit_code == 0
+        export_payload = json.loads(export_result.output)
+        assert export_payload["chunk_count"] >= 1
+
+        validate_result = runner.invoke(
+            cli_main.app,
+            ["memory-pack", "validate", "--input", "pack.json", "--format", "json"],
+        )
+        assert validate_result.exit_code == 0
+        validate_payload = json.loads(validate_result.output)
+        assert validate_payload["valid"] is True
+
+        import_result = runner.invoke(
+            cli_main.app,
+            ["memory-pack", "import", "--input", "pack.json", "--strategy", "append"],
+        )
+        assert import_result.exit_code == 0
+        assert "memory-pack import" in import_result.output
+
+
+def test_cli_attribution_summary_and_list() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        cli_main.get_storage.cache_clear()
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+        storage.append_entry(
+            LogEntry(
+                source=LogSource.EXTRACTED,
+                source_session_id="cursor-1",
+                content="attribution cursor entry",
+                label=SemanticLabel.PATTERN,
+                metadata={
+                    "attribution": {
+                        "agent_source": "cursor",
+                        "provider": "openai",
+                        "model": "gpt-5",
+                    }
+                },
+            )
+        )
+        storage.append_entry(
+            LogEntry(
+                source=LogSource.EXTRACTED,
+                source_session_id="codex-1",
+                content="attribution codex entry",
+                label=SemanticLabel.PATTERN,
+                metadata={
+                    "attribution": {
+                        "agent_source": "codex",
+                        "provider": "anthropic",
+                        "model": "claude",
+                    }
+                },
+            )
+        )
+
+        summary = runner.invoke(cli_main.app, ["attribution", "summary"])
+        assert summary.exit_code == 0
+        assert "By Agent" in summary.output
+
+        listed = runner.invoke(cli_main.app, ["attribution", "list", "--agent", "cursor"])
+        assert listed.exit_code == 0
+        assert "cursor" in listed.output
+
+
+def test_cli_external_compaction_queue_list_with_attribution() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        cli_main.get_storage.cache_clear()
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+        source_session_id = "attr-session-1"
+        storage.append_entry(
+            LogEntry(
+                source=LogSource.EXTRACTED,
+                source_session_id=source_session_id,
+                content="queue attribution source entry",
+                label=SemanticLabel.PATTERN,
+                metadata={
+                    "attribution": {
+                        "agent_source": "cursor",
+                        "provider": "openai",
+                        "model": "gpt-5",
+                    }
+                },
+            )
+        )
+        notes_path = Path("notes.json")
+        notes_path.write_text(
+            json.dumps(
+                {
+                    "notes": [
+                        {
+                            "tier": "GUARDRAILS",
+                            "line": "- [GOTCHA] Queue attribution test.",
+                            "source_session_ids": [source_session_id],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        add_result = runner.invoke(
+            cli_main.app,
+            ["external-compaction", "queue", "add", "--input", str(notes_path)],
+        )
+        assert add_result.exit_code == 0
+
+        list_result = runner.invoke(
+            cli_main.app,
+            [
+                "external-compaction",
+                "queue",
+                "list",
+                "--with-attribution",
+                "--format",
+                "json",
+            ],
+        )
+        assert list_result.exit_code == 0
+        payload = json.loads(list_result.output)
+        assert payload["queue"]
+        assert payload["queue"][0]["attribution"] == "cursor/openai:1"
+
+
+def test_cli_memory_mode_and_vector_migration() -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        mode_result = runner.invoke(cli_main.app, ["memory", "mode", "--set", "hybrid"])
+        assert mode_result.exit_code == 0
+        config = FileStorage(Path(".agent")).read_config()
+        assert config["memory"]["mode"] == "hybrid"
+
+        cli_main.get_storage.cache_clear()
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+        storage.store_chunk(
+            Chunk(
+                source=ChunkSource.MANUAL,
+                source_ids=[],
+                content="memory migration chunk",
+                label=SemanticLabel.PATTERN,
+                tags=["memory"],
+            )
+        )
+
+        dry_run = runner.invoke(
+            cli_main.app,
+            ["memory", "migrate-vectors", "--dry-run", "--format", "json"],
+        )
+        assert dry_run.exit_code == 0
+        payload = json.loads(dry_run.output)
+        assert payload["rows_migrated"] >= 1
+
+        commit = runner.invoke(cli_main.app, ["memory", "migrate-vectors"])
+        assert commit.exit_code == 0
+        assert "memory migrate-vectors" in commit.output
+
+        prune = runner.invoke(cli_main.app, ["memory", "prune-vectors", "--retention-days", "1"])
+        assert prune.exit_code == 0
 
 
 def test_cli_curation_list_renders_pending_entries() -> None:
@@ -891,10 +1321,10 @@ def test_cli_external_compaction_export_and_apply() -> None:
 
         apply_result = runner.invoke(
             cli_main.app,
-            ["external-compaction", "apply", "--input", str(notes_path)],
+            ["external-compaction", "apply", "--input", str(notes_path), "--commit"],
         )
         assert apply_result.exit_code == 0
-        assert "External notes applied" in apply_result.output
+        assert "External notes processed" in apply_result.output
 
         guardrails = Path(".agent/GUARDRAILS.md").read_text()
         assert "Sort migration inputs before execution." in guardrails
@@ -943,6 +1373,291 @@ def test_cli_external_compaction_cleanup_state() -> None:
         payload = json.loads(result.output)
         assert payload["removed_stale"] >= 1
         assert payload["removed"] >= 1
+
+
+def test_cli_external_compaction_apply_defaults_to_dry_run() -> None:
+    with runner.isolated_filesystem():
+        cli_main.get_storage.cache_clear()
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        notes_path = Path("notes.json")
+        notes_path.write_text(
+            json.dumps(
+                {
+                    "notes": [
+                        {
+                            "tier": "GUARDRAILS",
+                            "line": "- [GOTCHA] Keep migration lock order deterministic.",
+                            "source_session_ids": ["session-1"],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = runner.invoke(
+            cli_main.app,
+            ["external-compaction", "apply", "--input", str(notes_path), "--format", "json"],
+        )
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["dry_run"] is True
+        guardrails = Path(".agent/GUARDRAILS.md").read_text(encoding="utf-8")
+        assert "Keep migration lock order deterministic." not in guardrails
+
+
+def test_cli_external_compaction_apply_invalid_payload_json_mode() -> None:
+    with runner.isolated_filesystem():
+        cli_main.get_storage.cache_clear()
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        invalid_path = Path("invalid-notes.json")
+        invalid_path.write_text(
+            json.dumps(
+                {
+                    "notes": [
+                        {
+                            "tier": "GUARDRAILS",
+                            "line": "missing bullet prefix",
+                            "source_session_ids": [],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(
+            cli_main.app,
+            [
+                "external-compaction",
+                "apply",
+                "--input",
+                str(invalid_path),
+                "--format",
+                "json",
+            ],
+        )
+        assert result.exit_code == 20
+        payload = json.loads(result.output)
+        assert payload["error"] == "invalid_external_notes_payload"
+        assert payload["exit_code"] == 20
+
+
+def test_cli_external_compaction_template_write_target_requires_opt_in() -> None:
+    with runner.isolated_filesystem():
+        cli_main.get_storage.cache_clear()
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        Path(".agent/config.yaml").write_text(
+            """
+compaction:
+  external:
+    write_target: templates
+    allow_template_writes: false
+            """.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        cli_main.get_storage.cache_clear()
+
+        notes_path = Path("notes.json")
+        notes_path.write_text(
+            json.dumps(
+                {
+                    "notes": [
+                        {
+                            "tier": "GUARDRAILS",
+                            "line": "- [GOTCHA] Validate migration ordering before apply.",
+                            "source_session_ids": ["session-1"],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        blocked = runner.invoke(
+            cli_main.app,
+            [
+                "external-compaction",
+                "apply",
+                "--input",
+                str(notes_path),
+                "--commit",
+            ],
+        )
+        assert blocked.exit_code == 20
+        assert "Template writes are disabled" in blocked.output
+
+        allowed_runtime = runner.invoke(
+            cli_main.app,
+            [
+                "external-compaction",
+                "apply",
+                "--input",
+                str(notes_path),
+                "--write-target",
+                "runtime",
+                "--commit",
+            ],
+        )
+        assert allowed_runtime.exit_code == 0
+        guardrails = Path(".agent/GUARDRAILS.md").read_text(encoding="utf-8")
+        assert "Validate migration ordering before apply." in guardrails
+
+
+def test_cli_external_compaction_queue_review_flow() -> None:
+    with runner.isolated_filesystem():
+        cli_main.get_storage.cache_clear()
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+        source_session_id = "queue-session-1"
+        storage.append_entry(
+            LogEntry(
+                source=LogSource.EXTRACTED,
+                source_session_id=source_session_id,
+                content="Prefer reversible migrations with explicit checkpoints",
+                label=SemanticLabel.PATTERN,
+            )
+        )
+
+        notes_path = Path("queued-notes.json")
+        notes_path.write_text(
+            json.dumps(
+                {
+                    "notes": [
+                        {
+                            "tier": "GUARDRAILS",
+                            "line": "- [GOTCHA] Validate migration ordering before apply.",
+                            "source_session_ids": [source_session_id],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        queued = runner.invoke(
+            cli_main.app,
+            [
+                "external-compaction",
+                "queue",
+                "add",
+                "--input",
+                str(notes_path),
+                "--format",
+                "json",
+            ],
+        )
+        assert queued.exit_code == 0
+        queue_payload = json.loads(queued.output)
+        assert queue_payload["queued"] == 1
+        queue_id = int(queue_payload["items"][0]["id"])
+
+        approve = runner.invoke(
+            cli_main.app,
+            [
+                "external-compaction",
+                "queue",
+                "approve",
+                "--id",
+                str(queue_id),
+                "--format",
+                "json",
+            ],
+        )
+        assert approve.exit_code == 0
+        approve_payload = json.loads(approve.output)
+        assert approve_payload["updated"] == 1
+
+        preview = runner.invoke(
+            cli_main.app,
+            [
+                "external-compaction",
+                "patch-preview",
+                "--state",
+                "approved",
+                "--format",
+                "json",
+            ],
+        )
+        assert preview.exit_code == 0
+        preview_payload = json.loads(preview.output)
+        assert preview_payload["notes_considered"] >= 1
+
+        apply_approved = runner.invoke(
+            cli_main.app,
+            [
+                "external-compaction",
+                "apply-approved",
+                "--commit",
+                "--format",
+                "json",
+            ],
+        )
+        assert apply_approved.exit_code == 0
+        apply_payload = json.loads(apply_approved.output)
+        assert apply_payload["queue_items_applied"] == 1
+        assert apply_payload["notes_applied"] >= 1
+
+        second_apply = runner.invoke(
+            cli_main.app,
+            [
+                "external-compaction",
+                "apply-approved",
+                "--commit",
+                "--format",
+                "json",
+            ],
+        )
+        assert second_apply.exit_code == 0
+        second_payload = json.loads(second_apply.output)
+        assert second_payload["queue_items_considered"] == 0
+        assert second_payload["notes_applied"] == 0
+
+
+def test_cli_status_shows_backend_specific_next_step() -> None:
+    with runner.isolated_filesystem():
+        cli_main.get_storage.cache_clear()
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+
+        result = runner.invoke(cli_main.app, ["status"])
+        assert result.exit_code == 0
+        assert "Storage:    local" in result.output
+        assert "Next step: agent-recall sync --compact" in result.output
+
+
+def test_cli_status_external_compaction_guidance_when_mcp_backend_pending() -> None:
+    with runner.isolated_filesystem():
+        cli_main.get_storage.cache_clear()
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        Path(".agent/config.yaml").write_text(
+            (
+                "compaction:\n"
+                "  backend: mcp_external\n"
+                "  external:\n"
+                "    write_target: runtime\n"
+                "    allow_template_writes: false\n"
+            ),
+            encoding="utf-8",
+        )
+        cli_main.get_storage.cache_clear()
+
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+        source_session_id = "status-pending-1"
+        storage.append_entry(
+            LogEntry(
+                source=LogSource.EXTRACTED,
+                source_session_id=source_session_id,
+                content="Use explicit validation checkpoints before migrations",
+                label=SemanticLabel.GOTCHA,
+            )
+        )
+
+        result = runner.invoke(cli_main.app, ["status"])
+        assert result.exit_code == 0
+        assert "External Compaction:" in result.output
+        assert "Pending conversations: 1" in result.output
+        assert "Next step: agent-recall external-compaction export --pending-only" in result.output
 
 
 def test_cli_metrics_report_json_renders_recent_runs() -> None:

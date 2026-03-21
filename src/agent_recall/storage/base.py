@@ -273,3 +273,116 @@ class Storage(ABC):
     ) -> BackgroundSyncStatus:
         """Mark background sync as completed and return the updated status."""
         ...
+
+    # External compaction review queue APIs (optional by backend).
+    def enqueue_external_compaction_queue(
+        self,
+        notes: list[dict[str, Any]],
+        *,
+        actor: str,
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def list_external_compaction_queue(
+        self,
+        *,
+        states: list[str] | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def update_external_compaction_queue_state(
+        self,
+        *,
+        ids: list[int],
+        target_state: str,
+        actor: str,
+    ) -> dict[str, int]:
+        raise NotImplementedError
+
+    def record_external_compaction_evidence(self, notes: list[dict[str, Any]]) -> int:
+        raise NotImplementedError
+
+    def list_external_compaction_evidence(self, limit: int = 200) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def record_retrieval_feedback(
+        self,
+        *,
+        query: str,
+        chunk_id: UUID,
+        score: int,
+        actor: str = "user",
+        source: str = "cli",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def list_retrieval_feedback(
+        self,
+        *,
+        limit: int = 100,
+        query: str | None = None,
+        chunk_id: UUID | None = None,
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def get_retrieval_feedback_scores(
+        self,
+        *,
+        query: str,
+        chunk_ids: list[UUID],
+    ) -> dict[UUID, float]:
+        raise NotImplementedError
+
+    def replace_topic_threads(self, threads: list[dict[str, Any]]) -> int:
+        raise NotImplementedError
+
+    def list_topic_threads(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def get_topic_thread(
+        self,
+        thread_id: str,
+        *,
+        limit_links: int = 50,
+    ) -> dict[str, Any] | None:
+        raise NotImplementedError
+
+    def sync_rule_confidence(
+        self,
+        rules: list[dict[str, Any]],
+        *,
+        default_confidence: float = 0.6,
+        reinforcement_factor: float = 0.15,
+    ) -> dict[str, int]:
+        raise NotImplementedError
+
+    def list_rule_confidence(
+        self,
+        *,
+        limit: int = 200,
+        stale_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def decay_rule_confidence(
+        self,
+        *,
+        half_life_days: float = 45.0,
+        stale_after_days: float = 60.0,
+    ) -> dict[str, int]:
+        raise NotImplementedError
+
+    def archive_and_prune_rule_confidence(
+        self,
+        *,
+        max_confidence: float = 0.35,
+        stale_only: bool = True,
+        dry_run: bool = True,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def get_rule_confidence_summary(self) -> dict[str, Any]:
+        raise NotImplementedError

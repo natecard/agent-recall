@@ -249,6 +249,11 @@ class TranscriptExtractor:
         confidence = max(0.0, min(1.0, confidence))
 
         evidence = str(learning.get("evidence", ""))
+        attribution = {
+            "agent_source": session.source,
+            "provider": self.llm.provider_name,
+            "model": self.llm.model_name,
+        }
 
         return LogEntry(
             session_id=None,
@@ -263,6 +268,7 @@ class TranscriptExtractor:
                 "evidence": evidence,
                 "source_tool": session.source,
                 "extracted_at": datetime.now(UTC).isoformat(),
+                "attribution": attribution,
             },
         )
 

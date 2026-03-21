@@ -11,6 +11,8 @@ from agent_recall.storage.models import (
     AuditEvent,
     Chunk,
     ChunkSource,
+    LogEntry,
+    LogSource,
     SemanticLabel,
     Session,
     SessionStatus,
@@ -89,6 +91,39 @@ def test_get_session_not_found(storage):
 
     session = storage.get_session(session_id)
     assert session is None
+
+
+@respx.mock
+def test_get_entries_by_source_session_request_and_parse_dict_payload(storage):
+    source_session_id = "source-session-1"
+    entry = LogEntry(
+        source=LogSource.EXTRACTED,
+        source_session_id=source_session_id,
+        content="use explicit migration checkpoints",
+        label=SemanticLabel.PATTERN,
+    )
+    route = respx.get("http://test-server/entries/by-source-session").mock(
+        return_value=httpx.Response(200, json={"entries": [entry.model_dump(mode="json")]})
+    )
+
+    entries = storage.get_entries_by_source_session(source_session_id, limit=3)
+
+    assert route.called
+    request = route.calls.last.request
+    assert request.url.params["source_session_id"] == source_session_id
+    assert request.url.params["limit"] == "3"
+    assert len(entries) == 1
+    assert entries[0].source_session_id == source_session_id
+    assert entries[0].content == "use explicit migration checkpoints"
+
+
+@respx.mock
+def test_get_entries_by_source_session_not_found_returns_empty(storage):
+    respx.get("http://test-server/entries/by-source-session").mock(return_value=httpx.Response(404))
+
+    entries = storage.get_entries_by_source_session("missing-source-session", limit=5)
+
+    assert entries == []
 
 
 @respx.mock

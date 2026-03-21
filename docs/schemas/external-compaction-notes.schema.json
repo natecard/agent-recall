@@ -1,0 +1,40 @@
+{
+  "$defs": {
+    "ExternalCompactionNote": {
+      "properties": {
+        "line": {
+          "title": "Line",
+          "type": "string"
+        },
+        "source_session_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Session Ids",
+          "type": "array"
+        },
+        "tier": {
+          "title": "Tier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tier",
+        "line"
+      ],
+      "title": "ExternalCompactionNote",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "notes": {
+      "items": {
+        "$ref": "#/$defs/ExternalCompactionNote"
+      },
+      "title": "Notes",
+      "type": "array"
+    }
+  },
+  "title": "ExternalCompactionNotesPayload",
+  "type": "object"
+}

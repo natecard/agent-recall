@@ -11,10 +11,16 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from agent_recall.core.guardrail_enforcement import (
+    GuardrailSuppressionStore,
+    evaluate_guardrail_text,
+    is_guardrail_enforcement_enabled,
+    parse_guardrail_rules,
+)
 from agent_recall.ralph.costs import budget_exceeded, summarize_costs
 from agent_recall.ralph.iteration_store import IterationReportStore
 from agent_recall.storage.base import Storage
-from agent_recall.storage.files import FileStorage
+from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.models import RalphNotificationEvent
 
 # CLI binary lookup for Ralph-supported coding agents.
@@ -355,6 +361,15 @@ class RalphLoop:
             if isinstance(cost_budget_value, int | float) and cost_budget_value >= 0
             else None
         )
+        guardrail_enforcement_enabled = is_guardrail_enforcement_enabled(config_dict)
+        guardrail_rules = (
+            parse_guardrail_rules(self.files.read_tier(KnowledgeTier.GUARDRAILS))
+            if guardrail_enforcement_enabled
+            else []
+        )
+        suppression_store = GuardrailSuppressionStore(
+            self.agent_dir / "guardrail_suppressions.json"
+        )
 
         passed = 0
         failed = 0
@@ -376,7 +391,61 @@ class RalphLoop:
                 },
             )
 
-            if coding_cli:
+            violations = (
+                evaluate_guardrail_text(
+                    f"{item_id_value} {title}",
+                    guardrail_rules,
+                    suppression_store=suppression_store,
+                )
+                if guardrail_rules
+                else []
+            )
+            warn_violations = [item for item in violations if item.severity == "warn"]
+            block_violations = [item for item in violations if item.severity == "block"]
+            for violation in warn_violations:
+                self._emit_progress(
+                    progress_callback,
+                    {
+                        "event": "output_line",
+                        "line": (
+                            f"Guardrail warning for item {item_id_value}: {violation.description}"
+                        ),
+                        "iteration": index,
+                        "item_id": item_id_value,
+                    },
+                )
+
+            if block_violations:
+                self._emit_progress(
+                    progress_callback,
+                    {
+                        "event": "guardrail_blocked",
+                        "iteration": index,
+                        "item_id": item_id_value,
+                        "violations": [
+                            {
+                                "rule_id": violation.rule_id,
+                                "description": violation.description,
+                                "pattern": violation.pattern,
+                            }
+                            for violation in block_violations
+                        ],
+                    },
+                )
+                self._emit_progress(
+                    progress_callback,
+                    {
+                        "event": "output_line",
+                        "line": (
+                            "Guardrail blocked PRD item "
+                            f"{item_id_value}: {block_violations[0].description}"
+                        ),
+                        "iteration": index,
+                        "item_id": item_id_value,
+                    },
+                )
+                exit_code = 2
+            elif coding_cli:
                 exit_code = await self._run_agent_subprocess(
                     coding_cli=coding_cli,
                     cli_model=cli_model,

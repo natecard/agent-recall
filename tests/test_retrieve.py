@@ -183,3 +183,65 @@ def test_retrieval_uses_semantic_embedder_for_384_dimension(storage, monkeypatch
     results = retriever.search(query, top_k=5, backend="hybrid")
 
     assert any(result.id == chunk.id for result in results)
+
+
+def test_retrieval_feedback_signal_reorders_rerank_candidates(storage, monkeypatch) -> None:
+    query = "retry policy"
+    first = Chunk(
+        id=UUID("00000000-0000-0000-0000-000000000031"),
+        source=ChunkSource.MANUAL,
+        source_ids=[],
+        content="retry policy alpha",
+        label=SemanticLabel.PATTERN,
+    )
+    second = Chunk(
+        id=UUID("00000000-0000-0000-0000-000000000032"),
+        source=ChunkSource.MANUAL,
+        source_ids=[],
+        content="retry policy beta",
+        label=SemanticLabel.PATTERN,
+    )
+    storage.store_chunk(first)
+    storage.store_chunk(second)
+
+    monkeypatch.setattr(storage, "search_chunks_fts", lambda query, top_k: [first, second][:top_k])
+    monkeypatch.setattr(
+        Retriever,
+        "_lexical_overlap_score",
+        lambda self, query_terms, query_text, chunk: 0.5,
+    )
+
+    retriever = Retriever(storage, rerank_enabled=True, rerank_candidate_k=2)
+    baseline = retriever.search(query=query, top_k=1, rerank=True, rerank_candidate_k=2)
+    assert baseline[0].id == first.id
+
+    storage.record_retrieval_feedback(query=query, chunk_id=first.id, score=-1)
+    storage.record_retrieval_feedback(query=query, chunk_id=second.id, score=1)
+
+    feedback_ranked = retriever.search(query=query, top_k=1, rerank=True, rerank_candidate_k=2)
+    assert feedback_ranked[0].id == second.id
+
+
+def test_retrieval_vector_primary_uses_semantic_then_fts_fallback(storage) -> None:
+    query = "transaction outbox reliability"
+    semantic = Chunk(
+        source=ChunkSource.MANUAL,
+        source_ids=[],
+        content="semantic-only chunk",
+        label=SemanticLabel.PATTERN,
+        embedding=generate_embedding(query, dimensions=16),
+    )
+    lexical = Chunk(
+        source=ChunkSource.MANUAL,
+        source_ids=[],
+        content="transaction outbox reliability checklist",
+        label=SemanticLabel.PATTERN,
+    )
+    storage.store_chunk(semantic)
+    storage.store_chunk(lexical)
+
+    retriever = Retriever(storage, backend="vector_primary")
+    results = retriever.search(query=query, top_k=2, backend="vector_primary")
+
+    assert results[0].id == semantic.id
+    assert any(chunk.id == lexical.id for chunk in results)

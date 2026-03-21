@@ -39,10 +39,27 @@ class TranscriptIngestor:
             if not content:
                 continue
 
+            attribution: dict[str, str] = {
+                "agent_source": str(
+                    payload.get("source") or payload.get("agent") or payload.get("tool") or "jsonl"
+                )
+            }
+            provider = payload.get("provider")
+            model = payload.get("model")
+            if isinstance(provider, str) and provider.strip():
+                attribution["provider"] = provider.strip()
+            if isinstance(model, str) and model.strip():
+                attribution["model"] = model.strip()
+
             self.log_writer.log(
                 content=content,
                 label=default_label,
                 source=LogSource.INGESTED,
+                source_session_id=source_session_id,
+                metadata={
+                    "attribution": attribution,
+                    "ingested_from": str(path),
+                },
             )
             count += 1
 

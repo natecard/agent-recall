@@ -258,7 +258,7 @@ class CompactionEngine:
                 source_ids=[entry.id],
                 content=entry.content,
                 label=entry.label,
-                tags=entry.tags,
+                tags=list(dict.fromkeys([*entry.tags, *self._attribution_tags(entry)])),
                 embedding=None,
             )
             self.storage.store_chunk(chunk)
@@ -283,6 +283,23 @@ class CompactionEngine:
         for entry in entries:
             lines.append(f"- id={entry.id} [{entry.label.value}] {entry.content}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _attribution_tags(entry: LogEntry) -> list[str]:
+        metadata = entry.metadata if isinstance(entry.metadata, dict) else {}
+        attribution = metadata.get("attribution")
+        if not isinstance(attribution, dict):
+            return []
+        tags: list[str] = []
+        for key, prefix in (
+            ("agent_source", "agent"),
+            ("provider", "provider"),
+            ("model", "model"),
+        ):
+            value = attribution.get(key)
+            if isinstance(value, str) and value.strip():
+                tags.append(f"{prefix}:{value.strip().lower()}")
+        return tags
 
     @staticmethod
     def _normalize_line(line: str) -> str:

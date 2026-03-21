@@ -199,10 +199,19 @@ class _HTTPClient(Storage):
             "/entries/by-source-session",
             params={"source_session_id": source_session_id, "limit": limit},
         )
-        if response.status_code == 404:
+        if response.status_code in {404, 204}:
             return []
         response.raise_for_status()
-        return [LogEntry.model_validate(e) for e in response.json()]
+        payload = response.json()
+        if isinstance(payload, dict):
+            raw_entries = payload.get("entries", [])
+        elif isinstance(payload, list):
+            raw_entries = payload
+        else:
+            raw_entries = []
+        if not isinstance(raw_entries, list):
+            return []
+        return [LogEntry.model_validate(item) for item in raw_entries if isinstance(item, dict)]
 
     def get_entries_by_label(
         self,
@@ -467,6 +476,103 @@ class _HTTPClient(Storage):
         )
         return BackgroundSyncStatus.model_validate(response.json())
 
+    def record_retrieval_feedback(
+        self,
+        *,
+        query: str,
+        chunk_id: UUID,
+        score: int,
+        actor: str = "user",
+        source: str = "cli",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        raise NotImplementedError(
+            "HTTP shared backend does not expose retrieval feedback endpoints yet."
+        )
+
+    def list_retrieval_feedback(
+        self,
+        *,
+        limit: int = 100,
+        query: str | None = None,
+        chunk_id: UUID | None = None,
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError(
+            "HTTP shared backend does not expose retrieval feedback endpoints yet."
+        )
+
+    def get_retrieval_feedback_scores(
+        self,
+        *,
+        query: str,
+        chunk_ids: list[UUID],
+    ) -> dict[UUID, float]:
+        raise NotImplementedError(
+            "HTTP shared backend does not expose retrieval feedback endpoints yet."
+        )
+
+    def replace_topic_threads(self, threads: list[dict[str, Any]]) -> int:
+        raise NotImplementedError("HTTP shared backend does not expose topic thread endpoints yet.")
+
+    def list_topic_threads(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        raise NotImplementedError("HTTP shared backend does not expose topic thread endpoints yet.")
+
+    def get_topic_thread(
+        self,
+        thread_id: str,
+        *,
+        limit_links: int = 50,
+    ) -> dict[str, Any] | None:
+        raise NotImplementedError("HTTP shared backend does not expose topic thread endpoints yet.")
+
+    def sync_rule_confidence(
+        self,
+        rules: list[dict[str, Any]],
+        *,
+        default_confidence: float = 0.6,
+        reinforcement_factor: float = 0.15,
+    ) -> dict[str, int]:
+        raise NotImplementedError(
+            "HTTP shared backend does not expose rule confidence endpoints yet."
+        )
+
+    def list_rule_confidence(
+        self,
+        *,
+        limit: int = 200,
+        stale_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError(
+            "HTTP shared backend does not expose rule confidence endpoints yet."
+        )
+
+    def decay_rule_confidence(
+        self,
+        *,
+        half_life_days: float = 45.0,
+        stale_after_days: float = 60.0,
+    ) -> dict[str, int]:
+        raise NotImplementedError(
+            "HTTP shared backend does not expose rule confidence endpoints yet."
+        )
+
+    def archive_and_prune_rule_confidence(
+        self,
+        *,
+        max_confidence: float = 0.35,
+        stale_only: bool = True,
+        dry_run: bool = True,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError(
+            "HTTP shared backend does not expose rule confidence endpoints yet."
+        )
+
+    def get_rule_confidence_summary(self) -> dict[str, Any]:
+        raise NotImplementedError(
+            "HTTP shared backend does not expose rule confidence endpoints yet."
+        )
+
 
 class RemoteStorage(Storage):
     """
@@ -515,6 +621,7 @@ class RemoteStorage(Storage):
                 sqlite3.OperationalError,
                 OSError,
                 SharedBackendUnavailableError,
+                NotImplementedError,
             ) as e:
                 last_error = e
                 if i < attempts - 1:
@@ -530,6 +637,8 @@ class RemoteStorage(Storage):
                 pass
 
         if last_error:
+            if isinstance(last_error, NotImplementedError):
+                raise last_error
             raise SharedBackendUnavailableError(
                 f"Shared storage operation '{method_name}' failed after {attempts} attempts"
             ) from last_error
@@ -684,3 +793,116 @@ class RemoteStorage(Storage):
             learnings_extracted,
             error_message,
         )
+
+    def record_retrieval_feedback(
+        self,
+        *,
+        query: str,
+        chunk_id: UUID,
+        score: int,
+        actor: str = "user",
+        source: str = "cli",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._execute(
+            "record_retrieval_feedback",
+            query=query,
+            chunk_id=chunk_id,
+            score=score,
+            actor=actor,
+            source=source,
+            metadata=metadata,
+        )
+
+    def list_retrieval_feedback(
+        self,
+        *,
+        limit: int = 100,
+        query: str | None = None,
+        chunk_id: UUID | None = None,
+    ) -> list[dict[str, Any]]:
+        return self._execute(
+            "list_retrieval_feedback",
+            limit=limit,
+            query=query,
+            chunk_id=chunk_id,
+        )
+
+    def get_retrieval_feedback_scores(
+        self,
+        *,
+        query: str,
+        chunk_ids: list[UUID],
+    ) -> dict[UUID, float]:
+        return self._execute(
+            "get_retrieval_feedback_scores",
+            query=query,
+            chunk_ids=chunk_ids,
+        )
+
+    def replace_topic_threads(self, threads: list[dict[str, Any]]) -> int:
+        return self._execute("replace_topic_threads", threads)
+
+    def list_topic_threads(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        return self._execute("list_topic_threads", limit=limit)
+
+    def get_topic_thread(
+        self,
+        thread_id: str,
+        *,
+        limit_links: int = 50,
+    ) -> dict[str, Any] | None:
+        return self._execute("get_topic_thread", thread_id, limit_links=limit_links)
+
+    def sync_rule_confidence(
+        self,
+        rules: list[dict[str, Any]],
+        *,
+        default_confidence: float = 0.6,
+        reinforcement_factor: float = 0.15,
+    ) -> dict[str, int]:
+        return self._execute(
+            "sync_rule_confidence",
+            rules,
+            default_confidence=default_confidence,
+            reinforcement_factor=reinforcement_factor,
+        )
+
+    def list_rule_confidence(
+        self,
+        *,
+        limit: int = 200,
+        stale_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        return self._execute("list_rule_confidence", limit=limit, stale_only=stale_only)
+
+    def decay_rule_confidence(
+        self,
+        *,
+        half_life_days: float = 45.0,
+        stale_after_days: float = 60.0,
+    ) -> dict[str, int]:
+        return self._execute(
+            "decay_rule_confidence",
+            half_life_days=half_life_days,
+            stale_after_days=stale_after_days,
+        )
+
+    def archive_and_prune_rule_confidence(
+        self,
+        *,
+        max_confidence: float = 0.35,
+        stale_only: bool = True,
+        dry_run: bool = True,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        return self._execute(
+            "archive_and_prune_rule_confidence",
+            max_confidence=max_confidence,
+            stale_only=stale_only,
+            dry_run=dry_run,
+            limit=limit,
+        )
+
+    def get_rule_confidence_summary(self) -> dict[str, Any]:
+        return self._execute("get_rule_confidence_summary")

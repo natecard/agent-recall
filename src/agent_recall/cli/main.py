@@ -14,7 +14,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 from uuid import UUID
 
 import httpx
@@ -53,6 +53,16 @@ from agent_recall.core.embedding_diagnostics import EmbeddingDiagnostics
 from agent_recall.core.embedding_indexer import EmbeddingIndexer
 from agent_recall.core.ingest import TranscriptIngestor
 from agent_recall.core.log import LogWriter
+from agent_recall.core.memory_pack import (
+    PACK_FORMAT,
+    PACK_VERSION,
+    MergeStrategy,
+    build_memory_pack,
+    import_memory_pack,
+    read_memory_pack,
+    validate_memory_pack,
+    write_memory_pack,
+)
 from agent_recall.core.onboarding import (
     apply_repo_setup,
     discover_coding_cli_models,
@@ -64,7 +74,14 @@ from agent_recall.core.onboarding import (
     is_interactive_terminal,
     is_repo_onboarding_complete,
 )
+from agent_recall.core.pr_context import (
+    build_pr_context_output,
+    extract_git_diff_scope,
+    filter_chunks_for_scope,
+)
+from agent_recall.core.retrieval_feedback import evaluate_feedback_impact
 from agent_recall.core.retrieve import Retriever
+from agent_recall.core.rule_confidence import snapshot_rules
 from agent_recall.core.session import SessionManager
 from agent_recall.core.sync import AutoSync
 from agent_recall.core.telemetry import PipelineTelemetry
@@ -80,11 +97,14 @@ from agent_recall.core.tier_writer import (
     get_tier_statistics,
     lint_tier_file,
 )
+from agent_recall.core.topic_threads import build_topic_threads
 from agent_recall.external_compaction import (
     ExternalCompactionService,
     run_external_compaction_mcp,
 )
+from agent_recall.external_compaction.models import ExternalNotesValidationError
 from agent_recall.external_compaction.service import WriteTarget
+from agent_recall.external_compaction.write_guard import ExternalWriteScopeGuard
 from agent_recall.ingest import get_default_ingesters, get_ingester
 from agent_recall.ingest.sources import (
     VALID_SOURCE_NAMES,
@@ -100,6 +120,14 @@ from agent_recall.llm import (
     validate_provider_config,
 )
 from agent_recall.llm.coding_cli import CodingCLIProvider
+from agent_recall.memory import (
+    ExternalEmbeddingProvider,
+    LocalEmbeddingProvider,
+    LocalVectorStore,
+    MarkdownMemoryStore,
+    TurboPufferVectorStore,
+    VectorRecord,
+)
 from agent_recall.ralph.costs import format_usd, summarize_costs
 from agent_recall.ralph.iteration_store import IterationOutcome, IterationReportStore
 from agent_recall.storage import create_storage_backend
@@ -112,6 +140,7 @@ from agent_recall.storage.migrations.migrate_to_embeddings import (
 from agent_recall.storage.models import (
     CurationStatus,
     LLMConfig,
+    LogEntry,
     PipelineEventAction,
     PipelineStage,
     RetrievalConfig,
@@ -272,6 +301,8 @@ compaction:
   backend: llm
   external:
     write_target: runtime
+    allow_template_writes: false
+    conflict_policy: prefer_newest
     pending_limit: 20
   max_recent_tokens: 1500
   max_sessions_before_compact: 5
@@ -300,6 +331,31 @@ retrieval:
   embedding_enabled: false
   embedding_dimensions: 64
 
+memory:
+  mode: markdown
+  vector_backend: local
+  embedding_provider: local
+  fusion_fts_weight: 0.4
+  fusion_semantic_weight: 0.6
+  feedback_weight: 0.2
+  migration_batch_size: 100
+  local_model_path: null
+  external_embedding_base_url: null
+  external_embedding_api_key_env: OPENAI_API_KEY
+  external_embedding_model: text-embedding-3-small
+  external_embedding_timeout_seconds: 10.0
+  cost:
+    max_external_embedding_usd: 1.0
+    max_vector_records: 20000
+  privacy:
+    redaction_patterns: []
+    retention_days: 90
+  turbopuffer:
+    base_url: null
+    api_key_env: TURBOPUFFER_API_KEY
+    timeout_seconds: 10.0
+    retry_attempts: 2
+
 storage:
   backend: local
   shared:
@@ -311,6 +367,10 @@ storage:
 
 telemetry:
   enabled: true
+
+guardrails:
+  enforcement:
+    enabled: false
 
 theme:
   name: dark+
@@ -396,33 +456,22 @@ def _build_external_compaction_service(
 
 
 def _resolve_external_write_target(files: FileStorage) -> WriteTarget:
-    config = files.read_config()
-    if not isinstance(config, dict):
-        return "runtime"
-    compaction_cfg = config.get("compaction")
-    if not isinstance(compaction_cfg, dict):
-        return "runtime"
-    external_cfg = compaction_cfg.get("external")
-    if not isinstance(external_cfg, dict):
-        return "runtime"
-    raw_target = str(external_cfg.get("write_target", "runtime")).strip().lower()
-    if raw_target == "templates":
-        return "templates"
-    return "runtime"
+    guard = ExternalWriteScopeGuard.from_config(
+        repo_root=Path.cwd(),
+        config=files.read_config(),
+    )
+    return guard.resolve_target()
 
 
 def _resolve_external_write_target_override(
     files: FileStorage,
     override: str | None,
 ) -> WriteTarget:
-    if override is None:
-        return _resolve_external_write_target(files)
-    target = str(override).strip().lower()
-    if target not in {"runtime", "templates"}:
-        raise ValueError("write-target must be 'runtime' or 'templates'")
-    if target == "templates":
-        return "templates"
-    return "runtime"
+    guard = ExternalWriteScopeGuard.from_config(
+        repo_root=Path.cwd(),
+        config=files.read_config(),
+    )
+    return guard.resolve_target(override)
 
 
 def get_llm():
@@ -456,9 +505,9 @@ def _load_retrieval_config(files: FileStorage) -> RetrievalConfig:
 
 def _normalize_retrieval_backend(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized in {"fts5", "hybrid"}:
+    if normalized in {"fts5", "hybrid", "vector_primary"}:
         return normalized
-    raise ValueError("Invalid retrieval backend. Use 'fts5' or 'hybrid'.")
+    raise ValueError("Invalid retrieval backend. Use 'fts5', 'hybrid', or 'vector_primary'.")
 
 
 def _build_retriever(
@@ -471,20 +520,48 @@ def _build_retriever(
     rerank_candidate_k: int | None = None,
 ) -> tuple[Retriever, RetrievalConfig]:
     retrieval_cfg = _load_retrieval_config(files)
+    config_dict = files.read_config()
+    memory_cfg = config_dict.get("memory", {}) if isinstance(config_dict, dict) else {}
+    if not isinstance(memory_cfg, dict):
+        memory_cfg = {}
+    mode_backend = {
+        "markdown": "fts5",
+        "hybrid": "hybrid",
+        "vector_primary": "vector_primary",
+    }
+    configured_mode = str(memory_cfg.get("mode", "")).strip().lower()
+    default_backend = retrieval_cfg.backend
+    if retrieval_cfg.backend == "fts5":
+        default_backend = mode_backend.get(configured_mode, retrieval_cfg.backend)
     selected_backend = (
-        _normalize_retrieval_backend(backend) if backend is not None else retrieval_cfg.backend
+        _normalize_retrieval_backend(backend) if backend is not None else default_backend
     )
     selected_fusion_k = fusion_k if fusion_k is not None else retrieval_cfg.fusion_k
     selected_rerank = retrieval_cfg.rerank_enabled if rerank is None else rerank
     selected_rerank_candidate_k = (
         rerank_candidate_k if rerank_candidate_k is not None else retrieval_cfg.rerank_candidate_k
     )
+    try:
+        fts_weight = float(memory_cfg.get("fusion_fts_weight", 0.4))
+    except (TypeError, ValueError):
+        fts_weight = 0.4
+    try:
+        semantic_weight = float(memory_cfg.get("fusion_semantic_weight", 0.6))
+    except (TypeError, ValueError):
+        semantic_weight = 0.6
+    try:
+        feedback_weight = float(memory_cfg.get("feedback_weight", 0.2))
+    except (TypeError, ValueError):
+        feedback_weight = 0.2
     retriever = Retriever(
         storage,
         backend=selected_backend,
         fusion_k=selected_fusion_k,
         rerank_enabled=selected_rerank,
         rerank_candidate_k=selected_rerank_candidate_k,
+        fts_weight=fts_weight,
+        semantic_weight=semantic_weight,
+        feedback_weight=feedback_weight,
     )
     return retriever, retrieval_cfg
 
@@ -782,6 +859,138 @@ def _parse_named_token_budgets(raw_value: str, *, label: str) -> dict[str, int]:
             raise typer.Exit(1)
         parsed[name] = tokens
     return parsed
+
+
+def _entry_attribution_fields(entry: LogEntry) -> tuple[str, str, str]:
+    metadata = entry.metadata if isinstance(entry.metadata, dict) else {}
+    attribution = metadata.get("attribution")
+    if isinstance(attribution, dict):
+        agent_source = str(attribution.get("agent_source") or "").strip()
+        provider = str(attribution.get("provider") or "").strip()
+        model = str(attribution.get("model") or "").strip()
+    else:
+        agent_source = ""
+        provider = ""
+        model = ""
+
+    if not agent_source:
+        agent_source = entry.source.value
+    if not provider:
+        provider = "unknown"
+    if not model:
+        model = "unknown"
+    return agent_source, provider, model
+
+
+def _collect_entries_for_attribution(
+    storage: Storage,
+    *,
+    limit_per_status: int = 300,
+) -> list[LogEntry]:
+    entries: list[LogEntry] = []
+    seen: set[UUID] = set()
+    for status in (CurationStatus.APPROVED, CurationStatus.PENDING, CurationStatus.REJECTED):
+        for entry in storage.list_entries_by_curation_status(status=status, limit=limit_per_status):
+            if entry.id in seen:
+                continue
+            seen.add(entry.id)
+            entries.append(entry)
+    return entries
+
+
+def _format_source_session_attribution(
+    storage: Storage,
+    source_session_ids: list[str],
+) -> str:
+    counts: dict[str, int] = {}
+    for source_session_id in source_session_ids:
+        entries = storage.get_entries_by_source_session(source_session_id, limit=200)
+        for entry in entries:
+            agent_source, provider, _model = _entry_attribution_fields(entry)
+            key = f"{agent_source}/{provider}"
+            counts[key] = counts.get(key, 0) + 1
+    if not counts:
+        return "-"
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    top = [f"{name}:{count}" for name, count in ranked[:2]]
+    return ", ".join(top)
+
+
+def _read_memory_config(files: FileStorage) -> dict[str, Any]:
+    config = files.read_config()
+    memory_cfg = config.get("memory", {}) if isinstance(config, dict) else {}
+    return memory_cfg if isinstance(memory_cfg, dict) else {}
+
+
+def _compile_redaction_patterns(patterns: object) -> list[re.Pattern[str]]:
+    if not isinstance(patterns, list):
+        return []
+    compiled: list[re.Pattern[str]] = []
+    for raw in patterns:
+        if not isinstance(raw, str):
+            continue
+        text = raw.strip()
+        if not text:
+            continue
+        try:
+            compiled.append(re.compile(text, flags=re.IGNORECASE))
+        except re.error:
+            continue
+    return compiled
+
+
+def _redact_text(text: str, patterns: list[re.Pattern[str]]) -> tuple[str, bool]:
+    redacted = text
+    changed = False
+    for pattern in patterns:
+        redacted_next = pattern.sub("[REDACTED]", redacted)
+        if redacted_next != redacted:
+            changed = True
+            redacted = redacted_next
+    return redacted, changed
+
+
+def _collect_memory_rows(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    tiers = snapshot.get("tiers")
+    if isinstance(tiers, dict):
+        for tier_name, content in tiers.items():
+            if not isinstance(content, str):
+                continue
+            for line in content.splitlines():
+                stripped = line.strip()
+                if not stripped.startswith("- "):
+                    continue
+                text = stripped[2:].strip()
+                if not text:
+                    continue
+                row_id = str(abs(hash(f"{tier_name}:{text}")))
+                rows.append(
+                    {
+                        "id": f"tier-{row_id}",
+                        "text": text,
+                        "label": str(tier_name).lower(),
+                        "tags": [str(tier_name).lower()],
+                    }
+                )
+
+    chunks = snapshot.get("chunks")
+    if isinstance(chunks, list):
+        for chunk in chunks:
+            if not isinstance(chunk, dict):
+                continue
+            text = str(chunk.get("content", "")).strip()
+            if not text:
+                continue
+            rows.append(
+                {
+                    "id": str(chunk.get("id", "")) or f"chunk-{abs(hash(text))}",
+                    "text": text,
+                    "label": str(chunk.get("label", "unknown")),
+                    "tags": [str(tag) for tag in chunk.get("tags", []) if str(tag).strip()],
+                }
+            )
+    return rows
 
 
 def _normalize_tui_output_line(line: str) -> str:
@@ -1161,6 +1370,27 @@ def end(summary: str = typer.Argument(..., help="Summary of what was accomplishe
 def context(
     task: str | None = typer.Option(None, "--task", "-t", help="Task for relevant retrieval"),
     output_format: str = typer.Option("md", "--format", "-f", help="Output format: md or json"),
+    for_pr: bool = typer.Option(
+        False,
+        "--for-pr",
+        help="Render PR-scoped context using git diff and code-review template",
+    ),
+    base_ref: str = typer.Option(
+        "HEAD~1",
+        "--base-ref",
+        help="Base git ref for --for-pr scope extraction",
+    ),
+    head_ref: str = typer.Option(
+        "HEAD",
+        "--head-ref",
+        help="Head git ref for --for-pr scope extraction",
+    ),
+    max_diff_files: int = typer.Option(
+        200,
+        "--max-diff-files",
+        min=1,
+        help="Maximum changed files to include in --for-pr scope",
+    ),
     top_k: int | None = typer.Option(
         None,
         "--top-k",
@@ -1213,15 +1443,45 @@ def context(
         retriever=retriever,
         retrieval_top_k=top_k if top_k is not None else retrieval_cfg.top_k,
     )
-    output = context_asm.assemble(task=task)
+    effective_top_k = top_k if top_k is not None else retrieval_cfg.top_k
+
+    if for_pr:
+        scope = extract_git_diff_scope(
+            repo_root=Path.cwd(),
+            base_ref=base_ref,
+            head_ref=head_ref,
+            max_files=max_diff_files,
+        )
+        inferred_query = task
+        if inferred_query is None and scope.modules:
+            inferred_query = " ".join(scope.modules[:5])
+        if inferred_query is None and scope.files:
+            inferred_query = " ".join(Path(path).stem for path in scope.files[:5])
+
+        raw_chunks = (
+            retriever.search(query=inferred_query, top_k=effective_top_k)
+            if inferred_query is not None and inferred_query.strip()
+            else []
+        )
+        scoped_chunks = filter_chunks_for_scope(raw_chunks, scope)[:effective_top_k]
+        output = build_pr_context_output(
+            files=files,
+            scope=scope,
+            chunks=scoped_chunks,
+            query=inferred_query,
+        )
+    else:
+        output = context_asm.assemble(task=task)
 
     if output_format == "md":
         console.print(output)
         return
 
     if output_format == "json":
-        payload = {"task": task, "context": output}
-        console.print(json.dumps(payload, indent=2))
+        payload = {"task": task, "for_pr": for_pr, "context": output}
+        if for_pr:
+            payload["scope"] = scope.to_dict()
+        typer.echo(json.dumps(payload, indent=2))
         return
 
     console.print("[error]Invalid format. Use 'md' or 'json'.[/error]")
@@ -1706,7 +1966,14 @@ def sync(
             lines.append(
                 f"  Pending conversations: {int(comp.get('pending_external_conversations', 0))}"
             )
+            lines.append(
+                "  [warning]Synthesis deferred until external notes are applied.[/warning]"
+            )
             lines.append("  Next step: agent-recall external-compaction export --pending-only")
+            lines.append(
+                "  Remediation: agent-recall external-compaction apply "
+                "--input <notes.json> --commit"
+            )
         changed_files = []
         if comp.get("guardrails_updated"):
             changed_files.append(".agent/GUARDRAILS.md")
@@ -1720,8 +1987,11 @@ def sync(
     elif compact:
         lines.append("")
         lines.append("[bold]Knowledge synthesis:[/bold]")
-        lines.append("  Status: skipped (no new learnings extracted)")
-        lines.append("[dim]Use `--force` to run synthesis without new ingestion.[/dim]")
+        lines.append("  Status: skipped (no new learnings extracted during this sync run)")
+        lines.append("  Remediation: agent-recall sync --compact --force")
+        lines.append(
+            "  Review pending sessions: agent-recall external-compaction list --pending-only"
+        )
 
     if results.get("errors"):
         errors = results["errors"]
@@ -2400,7 +2670,7 @@ def sessions(
                 for session_row in results["sessions"]
             ],
         }
-        console.print(json.dumps(payload, indent=2))
+        typer.echo(json.dumps(payload, indent=2))
         return
 
     if output_format != "table":
@@ -2608,6 +2878,7 @@ def status():
     _get_theme_manager()  # Ensure theme is loaded
     storage = get_storage()
     files = get_files()
+    config_dict = files.read_config()
 
     stats = storage.get_stats()
     guardrails = files.read_tier(KnowledgeTier.GUARDRAILS)
@@ -2615,6 +2886,23 @@ def status():
     recent = files.read_tier(KnowledgeTier.RECENT)
     selected_sources = _get_repo_selected_sources(files)
     adapter_config = _read_adapter_config(files)
+    storage_cfg = config_dict.get("storage", {}) if isinstance(config_dict, dict) else {}
+    compaction_cfg = config_dict.get("compaction", {}) if isinstance(config_dict, dict) else {}
+    shared_cfg = storage_cfg.get("shared", {}) if isinstance(storage_cfg, dict) else {}
+    storage_backend = (
+        str(storage_cfg.get("backend", "local")).strip().lower()
+        if isinstance(storage_cfg, dict)
+        else "local"
+    )
+    shared_base_url = (
+        str(shared_cfg.get("base_url", "")).strip() if isinstance(shared_cfg, dict) else ""
+    )
+    compaction_backend = (
+        str(compaction_cfg.get("backend", "llm")).strip().lower()
+        if isinstance(compaction_cfg, dict)
+        else "llm"
+    )
+    shared_hint = f" ({shared_base_url})" if storage_backend == "shared" and shared_base_url else ""
 
     lines = [
         "[bold]Knowledge Base:[/bold]",
@@ -2631,14 +2919,50 @@ def status():
         f"  Completed: {'yes' if is_repo_onboarding_complete(files) else 'no'}",
         f"  Agents:    {', '.join(selected_sources) if selected_sources else 'all'}",
         "",
+        "[bold]Backends:[/bold]",
+        f"  Storage:    {storage_backend}{shared_hint}",
+        f"  Compaction: {compaction_backend}",
+        (
+            "  Next step: agent-recall sync --compact"
+            if storage_backend == "local"
+            else "  Next step: agent-recall sync --compact --source cursor"
+        ),
+        "",
         "[bold]Context Adapters:[/bold]",
         f"  Enabled: {'yes' if bool(adapter_config.get('enabled')) else 'no'}",
         f"  Output dir: {adapter_config.get('output_dir') or '.agent/context'}",
         f"  Token budget: {_format_adapter_token_budget(adapter_config)}",
         f"  Per-adapter budgets: {_format_adapter_budgets(adapter_config)}",
         "",
-        "[bold]Session Sources:[/bold]",
+        "[bold]Rule Confidence:[/bold]",
     ]
+
+    try:
+        rule_summary = storage.get_rule_confidence_summary()
+    except NotImplementedError:
+        rule_summary = None
+
+    if isinstance(rule_summary, dict):
+        lines.extend(
+            [
+                f"  Rules tracked: {int(rule_summary.get('total_rules', 0))}",
+                f"  Stale rules: {int(rule_summary.get('stale_rules', 0))}",
+                (f"  Low confidence: {int(rule_summary.get('low_confidence_rules', 0))}"),
+                (f"  Average confidence: {float(rule_summary.get('average_confidence', 0.0)):.2f}"),
+            ]
+        )
+        oldest_signal = rule_summary.get("oldest_signal_at")
+        if oldest_signal:
+            lines.append(f"  Oldest signal: {oldest_signal}")
+    else:
+        lines.append("  Rules tracked: n/a")
+
+    lines.extend(
+        [
+            "",
+            "[bold]Session Sources:[/bold]",
+        ]
+    )
 
     source_lines: list[str] = []
 
@@ -2680,7 +3004,26 @@ def status():
     if bg_status.error_message:
         lines.append(f"  [error]Last error: {bg_status.error_message}[/error]")
 
-    config_dict = files.read_config()
+    if compaction_backend == "mcp_external":
+        try:
+            service = _build_external_compaction_service(storage, files)
+            pending = service.list_imported_conversations(limit=50, pending_only=True)
+            lines.append("")
+            lines.append("[bold]External Compaction:[/bold]")
+            lines.append(f"  Pending conversations: {len(pending)}")
+            if pending:
+                lines.append("  Next step: agent-recall external-compaction export --pending-only")
+                lines.append(
+                    "  Apply notes: agent-recall external-compaction apply "
+                    "--input <notes.json> --commit"
+                )
+            else:
+                lines.append("  Status: no pending external compaction conversations.")
+        except Exception as exc:  # noqa: BLE001
+            lines.append("")
+            lines.append("[bold]External Compaction:[/bold]")
+            lines.append(f"  [warning]Unable to load pending status: {exc}[/warning]")
+
     lines.extend(render_ralph_status(config_dict))
 
     console.print(Panel.fit("\n".join(lines), title="Agent Recall Status"))
@@ -3932,9 +4275,16 @@ def ingest(
 theme_app = typer.Typer(help="Manage CLI themes")
 metrics_app = typer.Typer(help="Inspect pipeline telemetry metrics")
 curation_app = typer.Typer(help="Review and approve extracted learnings")
+feedback_app = typer.Typer(help="Capture and inspect retrieval relevance feedback")
+topic_threads_app = typer.Typer(help="Build and inspect cross-session topic threads")
+rule_confidence_app = typer.Typer(help="Manage rule confidence decay and pruning")
+memory_pack_app = typer.Typer(help="Import/export versioned memory packs")
+attribution_app = typer.Typer(help="Inspect attribution metadata by agent/provider")
+memory_app = typer.Typer(help="Manage pluggable memory backends")
 external_compaction_app = typer.Typer(
     help="Run external conversation compaction and optional MCP server tools"
 )
+external_compaction_queue_app = typer.Typer(help="Review queued external compaction notes")
 
 
 @theme_app.command("list")
@@ -4028,7 +4378,7 @@ def metrics_report(
         "recent_runs": runs,
     }
     if output_format == "json":
-        console.print(json.dumps(payload, indent=2))
+        typer.echo(json.dumps(payload, indent=2))
         return
     if output_format != "table":
         console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
@@ -4105,7 +4455,7 @@ def external_compaction_list(
 
     output_format = format.strip().lower()
     if output_format == "json":
-        console.print(json.dumps({"conversations": conversations}, indent=2))
+        typer.echo(json.dumps({"conversations": conversations}, indent=2))
         return
     if output_format != "table":
         console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
@@ -4204,18 +4554,185 @@ def external_compaction_apply(
         help="Tier write target: runtime or templates (defaults from config)",
     ),
     dry_run: bool = typer.Option(
+        True,
+        "--dry-run/--no-dry-run",
+        "-d/-w",
+        help="Preview changes only by default; writes require --commit",
+    ),
+    commit: bool = typer.Option(
         False,
-        "--dry-run",
-        "-d",
-        help="Validate and summarize changes without writing",
+        "--commit",
+        help="Apply writes (required for non-dry-run execution)",
     ),
     mark_processed: bool = typer.Option(
         True,
         "--mark-processed/--no-mark-processed",
         help="Update external compaction state for referenced source sessions",
     ),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
 ):
     """Apply external compaction notes to GUARDRAILS/STYLE/RECENT tiers."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+    service = _build_external_compaction_service(storage, files)
+    exit_ok = 0
+    exit_no_changes = 10
+    exit_invalid_input = 20
+
+    try:
+        target = _resolve_external_write_target_override(files, write_target)
+    except ValueError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(exit_invalid_input) from None
+
+    effective_dry_run = dry_run
+    if commit:
+        effective_dry_run = False
+    elif not dry_run:
+        console.print("[error]Writes require --commit. Re-run with --commit.[/error]")
+        raise typer.Exit(exit_invalid_input)
+
+    try:
+        payload = json.loads(input.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        console.print(f"[error]Invalid JSON input: {exc}[/error]")
+        raise typer.Exit(exit_invalid_input) from None
+
+    try:
+        result = service.apply_notes_payload(
+            payload,
+            write_target=target,
+            dry_run=effective_dry_run,
+            mark_processed=mark_processed,
+        )
+    except ExternalNotesValidationError as exc:
+        details = exc.to_dict()
+        if format.strip().lower() == "json":
+            details["exit_code"] = exit_invalid_input
+            typer.echo(json.dumps(details, indent=2))
+        else:
+            console.print(f"[error]{details['message']}[/error]")
+            for issue in details["errors"]:
+                console.print(f"[dim]- {issue}[/dim]")
+            console.print("[dim]Example payload:[/dim]")
+            console.print(json.dumps(details["example"], indent=2))
+        raise typer.Exit(exit_invalid_input) from None
+    except ValueError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(exit_invalid_input) from None
+
+    changed = result.get("tiers_changed", {})
+    changed_lines = ", ".join(f"{tier}={count}" for tier, count in changed.items()) or "none"
+    notes_applied = int(result.get("notes_applied", 0))
+    code = exit_ok if notes_applied > 0 else exit_no_changes
+    output_format = format.strip().lower()
+    if output_format == "json":
+        payload_out = dict(result)
+        payload_out["exit_code"] = code
+        payload_out["status"] = "ok" if code == exit_ok else "no_changes"
+        typer.echo(json.dumps(payload_out, indent=2))
+    elif output_format == "table":
+        console.print(
+            Panel.fit(
+                f"[success]✓ External notes processed[/success]\n\n"
+                f"Write target: {result.get('write_target')}\n"
+                f"Dry run: {result.get('dry_run')}\n"
+                f"Notes received: {result.get('notes_received', 0)}\n"
+                f"Notes applied: {notes_applied}\n"
+                f"Tiers changed: {changed_lines}\n"
+                f"Sessions marked: {result.get('sessions_marked', 0)}\n"
+                f"Conflicts: {len(result.get('conflicts', []))}\n"
+                f"Backlinks written: {result.get('evidence_backlinks_written', 0)}\n"
+                f"Exit code: {code}",
+                title="external-compaction apply",
+            )
+        )
+    else:
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(exit_invalid_input)
+    raise typer.Exit(code)
+
+
+@external_compaction_app.command("patch-preview")
+def external_compaction_patch_preview(
+    queue_id: list[int] = typer.Option(
+        None,
+        "--queue-id",
+        help="Optional queue ID filter(s)",
+    ),
+    state: list[str] = typer.Option(
+        None,
+        "--state",
+        help="Queue state filter(s): pending, approved, rejected, applied",
+    ),
+    write_target: str | None = typer.Option(
+        None,
+        "--write-target",
+        help="Tier write target: runtime or templates (defaults from config)",
+    ),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Render before/after patch preview by tier for queued notes."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+    service = _build_external_compaction_service(storage, files)
+    try:
+        target = _resolve_external_write_target_override(files, write_target)
+    except ValueError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    try:
+        preview = service.patch_preview(
+            queue_ids=[item for item in queue_id if item > 0] if queue_id else None,
+            states=[item for item in state if item] if state else None,
+            write_target=target,
+        )
+    except (RuntimeError, ValueError) as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(preview, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+
+    diff_by_tier = preview.get("diff_by_tier", {})
+    if not isinstance(diff_by_tier, dict) or not diff_by_tier:
+        console.print("[dim]No patch differences for selected queued notes.[/dim]")
+        return
+
+    for tier, diff_text in diff_by_tier.items():
+        console.print(Panel.fit(str(diff_text), title=f"patch-preview {tier}"))
+
+
+@external_compaction_app.command("apply-approved")
+def external_compaction_apply_approved(
+    actor: str = typer.Option("system", "--actor", help="Actor name for queue audit trail"),
+    write_target: str | None = typer.Option(
+        None,
+        "--write-target",
+        help="Tier write target: runtime or templates (defaults from config)",
+    ),
+    dry_run: bool = typer.Option(
+        True,
+        "--dry-run/--no-dry-run",
+        help="Preview queued approved notes by default; writes require --commit",
+    ),
+    commit: bool = typer.Option(False, "--commit", help="Apply approved notes to tiers"),
+    mark_processed: bool = typer.Option(
+        True,
+        "--mark-processed/--no-mark-processed",
+        help="Update external compaction state for referenced source sessions",
+    ),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Apply approved queued notes with idempotency checks."""
     _get_theme_manager()
     storage = get_storage()
     files = get_files()
@@ -4227,35 +4744,45 @@ def external_compaction_apply(
         console.print(f"[error]{exc}[/error]")
         raise typer.Exit(1) from None
 
-    try:
-        payload = json.loads(input.read_text())
-    except json.JSONDecodeError as exc:
-        console.print(f"[error]Invalid JSON input: {exc}[/error]")
-        raise typer.Exit(1) from None
+    effective_dry_run = dry_run
+    if commit:
+        effective_dry_run = False
+    elif not dry_run:
+        console.print("[error]Writes require --commit. Re-run with --commit.[/error]")
+        raise typer.Exit(1)
 
     try:
-        result = service.apply_notes_payload(
-            payload,
+        result = service.apply_approved_queue(
+            actor=actor,
             write_target=target,
-            dry_run=dry_run,
             mark_processed=mark_processed,
+            dry_run=effective_dry_run,
         )
-    except ValueError as exc:
+    except (RuntimeError, ValueError, ExternalNotesValidationError) as exc:
         console.print(f"[error]{exc}[/error]")
         raise typer.Exit(1) from None
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(result, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
 
     changed = result.get("tiers_changed", {})
     changed_lines = ", ".join(f"{tier}={count}" for tier, count in changed.items()) or "none"
     console.print(
         Panel.fit(
-            f"[success]✓ External notes applied[/success]\n\n"
-            f"Write target: {result.get('write_target')}\n"
-            f"Dry run: {result.get('dry_run')}\n"
-            f"Notes received: {result.get('notes_received', 0)}\n"
+            f"Queue items considered: {result.get('queue_items_considered', 0)}\n"
+            f"Queue items applied: {result.get('queue_items_applied', 0)}\n"
             f"Notes applied: {result.get('notes_applied', 0)}\n"
             f"Tiers changed: {changed_lines}\n"
-            f"Sessions marked: {result.get('sessions_marked', 0)}",
-            title="external-compaction apply",
+            f"Dry run: {result.get('dry_run')}\n"
+            f"Conflicts: {len(result.get('conflicts', []))}\n"
+            f"Backlinks written: {result.get('evidence_backlinks_written', 0)}\n"
+            f"Write target: {result.get('write_target')}",
+            title="external-compaction apply-approved",
         )
     )
 
@@ -4300,7 +4827,7 @@ def external_compaction_cleanup_state(
     result = service.cleanup_state()
     output_format = format.strip().lower()
     if output_format == "json":
-        console.print(json.dumps(result, indent=2))
+        typer.echo(json.dumps(result, indent=2))
         return
     if output_format != "table":
         console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
@@ -4316,8 +4843,1402 @@ def external_compaction_cleanup_state(
     )
 
 
+@external_compaction_queue_app.command("add")
+def external_compaction_queue_add(
+    input: Path = typer.Option(
+        ...,
+        "--input",
+        "-i",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help="JSON notes payload from external agent",
+    ),
+    actor: str = typer.Option("system", "--actor", help="Actor name for queue audit trail"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Enqueue external notes for review."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+    service = _build_external_compaction_service(storage, files)
+
+    try:
+        payload = json.loads(input.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        console.print(f"[error]Invalid JSON input: {exc}[/error]")
+        raise typer.Exit(1) from None
+
+    try:
+        result = service.queue_notes_payload(payload, actor=actor)
+    except (RuntimeError, ExternalNotesValidationError, ValueError) as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(result, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    console.print(
+        Panel.fit(
+            f"Queued: {result.get('queued', 0)}",
+            title="external-compaction queue add",
+        )
+    )
+
+
+@external_compaction_queue_app.command("list")
+def external_compaction_queue_list(
+    state: list[str] = typer.Option(
+        None,
+        "--state",
+        help="Optional state filter(s): pending, approved, rejected, applied",
+    ),
+    limit: int = typer.Option(100, "--limit", "-n", min=1, help="Maximum queue items"),
+    with_attribution: bool = typer.Option(
+        False,
+        "--with-attribution",
+        help="Include attribution summary inferred from source sessions",
+    ),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """List queued external compaction notes."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+    service = _build_external_compaction_service(storage, files)
+
+    try:
+        rows = service.list_queue(
+            states=[item for item in state if item] if state else None,
+            limit=limit,
+        )
+    except (RuntimeError, ValueError) as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    if with_attribution:
+        for row in rows:
+            source_ids = [
+                str(item) for item in row.get("source_session_ids", []) if str(item).strip()
+            ]
+            row["attribution"] = _format_source_session_attribution(storage, source_ids)
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps({"queue": rows}, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    if not rows:
+        console.print("[dim]No queued notes found.[/dim]")
+        return
+
+    table = Table(title="External Compaction Review Queue", box=box.SIMPLE)
+    table.add_column("ID", justify="right")
+    table.add_column("State")
+    table.add_column("Tier")
+    table.add_column("Line", overflow="fold")
+    table.add_column("Source Sessions", overflow="fold")
+    if with_attribution:
+        table.add_column("Attribution", overflow="fold")
+    table.add_column("Actor")
+    table.add_column("Timestamp", overflow="fold")
+    for row in rows:
+        source_sessions = ", ".join(str(item) for item in row.get("source_session_ids", []))
+        row_values = [
+            str(row.get("id", "")),
+            str(row.get("state", "")),
+            str(row.get("tier", "")),
+            str(row.get("line", "")),
+            source_sessions,
+        ]
+        if with_attribution:
+            row_values.append(str(row.get("attribution", "-")))
+        row_values.extend(
+            [
+                str(row.get("actor", "")),
+                str(row.get("timestamp", "")),
+            ]
+        )
+        table.add_row(*row_values)
+    console.print(table)
+
+
+def _queue_transition_command(*, target_state: str, ids: list[int], actor: str) -> dict[str, int]:
+    storage = get_storage()
+    files = get_files()
+    service = _build_external_compaction_service(storage, files)
+    if not ids:
+        raise ValueError("Provide at least one --id value.")
+    if target_state == "approved":
+        return service.approve_queue(ids=ids, actor=actor)
+    if target_state == "rejected":
+        return service.reject_queue(ids=ids, actor=actor)
+    raise ValueError(f"Unsupported queue transition: {target_state}")
+
+
+@external_compaction_queue_app.command("approve")
+def external_compaction_queue_approve(
+    id: list[int] = typer.Option(..., "--id", help="Queue item ID(s) to approve"),
+    actor: str = typer.Option("system", "--actor", help="Actor name for queue audit trail"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Approve queued notes."""
+    _get_theme_manager()
+    try:
+        result = _queue_transition_command(target_state="approved", ids=id, actor=actor)
+    except (RuntimeError, ValueError) as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(result, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    console.print(
+        Panel.fit(
+            f"Updated: {result.get('updated', 0)}\nSkipped: {result.get('skipped', 0)}",
+            title="external-compaction queue approve",
+        )
+    )
+
+
+@external_compaction_queue_app.command("reject")
+def external_compaction_queue_reject(
+    id: list[int] = typer.Option(..., "--id", help="Queue item ID(s) to reject"),
+    actor: str = typer.Option("system", "--actor", help="Actor name for queue audit trail"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Reject queued notes."""
+    _get_theme_manager()
+    try:
+        result = _queue_transition_command(target_state="rejected", ids=id, actor=actor)
+    except (RuntimeError, ValueError) as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(result, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    console.print(
+        Panel.fit(
+            f"Updated: {result.get('updated', 0)}\nSkipped: {result.get('skipped', 0)}",
+            title="external-compaction queue reject",
+        )
+    )
+
+
+def _parse_feedback_score(value: str) -> int:
+    normalized = value.strip().lower()
+    mapping = {
+        "1": 1,
+        "+1": 1,
+        "up": 1,
+        "upvote": 1,
+        "positive": 1,
+        "-1": -1,
+        "down": -1,
+        "downvote": -1,
+        "negative": -1,
+    }
+    parsed = mapping.get(normalized)
+    if parsed is None:
+        raise ValueError("score must be one of: up, down, 1, -1")
+    return parsed
+
+
+@feedback_app.command("add")
+def feedback_add(
+    query: str = typer.Option(..., "--query", help="Query used during retrieval"),
+    chunk_id: str = typer.Option(..., "--chunk-id", help="Retrieved chunk UUID"),
+    score: str = typer.Option(..., "--score", help="Feedback score: up|down|1|-1"),
+    actor: str = typer.Option("user", "--actor", help="Actor recording feedback"),
+    source: str = typer.Option("cli", "--source", help="Feedback source channel"),
+    metadata_json: str | None = typer.Option(
+        None,
+        "--metadata-json",
+        help="Optional JSON object metadata",
+    ),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Record feedback for a retrieved chunk."""
+    _get_theme_manager()
+    storage = get_storage()
+
+    try:
+        parsed_chunk_id = UUID(chunk_id)
+    except ValueError:
+        console.print("[error]Invalid --chunk-id. Expected UUID.[/error]")
+        raise typer.Exit(1) from None
+
+    try:
+        parsed_score = _parse_feedback_score(score)
+    except ValueError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    metadata: dict[str, Any] | None = None
+    if metadata_json:
+        try:
+            parsed_metadata = json.loads(metadata_json)
+        except json.JSONDecodeError as exc:
+            console.print(f"[error]Invalid --metadata-json: {exc}[/error]")
+            raise typer.Exit(1) from None
+        if not isinstance(parsed_metadata, dict):
+            console.print("[error]--metadata-json must decode to an object.[/error]")
+            raise typer.Exit(1)
+        metadata = parsed_metadata
+
+    try:
+        result = storage.record_retrieval_feedback(
+            query=query,
+            chunk_id=parsed_chunk_id,
+            score=parsed_score,
+            actor=actor,
+            source=source,
+            metadata=metadata,
+        )
+    except (NotImplementedError, ValueError) as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(result, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+
+    label = "upvote" if int(result.get("score", 0)) > 0 else "downvote"
+    console.print(
+        Panel.fit(
+            f"Feedback saved\nQuery: {result.get('query_text')}\n"
+            f"Chunk: {result.get('chunk_id')}\nScore: {label}",
+            title="feedback add",
+        )
+    )
+
+
+@feedback_app.command("list")
+def feedback_list(
+    limit: int = typer.Option(50, "--limit", min=1, help="Maximum feedback rows"),
+    query: str | None = typer.Option(None, "--query", help="Filter by exact query text"),
+    chunk_id: str | None = typer.Option(None, "--chunk-id", help="Filter by chunk UUID"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """List retrieval feedback rows."""
+    _get_theme_manager()
+    storage = get_storage()
+
+    parsed_chunk_id: UUID | None = None
+    if chunk_id:
+        try:
+            parsed_chunk_id = UUID(chunk_id)
+        except ValueError:
+            console.print("[error]Invalid --chunk-id. Expected UUID.[/error]")
+            raise typer.Exit(1) from None
+
+    try:
+        rows = storage.list_retrieval_feedback(
+            limit=limit,
+            query=query,
+            chunk_id=parsed_chunk_id,
+        )
+    except NotImplementedError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps({"feedback": rows}, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    if not rows:
+        console.print("[warning]No feedback rows found.[/warning]")
+        return
+
+    table = Table(title="Retrieval Feedback", box=box.SIMPLE)
+    table.add_column("Created")
+    table.add_column("Score")
+    table.add_column("Query")
+    table.add_column("Chunk")
+    table.add_column("Actor")
+    table.add_column("Source")
+    for row in rows:
+        raw_query = str(row.get("query_text", "")).strip()
+        preview_query = textwrap.shorten(raw_query, width=36, placeholder="...")
+        score_value = int(row.get("score", 0))
+        score_label = "↑" if score_value > 0 else "↓"
+        table.add_row(
+            str(row.get("created_at", ""))[:19],
+            score_label,
+            preview_query,
+            str(row.get("chunk_id", ""))[:8],
+            str(row.get("actor", "")),
+            str(row.get("source", "")),
+        )
+    console.print(table)
+
+
+@feedback_app.command("evaluate")
+def feedback_evaluate(
+    top_k: int = typer.Option(10, "--top-k", min=1, help="Ranking depth"),
+    min_labels_per_query: int = typer.Option(
+        2,
+        "--min-labels-per-query",
+        min=1,
+        help="Minimum labels required per query",
+    ),
+    feedback_limit: int = typer.Option(2000, "--feedback-limit", min=1, help="Rows to inspect"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Evaluate ranking quality before and after applying feedback signals."""
+    _get_theme_manager()
+    storage = get_storage()
+    report = evaluate_feedback_impact(
+        storage,
+        top_k=top_k,
+        min_labels_per_query=min_labels_per_query,
+        feedback_limit=feedback_limit,
+    )
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(report.to_dict(), indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+
+    summary = Table(title="Feedback Evaluation", box=box.SIMPLE)
+    summary.add_column("Metric")
+    summary.add_column("Value")
+    summary.add_row("Queries evaluated", str(report.queries_evaluated))
+    summary.add_row("Mean baseline score", f"{report.mean_baseline_score:.4f}")
+    summary.add_row("Mean feedback score", f"{report.mean_feedback_score:.4f}")
+    summary.add_row("Mean delta", f"{report.mean_delta:.4f}")
+    summary.add_row("Improved", str(report.improved_queries))
+    summary.add_row("Regressed", str(report.regressed_queries))
+    summary.add_row("Unchanged", str(report.unchanged_queries))
+    console.print(summary)
+
+
+@attribution_app.command("summary")
+def attribution_summary(
+    limit: int = typer.Option(20, "--limit", min=1, help="Maximum grouped rows per table"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Summarize captured attribution metadata by agent/provider/model."""
+    _get_theme_manager()
+    storage = get_storage()
+    entries = _collect_entries_for_attribution(storage, limit_per_status=500)
+    by_agent: dict[str, int] = {}
+    by_provider: dict[str, int] = {}
+    by_model: dict[str, int] = {}
+    for entry in entries:
+        agent_source, provider, model = _entry_attribution_fields(entry)
+        by_agent[agent_source] = by_agent.get(agent_source, 0) + 1
+        by_provider[provider] = by_provider.get(provider, 0) + 1
+        by_model[model] = by_model.get(model, 0) + 1
+
+    agent_rows = sorted(by_agent.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    provider_rows = sorted(by_provider.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    model_rows = sorted(by_model.items(), key=lambda item: (-item[1], item[0]))[:limit]
+
+    payload = {
+        "total_entries": len(entries),
+        "by_agent": agent_rows,
+        "by_provider": provider_rows,
+        "by_model": model_rows,
+    }
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+
+    console.print(f"[bold]Attributed entries:[/bold] {payload['total_entries']}")
+    for title, rows in (
+        ("By Agent", agent_rows),
+        ("By Provider", provider_rows),
+        ("By Model", model_rows),
+    ):
+        table = Table(title=title, box=box.SIMPLE)
+        table.add_column("Name")
+        table.add_column("Count", justify="right")
+        for name, count in rows:
+            table.add_row(str(name), str(count))
+        console.print(table)
+
+
+@attribution_app.command("list")
+def attribution_list(
+    agent: str | None = typer.Option(None, "--agent", help="Filter by agent source"),
+    provider: str | None = typer.Option(None, "--provider", help="Filter by provider"),
+    model: str | None = typer.Option(None, "--model", help="Filter by model"),
+    limit: int = typer.Option(50, "--limit", min=1, help="Maximum rows"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """List entries with attribution metadata and optional filters."""
+    _get_theme_manager()
+    storage = get_storage()
+    entries = _collect_entries_for_attribution(storage, limit_per_status=max(limit, 200))
+    filtered: list[dict[str, Any]] = []
+    for entry in entries:
+        agent_source, provider_name, model_name = _entry_attribution_fields(entry)
+        if agent and agent_source != agent:
+            continue
+        if provider and provider_name != provider:
+            continue
+        if model and model_name != model:
+            continue
+        filtered.append(
+            {
+                "id": str(entry.id),
+                "timestamp": entry.timestamp.isoformat(),
+                "label": entry.label.value,
+                "agent_source": agent_source,
+                "provider": provider_name,
+                "model": model_name,
+                "content": entry.content,
+            }
+        )
+        if len(filtered) >= limit:
+            break
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps({"entries": filtered}, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    if not filtered:
+        console.print("[warning]No attribution rows matched filters.[/warning]")
+        return
+
+    table = Table(title="Attribution Entries", box=box.SIMPLE)
+    table.add_column("Time")
+    table.add_column("Label")
+    table.add_column("Agent")
+    table.add_column("Provider")
+    table.add_column("Model")
+    table.add_column("Content")
+    for row in filtered:
+        table.add_row(
+            str(row["timestamp"])[:19],
+            str(row["label"]),
+            str(row["agent_source"]),
+            str(row["provider"]),
+            str(row["model"]),
+            textwrap.shorten(str(row["content"]), width=56, placeholder="..."),
+        )
+    console.print(table)
+
+
+@topic_threads_app.command("rebuild")
+def topic_threads_rebuild(
+    min_cluster_size: int = typer.Option(
+        2,
+        "--min-cluster-size",
+        min=1,
+        help="Minimum chunk count required to create a thread",
+    ),
+    max_threads: int = typer.Option(25, "--max-threads", min=1, help="Maximum threads to keep"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute threads without persisting"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Rebuild cross-session topic threads from indexed chunks."""
+    _get_theme_manager()
+    storage = get_storage()
+    threads = build_topic_threads(
+        storage,
+        min_cluster_size=min_cluster_size,
+        max_threads=max_threads,
+    )
+    persisted = 0
+    if not dry_run:
+        try:
+            persisted = storage.replace_topic_threads(threads)
+        except NotImplementedError as exc:
+            console.print(f"[error]{exc}[/error]")
+            raise typer.Exit(1) from None
+    output = {
+        "threads_generated": len(threads),
+        "threads_persisted": persisted,
+        "dry_run": dry_run,
+        "threads": threads,
+    }
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(output, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+
+    table = Table(title="Topic Threads Rebuild", box=box.SIMPLE)
+    table.add_column("Thread")
+    table.add_column("Score", justify="right")
+    table.add_column("Entries", justify="right")
+    table.add_column("Summary")
+    for thread in threads[:15]:
+        summary = textwrap.shorten(str(thread.get("summary", "")), width=60, placeholder="...")
+        table.add_row(
+            str(thread.get("title", "Untitled")),
+            f"{float(thread.get('score', 0.0)):.2f}",
+            str(thread.get("entry_count", 0)),
+            summary,
+        )
+    console.print(table)
+    console.print(
+        f"[dim]Generated {len(threads)} thread(s); persisted {persisted} (dry_run={dry_run}).[/dim]"
+    )
+
+
+@topic_threads_app.command("list")
+def topic_threads_list(
+    limit: int = typer.Option(20, "--limit", min=1, help="Maximum threads to show"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """List persisted topic thread metadata."""
+    _get_theme_manager()
+    storage = get_storage()
+    try:
+        threads = storage.list_topic_threads(limit=limit)
+    except NotImplementedError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps({"threads": threads}, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    if not threads:
+        console.print(
+            "[warning]No topic threads available. Run topic-threads rebuild first.[/warning]"
+        )
+        return
+
+    table = Table(title="Topic Threads", box=box.SIMPLE)
+    table.add_column("ID")
+    table.add_column("Title")
+    table.add_column("Score", justify="right")
+    table.add_column("Entries", justify="right")
+    table.add_column("Source sessions", justify="right")
+    table.add_column("Last seen")
+    for thread in threads:
+        table.add_row(
+            str(thread.get("thread_id", ""))[:8],
+            str(thread.get("title", "")),
+            f"{float(thread.get('score', 0.0)):.2f}",
+            str(thread.get("entry_count", 0)),
+            str(thread.get("source_session_count", 0)),
+            str(thread.get("last_seen_at", ""))[:19],
+        )
+    console.print(table)
+
+
+@topic_threads_app.command("show")
+def topic_threads_show(
+    thread_id: str = typer.Argument(..., help="Thread ID"),
+    limit_links: int = typer.Option(20, "--limit-links", min=1, help="Max linked items to show"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Inspect one topic thread and linked entries/chunks."""
+    _get_theme_manager()
+    storage = get_storage()
+    try:
+        thread = storage.get_topic_thread(thread_id, limit_links=limit_links)
+    except NotImplementedError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+    if thread is None:
+        console.print(f"[warning]Thread not found: {thread_id}[/warning]")
+        raise typer.Exit(1)
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(thread, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+
+    summary = textwrap.shorten(str(thread.get("summary", "")), width=120, placeholder="...")
+    console.print(
+        Panel.fit(
+            f"Title: {thread.get('title')}\n"
+            f"Score: {float(thread.get('score', 0.0)):.2f}\n"
+            f"Entries: {thread.get('entry_count')}\n"
+            f"Source sessions: {thread.get('source_session_count')}\n"
+            f"Summary: {summary}",
+            title=f"topic-thread {thread.get('thread_id')}",
+        )
+    )
+    links = thread.get("links", [])
+    if not isinstance(links, list) or not links:
+        return
+    table = Table(title="Linked Items", box=box.SIMPLE)
+    table.add_column("Entry")
+    table.add_column("Chunk")
+    table.add_column("Source session")
+    table.add_column("Snippet")
+    for item in links:
+        if not isinstance(item, dict):
+            continue
+        snippet_source = item.get("entry_content") or item.get("chunk_content") or ""
+        snippet = textwrap.shorten(str(snippet_source), width=60, placeholder="...")
+        table.add_row(
+            str(item.get("entry_id") or "-")[:8],
+            str(item.get("chunk_id") or "-")[:8],
+            str(item.get("source_session_id") or "-"),
+            snippet,
+        )
+    console.print(table)
+
+
+@topic_threads_app.command("summary")
+def topic_threads_summary(
+    limit: int = typer.Option(5, "--limit", min=1, help="Top threads to summarize"),
+):
+    """Summarize top active topic threads."""
+    _get_theme_manager()
+    storage = get_storage()
+    try:
+        threads = storage.list_topic_threads(limit=limit)
+    except NotImplementedError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+    if not threads:
+        console.print(
+            "[warning]No topic threads available. Run topic-threads rebuild first.[/warning]"
+        )
+        return
+
+    lines = ["[bold]Top Active Topic Threads[/bold]"]
+    for index, thread in enumerate(threads, start=1):
+        lines.append(
+            f"{index}. {thread.get('title')} "
+            f"(entries={thread.get('entry_count')}, score={float(thread.get('score', 0.0)):.2f})"
+        )
+        lines.append(textwrap.shorten(str(thread.get("summary", "")), width=120, placeholder="..."))
+    console.print(Panel.fit("\n".join(lines), title="topic-threads summary"))
+
+
+def _prune_rules_from_tier_files(
+    files: FileStorage,
+    candidates: list[dict[str, Any]],
+) -> tuple[int, Path | None]:
+    tier_map = {
+        "GUARDRAILS": KnowledgeTier.GUARDRAILS,
+        "STYLE": KnowledgeTier.STYLE,
+    }
+    rules_by_tier: dict[KnowledgeTier, set[str]] = {}
+    for candidate in candidates:
+        tier_name = str(candidate.get("tier", "")).strip().upper()
+        line = str(candidate.get("line", "")).strip()
+        tier = tier_map.get(tier_name)
+        if tier is None or not line:
+            continue
+        rules_by_tier.setdefault(tier, set()).add(line)
+
+    removed = 0
+    archived_lines: list[str] = []
+    for tier, lines_to_remove in rules_by_tier.items():
+        content = files.read_tier(tier)
+        kept_lines: list[str] = []
+        for raw in content.splitlines():
+            stripped = raw.strip()
+            if stripped.startswith("-"):
+                candidate_line = stripped[1:].strip()
+                if candidate_line in lines_to_remove:
+                    removed += 1
+                    archived_lines.append(f"- [{tier.value}] {candidate_line}")
+                    continue
+            kept_lines.append(raw)
+        if content and not content.endswith("\n"):
+            kept_lines_text = "\n".join(kept_lines)
+        else:
+            kept_lines_text = "\n".join(kept_lines) + ("\n" if kept_lines else "")
+        files.write_tier(tier, kept_lines_text)
+
+    if removed == 0:
+        return 0, None
+
+    archive_dir = files.agent_dir / "archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = archive_dir / f"rule-prune-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}.md"
+    archive_lines = [
+        "# Rule Prune Archive",
+        "",
+        f"Generated at: {datetime.now(UTC).isoformat()}",
+        f"Removed rules: {removed}",
+        "",
+        "## Removed",
+        *archived_lines,
+        "",
+    ]
+    archive_path.write_text("\n".join(archive_lines), encoding="utf-8")
+    return removed, archive_path
+
+
+@rule_confidence_app.command("refresh")
+def rule_confidence_refresh(
+    default_confidence: float = typer.Option(
+        0.6,
+        "--default-confidence",
+        min=0.0,
+        max=1.0,
+        help="Initial confidence for newly tracked rules",
+    ),
+    reinforcement_factor: float = typer.Option(
+        0.15,
+        "--reinforcement-factor",
+        min=0.0,
+        max=1.0,
+        help="Confidence increase factor for re-observed rules",
+    ),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Scan tier files and reinforce tracked rules."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+    rules = snapshot_rules(files)
+    try:
+        result = storage.sync_rule_confidence(
+            rules,
+            default_confidence=default_confidence,
+            reinforcement_factor=reinforcement_factor,
+        )
+    except NotImplementedError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    payload = {"rules_scanned": len(rules), **result}
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    console.print(
+        Panel.fit(
+            f"Rules scanned: {payload['rules_scanned']}\n"
+            f"Inserted: {payload.get('inserted', 0)}\n"
+            f"Updated: {payload.get('updated', 0)}",
+            title="rule-confidence refresh",
+        )
+    )
+
+
+@rule_confidence_app.command("list")
+def rule_confidence_list(
+    limit: int = typer.Option(50, "--limit", min=1, help="Maximum rules to list"),
+    stale_only: bool = typer.Option(False, "--stale-only", help="Show only stale rules"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """List tracked rule confidence rows."""
+    _get_theme_manager()
+    storage = get_storage()
+    try:
+        rows = storage.list_rule_confidence(limit=limit, stale_only=stale_only)
+    except NotImplementedError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps({"rules": rows}, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    if not rows:
+        console.print("[warning]No tracked rule confidence rows.[/warning]")
+        return
+
+    table = Table(title="Rule Confidence", box=box.SIMPLE)
+    table.add_column("Tier")
+    table.add_column("Confidence", justify="right")
+    table.add_column("Stale")
+    table.add_column("Reinforce", justify="right")
+    table.add_column("Rule")
+    for row in rows:
+        table.add_row(
+            str(row.get("tier", "")),
+            f"{float(row.get('confidence', 0.0)):.2f}",
+            "yes" if bool(row.get("is_stale")) else "no",
+            str(row.get("reinforcement_count", 0)),
+            textwrap.shorten(str(row.get("line", "")), width=72, placeholder="..."),
+        )
+    console.print(table)
+
+
+@rule_confidence_app.command("decay")
+def rule_confidence_decay(
+    half_life_days: float = typer.Option(
+        45.0,
+        "--half-life-days",
+        min=1.0,
+        help="Half-life used for confidence decay",
+    ),
+    stale_after_days: float = typer.Option(
+        60.0,
+        "--stale-after-days",
+        min=1.0,
+        help="Mark rules stale when inactive for this many days",
+    ),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Apply confidence decay and stale tagging to tracked rules."""
+    _get_theme_manager()
+    storage = get_storage()
+    try:
+        result = storage.decay_rule_confidence(
+            half_life_days=half_life_days,
+            stale_after_days=stale_after_days,
+        )
+    except NotImplementedError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(result, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    console.print(
+        Panel.fit(
+            f"Rows decayed: {result.get('decayed', 0)}\n"
+            f"Marked stale: {result.get('stale_marked', 0)}",
+            title="rule-confidence decay",
+        )
+    )
+
+
+@rule_confidence_app.command("prune")
+def rule_confidence_prune(
+    max_confidence: float = typer.Option(
+        0.35,
+        "--max-confidence",
+        min=0.0,
+        max=1.0,
+        help="Prune rules at or below this confidence",
+    ),
+    stale_only: bool = typer.Option(
+        True,
+        "--stale-only/--include-fresh",
+        help="Restrict pruning to stale rules",
+    ),
+    commit: bool = typer.Option(
+        False,
+        "--commit",
+        help="Apply prune and write tier updates (default is dry-run)",
+    ),
+    limit: int = typer.Option(500, "--limit", min=1, help="Maximum candidates"),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Archive and prune low-confidence rules, with optional tier-file removal."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+    try:
+        candidates = storage.archive_and_prune_rule_confidence(
+            max_confidence=max_confidence,
+            stale_only=stale_only,
+            dry_run=not commit,
+            limit=limit,
+        )
+    except NotImplementedError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+
+    removed_from_tiers = 0
+    archive_path: Path | None = None
+    if commit and candidates:
+        removed_from_tiers, archive_path = _prune_rules_from_tier_files(files, candidates)
+
+    payload = {
+        "candidates": candidates,
+        "candidate_count": len(candidates),
+        "commit": commit,
+        "removed_from_tiers": removed_from_tiers,
+        "archive_path": str(archive_path) if archive_path else None,
+    }
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    if not candidates:
+        console.print("[success]No rules matched prune criteria.[/success]")
+        return
+    table = Table(title="Rule Prune Candidates", box=box.SIMPLE)
+    table.add_column("Tier")
+    table.add_column("Confidence", justify="right")
+    table.add_column("Stale")
+    table.add_column("Rule")
+    for row in candidates[:25]:
+        table.add_row(
+            str(row.get("tier", "")),
+            f"{float(row.get('confidence', 0.0)):.2f}",
+            "yes" if bool(row.get("is_stale")) else "no",
+            textwrap.shorten(str(row.get("line", "")), width=72, placeholder="..."),
+        )
+    console.print(table)
+    if commit:
+        console.print(
+            f"[dim]Pruned {len(candidates)} rows; removed {removed_from_tiers} tier lines.[/dim]"
+        )
+        if archive_path:
+            console.print(f"[dim]Archive: {archive_path}[/dim]")
+    else:
+        console.print("[dim]Dry-run only. Re-run with --commit to apply changes.[/dim]")
+
+
+@memory_pack_app.command("export")
+def memory_pack_export(
+    output: Path = typer.Option(
+        Path(".agent/export/memory-pack.json"),
+        "--output",
+        "-o",
+        help="Output memory pack path",
+    ),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Export tiers/chunks/metadata into a versioned memory pack file."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+    pack = build_memory_pack(storage, files)
+    write_memory_pack(output, pack)
+    payload = {
+        "path": str(output),
+        "format": PACK_FORMAT,
+        "version": PACK_VERSION,
+        "chunk_count": len(pack.chunks),
+    }
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    console.print(
+        Panel.fit(
+            f"Path: {payload['path']}\n"
+            f"Format: {payload['format']}\n"
+            f"Version: {payload['version']}\n"
+            f"Chunks: {payload['chunk_count']}",
+            title="memory-pack export",
+        )
+    )
+
+
+@memory_pack_app.command("validate")
+def memory_pack_validate(
+    input_path: Path = typer.Option(
+        ...,
+        "--input",
+        "-i",
+        exists=True,
+        help="Memory pack JSON file",
+    ),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Validate pack compatibility and schema expectations."""
+    _get_theme_manager()
+    try:
+        pack = read_memory_pack(input_path)
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[error]Failed to parse memory pack: {exc}[/error]")
+        raise typer.Exit(1) from None
+    validation = validate_memory_pack(pack)
+    payload = {
+        "path": str(input_path),
+        **validation,
+    }
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+
+    lines = [
+        f"Path: {input_path}",
+        f"Valid: {'yes' if validation['valid'] else 'no'}",
+        f"Chunks: {validation['chunk_count']}",
+    ]
+    warnings = validation.get("warnings", [])
+    errors = validation.get("errors", [])
+    if warnings:
+        lines.append(f"Warnings: {len(warnings)}")
+        lines.extend(f"- {warning}" for warning in warnings)
+    if errors:
+        lines.append(f"Errors: {len(errors)}")
+        lines.extend(f"- {error}" for error in errors)
+    console.print(Panel.fit("\n".join(lines), title="memory-pack validate"))
+    if not validation["valid"]:
+        raise typer.Exit(1)
+
+
+@memory_pack_app.command("import")
+def memory_pack_import_cmd(
+    input_path: Path = typer.Option(
+        ...,
+        "--input",
+        "-i",
+        exists=True,
+        help="Memory pack JSON file",
+    ),
+    strategy: str = typer.Option(
+        "append",
+        "--strategy",
+        help="Merge strategy: skip, append, overwrite",
+    ),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Import a memory pack with configurable merge conflict strategy."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+    normalized_strategy = strategy.strip().lower()
+    if normalized_strategy not in {"skip", "append", "overwrite"}:
+        console.print("[error]Invalid --strategy. Use skip, append, or overwrite.[/error]")
+        raise typer.Exit(1)
+    merge_strategy = cast(MergeStrategy, normalized_strategy)
+
+    try:
+        pack = read_memory_pack(input_path)
+        report = import_memory_pack(
+            storage,
+            files,
+            pack,
+            strategy=merge_strategy,
+        )
+    except ValueError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[error]Memory pack import failed: {exc}[/error]")
+        raise typer.Exit(1) from None
+
+    payload = {
+        "path": str(input_path),
+        "strategy": normalized_strategy,
+        **report,
+    }
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+
+    lines = [
+        f"Path: {input_path}",
+        f"Strategy: {normalized_strategy}",
+        f"Tier updates: {report['tier_updates']}",
+        f"Chunks written: {report['chunks_written']}",
+        f"Chunks skipped: {report['chunks_skipped']}",
+    ]
+    warnings = report.get("warnings", [])
+    if isinstance(warnings, list) and warnings:
+        lines.append(f"Warnings: {len(warnings)}")
+        lines.extend(f"- {warning}" for warning in warnings)
+    console.print(Panel.fit("\n".join(lines), title="memory-pack import"))
+
+
+@memory_app.command("mode")
+def memory_mode(
+    set_mode: str | None = typer.Option(
+        None,
+        "--set",
+        help="Set memory.mode to markdown, hybrid, or vector_primary",
+    ),
+):
+    """Show or update memory mode feature flag."""
+    _get_theme_manager()
+    files = get_files()
+    config = files.read_config()
+    memory_cfg = config.get("memory", {}) if isinstance(config, dict) else {}
+    if not isinstance(memory_cfg, dict):
+        memory_cfg = {}
+
+    if set_mode is None:
+        mode = str(memory_cfg.get("mode", "markdown"))
+        console.print(f"[bold]memory.mode[/bold] = {mode}")
+        return
+
+    normalized = set_mode.strip().lower()
+    if normalized not in {"markdown", "hybrid", "vector_primary"}:
+        console.print("[error]Invalid mode. Use markdown, hybrid, or vector_primary.[/error]")
+        raise typer.Exit(1)
+    memory_cfg["mode"] = normalized
+    config["memory"] = memory_cfg
+    files.write_config(config)
+    console.print(f"[success]Updated memory.mode to {normalized}[/success]")
+
+
+@memory_app.command("migrate-vectors")
+def memory_migrate_vectors(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview migration without writing"),
+    max_records: int | None = typer.Option(
+        None,
+        "--max-records",
+        min=1,
+        help="Optional cap on number of records to migrate",
+    ),
+    batch_size: int | None = typer.Option(
+        None,
+        "--batch-size",
+        min=1,
+        help="Override embedding batch size",
+    ),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Migrate tier markdown + chunks into vector records."""
+    _get_theme_manager()
+    storage = get_storage()
+    files = get_files()
+    memory_cfg = _read_memory_config(files)
+    config = load_config(AGENT_DIR)
+    tenant_id = config.storage.shared.tenant_id
+    project_id = config.storage.shared.project_id
+    markdown_store = MarkdownMemoryStore(storage, files)
+    snapshot = markdown_store.export_snapshot()
+    rows = _collect_memory_rows(snapshot)
+
+    privacy_cfg = memory_cfg.get("privacy", {}) if isinstance(memory_cfg, dict) else {}
+    cost_cfg = memory_cfg.get("cost", {}) if isinstance(memory_cfg, dict) else {}
+    redaction_patterns = _compile_redaction_patterns(
+        privacy_cfg.get("redaction_patterns", []) if isinstance(privacy_cfg, dict) else []
+    )
+    redacted_rows = 0
+    normalized_rows: list[dict[str, Any]] = []
+    seen_text: set[str] = set()
+    for row in rows:
+        text = str(row.get("text", "")).strip()
+        if not text:
+            continue
+        redacted_text, changed = _redact_text(text, redaction_patterns)
+        if changed:
+            redacted_rows += 1
+        dedupe_key = redacted_text.lower()
+        if dedupe_key in seen_text:
+            continue
+        seen_text.add(dedupe_key)
+        row["text"] = redacted_text
+        normalized_rows.append(row)
+
+    configured_limit = (
+        int(cost_cfg.get("max_vector_records", 20_000)) if isinstance(cost_cfg, dict) else 20_000
+    )
+    effective_limit = max_records if max_records is not None else configured_limit
+    effective_rows = normalized_rows[: max(1, int(effective_limit))]
+
+    retrieval_cfg = config.retrieval
+    embedding_provider_name = str(memory_cfg.get("embedding_provider", "local")).strip().lower()
+    if embedding_provider_name == "external":
+        base_url = str(memory_cfg.get("external_embedding_base_url") or "").strip()
+        if not base_url:
+            console.print(
+                "[error]memory.external_embedding_base_url is required "
+                "for external provider.[/error]"
+            )
+            raise typer.Exit(1)
+        provider = ExternalEmbeddingProvider(
+            base_url=base_url,
+            api_key_env=str(memory_cfg.get("external_embedding_api_key_env", "OPENAI_API_KEY")),
+            model=str(memory_cfg.get("external_embedding_model", "text-embedding-3-small")),
+            timeout_seconds=float(memory_cfg.get("external_embedding_timeout_seconds", 10.0)),
+            max_cost_usd=float(cost_cfg.get("max_external_embedding_usd", 1.0))
+            if isinstance(cost_cfg, dict)
+            else 1.0,
+        )
+    else:
+        provider = LocalEmbeddingProvider(
+            model_path=(
+                str(memory_cfg.get("local_model_path"))
+                if memory_cfg.get("local_model_path")
+                else None
+            ),
+            dimensions=retrieval_cfg.embedding_dimensions,
+        )
+
+    migration_batch = batch_size or int(memory_cfg.get("migration_batch_size", 100))
+    migration_batch = max(1, int(migration_batch))
+    vectors: list[VectorRecord] = []
+    total_tokens = 0
+    total_cost = 0.0
+    for start in range(0, len(effective_rows), migration_batch):
+        chunk = effective_rows[start : start + migration_batch]
+        texts = [str(item["text"]) for item in chunk]
+        response = provider.embed_texts(texts)
+        total_tokens += response.estimated_tokens
+        total_cost += response.estimated_cost_usd
+        for row, embedding in zip(chunk, response.vectors, strict=False):
+            vectors.append(
+                VectorRecord(
+                    id=str(row["id"]),
+                    tenant_id=tenant_id,
+                    project_id=project_id,
+                    text=str(row["text"]),
+                    label=str(row.get("label", "unknown")),
+                    tags=[str(tag) for tag in row.get("tags", []) if str(tag).strip()],
+                    embedding=embedding,
+                    metadata={"source": "migration"},
+                    updated_at=datetime.now(UTC).isoformat(),
+                )
+            )
+
+    backend = str(memory_cfg.get("vector_backend", "local")).strip().lower()
+    written = 0
+    if not dry_run:
+        if backend == "turbopuffer":
+            turbo_cfg = memory_cfg.get("turbopuffer", {})
+            if not isinstance(turbo_cfg, dict):
+                turbo_cfg = {}
+            base_url = str(turbo_cfg.get("base_url") or "").strip()
+            if not base_url:
+                console.print("[error]memory.turbopuffer.base_url is required.[/error]")
+                raise typer.Exit(1)
+            vector_store = TurboPufferVectorStore(
+                base_url=base_url,
+                api_key_env=str(turbo_cfg.get("api_key_env", "TURBOPUFFER_API_KEY")),
+                tenant_id=tenant_id,
+                project_id=project_id,
+                timeout_seconds=float(turbo_cfg.get("timeout_seconds", 10.0)),
+                retry_attempts=int(turbo_cfg.get("retry_attempts", 2)),
+            )
+            written = vector_store.upsert_records(vectors)
+        else:
+            vector_store = LocalVectorStore(
+                AGENT_DIR / "vector.db",
+                tenant_id=tenant_id,
+                project_id=project_id,
+            )
+            written = vector_store.upsert_records(vectors)
+
+    payload = {
+        "rows_discovered": len(rows),
+        "rows_normalized": len(normalized_rows),
+        "rows_migrated": len(vectors),
+        "rows_written": written,
+        "redacted_rows": redacted_rows,
+        "embedding_provider": embedding_provider_name,
+        "vector_backend": backend,
+        "estimated_tokens": total_tokens,
+        "estimated_cost_usd": total_cost,
+        "dry_run": dry_run,
+    }
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    console.print(
+        Panel.fit(
+            f"Rows discovered: {payload['rows_discovered']}\n"
+            f"Rows normalized: {payload['rows_normalized']}\n"
+            f"Rows migrated: {payload['rows_migrated']}\n"
+            f"Rows written: {payload['rows_written']}\n"
+            f"Redacted rows: {payload['redacted_rows']}\n"
+            f"Provider/backend: {embedding_provider_name}/{backend}\n"
+            f"Estimated tokens: {payload['estimated_tokens']}\n"
+            f"Estimated cost USD: {payload['estimated_cost_usd']:.4f}\n"
+            f"Dry run: {payload['dry_run']}",
+            title="memory migrate-vectors",
+        )
+    )
+
+
+@memory_app.command("prune-vectors")
+def memory_prune_vectors(
+    retention_days: int | None = typer.Option(
+        None,
+        "--retention-days",
+        min=1,
+        help="Override memory.privacy.retention_days",
+    ),
+):
+    """Apply vector retention policy for local vector backend."""
+    _get_theme_manager()
+    files = get_files()
+    config = load_config(AGENT_DIR)
+    memory_cfg = _read_memory_config(files)
+    backend = str(memory_cfg.get("vector_backend", "local")).strip().lower()
+    if backend != "local":
+        console.print("[error]prune-vectors currently supports local vector backend only.[/error]")
+        raise typer.Exit(1)
+    privacy_cfg = memory_cfg.get("privacy", {}) if isinstance(memory_cfg, dict) else {}
+    configured_days = (
+        int(privacy_cfg.get("retention_days", 90)) if isinstance(privacy_cfg, dict) else 90
+    )
+    effective_days = retention_days if retention_days is not None else configured_days
+    vector_store = LocalVectorStore(
+        AGENT_DIR / "vector.db",
+        tenant_id=config.storage.shared.tenant_id,
+        project_id=config.storage.shared.project_id,
+    )
+    removed = vector_store.prune_older_than(retention_days=effective_days)
+    console.print(
+        Panel.fit(
+            f"Retention days: {effective_days}\nRemoved records: {removed}",
+            title="memory prune-vectors",
+        )
+    )
+
+
+external_compaction_app.add_typer(external_compaction_queue_app, name="queue")
+
+
 app.add_typer(theme_app, name="theme")
 app.add_typer(metrics_app, name="metrics")
+app.add_typer(feedback_app, name="feedback")
+app.add_typer(attribution_app, name="attribution")
+app.add_typer(topic_threads_app, name="topic-threads")
+app.add_typer(rule_confidence_app, name="rule-confidence")
+app.add_typer(memory_pack_app, name="memory-pack")
+app.add_typer(memory_app, name="memory")
 app.add_typer(config_app, name="config")
 app.add_typer(curation_app, name="curation")
 app.add_typer(ralph_app, name="ralph")

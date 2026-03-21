@@ -6,6 +6,8 @@ compaction:
   backend: llm
   external:
     write_target: runtime
+    allow_template_writes: false
+    conflict_policy: prefer_newest
     pending_limit: 20
   max_recent_tokens: 1500
   max_tier_tokens: 10000
@@ -35,6 +37,31 @@ retrieval:
   embedding_enabled: false
   embedding_dimensions: 64
 
+memory:
+  mode: markdown
+  vector_backend: local
+  embedding_provider: local
+  fusion_fts_weight: 0.4
+  fusion_semantic_weight: 0.6
+  feedback_weight: 0.2
+  migration_batch_size: 100
+  local_model_path: null
+  external_embedding_base_url: null
+  external_embedding_api_key_env: OPENAI_API_KEY
+  external_embedding_model: text-embedding-3-small
+  external_embedding_timeout_seconds: 10.0
+  cost:
+    max_external_embedding_usd: 1.0
+    max_vector_records: 20000
+  privacy:
+    redaction_patterns: []
+    retention_days: 90
+  turbopuffer:
+    base_url: null
+    api_key_env: TURBOPUFFER_API_KEY
+    timeout_seconds: 10.0
+    retry_attempts: 2
+
 storage:
   backend: local
   shared:
@@ -50,6 +77,10 @@ storage:
 
 telemetry:
   enabled: true
+
+guardrails:
+  enforcement:
+    enabled: false
 
 theme:
   name: dark+

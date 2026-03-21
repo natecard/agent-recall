@@ -223,7 +223,7 @@ class CompactionConfig(BaseModel):
 class RetrievalConfig(BaseModel):
     """Retrieval configuration."""
 
-    backend: Literal["fts5", "hybrid"] = "fts5"
+    backend: Literal["fts5", "hybrid", "vector_primary"] = "fts5"
     top_k: int = Field(default=5, ge=1)
     fusion_k: int = Field(default=60, ge=1)
     rerank_enabled: bool = False
@@ -246,6 +246,56 @@ class EmbeddingSettings(BaseModel):
     def _validate_weights(self) -> EmbeddingSettings:
         if self.fts_weight == 0 and self.semantic_weight == 0:
             msg = "At least one of fts_weight or semantic_weight must be > 0"
+            raise ValueError(msg)
+        return self
+
+
+class MemoryCostConfig(BaseModel):
+    """Cost guardrails for pluggable memory backends."""
+
+    max_external_embedding_usd: float = Field(default=1.0, ge=0.0)
+    max_vector_records: int = Field(default=20_000, ge=100)
+
+
+class MemoryPrivacyConfig(BaseModel):
+    """Privacy and retention controls for memory data."""
+
+    redaction_patterns: list[str] = Field(default_factory=list)
+    retention_days: int = Field(default=90, ge=1, le=3650)
+
+
+class MemoryTurboPufferConfig(BaseModel):
+    """TurboPuffer vector backend configuration."""
+
+    base_url: str | None = None
+    api_key_env: str = "TURBOPUFFER_API_KEY"
+    timeout_seconds: float = Field(default=10.0, gt=0.0)
+    retry_attempts: int = Field(default=2, ge=1, le=10)
+
+
+class MemoryConfig(BaseModel):
+    """Feature flags and settings for pluggable memory backends."""
+
+    mode: Literal["markdown", "hybrid", "vector_primary"] = "markdown"
+    vector_backend: Literal["local", "turbopuffer"] = "local"
+    embedding_provider: Literal["local", "external"] = "local"
+    fusion_fts_weight: float = Field(default=0.4, ge=0.0, le=1.0)
+    fusion_semantic_weight: float = Field(default=0.6, ge=0.0, le=1.0)
+    feedback_weight: float = Field(default=0.2, ge=0.0, le=1.0)
+    migration_batch_size: int = Field(default=100, ge=1, le=10_000)
+    local_model_path: str | None = None
+    external_embedding_base_url: str | None = None
+    external_embedding_api_key_env: str = "OPENAI_API_KEY"
+    external_embedding_model: str = "text-embedding-3-small"
+    external_embedding_timeout_seconds: float = Field(default=10.0, gt=0.0)
+    cost: MemoryCostConfig = Field(default_factory=MemoryCostConfig)
+    privacy: MemoryPrivacyConfig = Field(default_factory=MemoryPrivacyConfig)
+    turbopuffer: MemoryTurboPufferConfig = Field(default_factory=MemoryTurboPufferConfig)
+
+    @model_validator(mode="after")
+    def _validate_weights(self) -> MemoryConfig:
+        if self.fusion_fts_weight == 0 and self.fusion_semantic_weight == 0:
+            msg = "At least one of fusion_fts_weight or fusion_semantic_weight must be > 0"
             raise ValueError(msg)
         return self
 
@@ -469,6 +519,7 @@ class AgentRecallConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     embeddings: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)

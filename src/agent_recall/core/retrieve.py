@@ -22,12 +22,18 @@ class Retriever:
         fusion_k: int = 60,
         rerank_enabled: bool = False,
         rerank_candidate_k: int = 20,
+        fts_weight: float = 0.4,
+        semantic_weight: float = 0.6,
+        feedback_weight: float = 0.2,
     ):
         self.storage = storage
         self.backend = backend
         self.fusion_k = max(1, fusion_k)
         self.rerank_enabled = rerank_enabled
         self.rerank_candidate_k = max(1, rerank_candidate_k)
+        self.fts_weight = max(0.0, float(fts_weight))
+        self.semantic_weight = max(0.0, float(semantic_weight))
+        self.feedback_weight = max(0.0, float(feedback_weight))
 
     def search(
         self,
@@ -46,6 +52,8 @@ class Retriever:
 
         if selected_backend == "hybrid":
             chunks = self.search_hybrid(query=query, top_k=candidate_k)
+        elif selected_backend == "vector_primary":
+            chunks = self.search_vector_primary(query=query, top_k=candidate_k)
         else:
             chunks = self.storage.search_chunks_fts(query=query, top_k=candidate_k)
 
@@ -78,8 +86,8 @@ class Retriever:
         self,
         query: str,
         top_k: int = 5,
-        fts_weight: float = 0.4,
-        semantic_weight: float = 0.6,
+        fts_weight: float | None = None,
+        semantic_weight: float | None = None,
         fts_top_k: int = 20,
     ) -> list[Chunk]:
         limit = max(1, int(top_k))
@@ -99,17 +107,26 @@ class Retriever:
 
         if not chunks_by_id:
             return []
+        feedback_scores = self._feedback_scores(query=query, chunks=list(chunks_by_id.values()))
 
-        weighted_fts = max(0.0, float(fts_weight))
-        weighted_semantic = max(0.0, float(semantic_weight))
-        weighted_results: list[tuple[float, float, float, str, Chunk]] = []
+        weighted_fts = self.fts_weight if fts_weight is None else max(0.0, float(fts_weight))
+        weighted_semantic = (
+            self.semantic_weight if semantic_weight is None else max(0.0, float(semantic_weight))
+        )
+        weighted_results: list[tuple[float, float, float, float, str, Chunk]] = []
         for chunk_id, chunk in chunks_by_id.items():
             fts_score = fts_rank_scores.get(chunk_id, 0.0)
             semantic_score = semantic_scores.get(chunk_id, 0.0)
-            hybrid_score = (weighted_fts * fts_score) + (weighted_semantic * semantic_score)
+            feedback_score = feedback_scores.get(chunk_id, 0.0)
+            hybrid_score = (
+                (weighted_fts * fts_score)
+                + (weighted_semantic * semantic_score)
+                + (feedback_score * self.feedback_weight)
+            )
             weighted_results.append(
                 (
                     hybrid_score,
+                    feedback_score,
                     semantic_score,
                     fts_score,
                     str(chunk.id),
@@ -117,7 +134,7 @@ class Retriever:
                 )
             )
 
-        weighted_results.sort(key=lambda row: (-row[0], -row[1], -row[2], row[3]))
+        weighted_results.sort(key=lambda row: (-row[0], -row[1], -row[2], -row[3], row[4]))
         logger.debug(
             "Hybrid search: %d FTS + %d semantic = %d unique, top %d returned",
             len(fts_chunks),
@@ -175,8 +192,9 @@ class Retriever:
             if dimensions > 0
             else None
         )
+        feedback_scores = self._feedback_scores(query=query, chunks=chunks)
 
-        scored: list[tuple[float, float, float, int, str, Chunk]] = []
+        scored: list[tuple[float, float, float, float, int, str, Chunk]] = []
         for rank, chunk in enumerate(chunks, start=1):
             lexical_score = self._lexical_overlap_score(
                 query_terms=query_terms,
@@ -191,11 +209,72 @@ class Retriever:
             ):
                 similarity = max(0.0, cosine_similarity(query_embedding, chunk.embedding))
 
+            feedback_score = feedback_scores.get(chunk.id, 0.0)
             score = lexical_score + (similarity * 0.75)
-            scored.append((score, similarity, lexical_score, rank, str(chunk.id), chunk))
+            score += feedback_score * (0.3 + self.feedback_weight)
+            scored.append(
+                (
+                    score,
+                    feedback_score,
+                    similarity,
+                    lexical_score,
+                    rank,
+                    str(chunk.id),
+                    chunk,
+                )
+            )
 
-        scored.sort(key=lambda row: (-row[0], -row[1], -row[2], row[3], row[4]))
+        scored.sort(key=lambda row: (-row[0], -row[1], -row[2], -row[3], row[4], row[5]))
         return [chunk for *_meta, chunk in scored[:top_k]]
+
+    def search_vector_primary(self, query: str, top_k: int = 5) -> list[Chunk]:
+        limit = max(1, int(top_k))
+        semantic = self.search_by_vector_similarity(query=query, top_k=limit)
+        if len(semantic) >= limit:
+            return semantic[:limit]
+
+        seen = {chunk.id for chunk in semantic}
+        lexical = self.storage.search_chunks_fts(query=query, top_k=max(limit, self.fusion_k))
+        merged = list(semantic)
+        for chunk in lexical:
+            if chunk.id in seen:
+                continue
+            merged.append(chunk)
+            seen.add(chunk.id)
+            if len(merged) >= limit:
+                break
+        return merged[:limit]
+
+    def _feedback_scores(self, query: str, chunks: list[Chunk]) -> dict[UUID, float]:
+        if not chunks:
+            return {}
+        score_fn = getattr(self.storage, "get_retrieval_feedback_scores", None)
+        if not callable(score_fn):
+            return {}
+        try:
+            raw_scores = score_fn(query=query, chunk_ids=[chunk.id for chunk in chunks])
+        except (NotImplementedError, ValueError, TypeError):
+            return {}
+        if not isinstance(raw_scores, dict):
+            return {}
+
+        normalized: dict[UUID, float] = {}
+        for key, value in raw_scores.items():
+            chunk_id: UUID | None
+            if isinstance(key, UUID):
+                chunk_id = key
+            else:
+                try:
+                    chunk_id = UUID(str(key))
+                except ValueError:
+                    chunk_id = None
+            if chunk_id is None:
+                continue
+            try:
+                normalized[chunk_id] = max(-1.0, min(1.0, float(value)))
+            except (TypeError, ValueError):
+                continue
+        return normalized
 
     @staticmethod
     def _tokenize(text: str) -> set[str]:
