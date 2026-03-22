@@ -5,6 +5,7 @@ from typing import Any
 
 import yaml
 
+from agent_recall.core.config_keys import validate_no_legacy_config_keys
 from agent_recall.storage.models import AgentRecallConfig
 
 
@@ -39,4 +40,5 @@ def load_config(agent_dir: Path) -> AgentRecallConfig:
         merged = _deep_merge(merged, _load_yaml(path))
 
     merged = _deep_merge(merged, data)
+    validate_no_legacy_config_keys(merged)
     return AgentRecallConfig.model_validate(merged)

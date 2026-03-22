@@ -110,6 +110,7 @@ class WorkerMixin:
                 or "/sessions" in command_header
             ):
                 self._show_inline_result_list(cleaned_lines)
+            self._append_sync_remediation_hint(cleaned_lines)
 
             self.status = "Last command executed"
             self._finalize_theme_commit(success=True)
@@ -120,15 +121,24 @@ class WorkerMixin:
 
         if context.startswith("sync-source:"):
             source_name = context.split(":", 1)[1]
-            lines = (
-                [line for line in result if isinstance(line, str)]
-                if isinstance(result, list)
-                else []
-            )
+            lines: list[str] = []
+            if (
+                isinstance(result, tuple)
+                and len(result) == 2
+                and isinstance(result[0], bool)
+                and isinstance(result[1], list)
+            ):
+                lines = [line for line in result[1] if isinstance(line, str)]
+            elif isinstance(result, list):
+                lines = [line for line in result if isinstance(line, str)]
+
+            cleaned_lines: list[str] = []
             for line in lines:
                 cleaned = _strip_rich_markup(line).strip()
                 if cleaned:
+                    cleaned_lines.append(cleaned)
                     self._append_activity(cleaned)
+            self._append_sync_remediation_hint(cleaned_lines)
             if source_name:
                 self.status = f"Source sync complete: {source_name}"
                 self._append_activity(f"Source sync complete: {source_name}.")
@@ -333,6 +343,42 @@ class WorkerMixin:
             )
             self.status = "Ralph loop complete"
             self._refresh_dashboard_panel()
+
+    def _append_sync_remediation_hint(self: Any, lines: list[str]) -> None:
+        discovered = self._extract_count(lines, "Sessions discovered:")
+        processed = self._extract_count(lines, "Sessions processed:")
+        already_processed = self._extract_count(lines, "already processed:")
+        if (
+            discovered is not None
+            and processed is not None
+            and already_processed is not None
+            and discovered > 0
+            and processed == 0
+            and already_processed > 0
+        ):
+            self._append_activity(
+                "No new sessions were processed. Use Command Palette -> Reprocess Conversations."
+            )
+
+    @staticmethod
+    def _extract_count(lines: list[str], marker: str) -> int | None:
+        for line in lines:
+            if marker not in line:
+                continue
+            tail = line.split(marker, 1)[1]
+            digits: list[str] = []
+            for char in tail:
+                if char.isdigit():
+                    digits.append(char)
+                elif digits:
+                    break
+            if not digits:
+                continue
+            try:
+                return int("".join(digits))
+            except ValueError:
+                return None
+        return None
 
     def _complete_knowledge_worker(self: Any, worker_key: int, *, success: bool) -> None:
         if worker_key not in self._knowledge_run_workers:

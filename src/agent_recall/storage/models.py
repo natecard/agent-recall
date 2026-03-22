@@ -176,7 +176,8 @@ class LLMConfig(BaseModel):
     provider: str = Field(
         default="anthropic",
         description=(
-            "LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"
+            "LLM provider: anthropic, openai, openrouter, mistral, google, "
+            "ollama, vllm, lmstudio, openai-compatible"
         ),
     )
     model: str = Field(default="claude-sonnet-4-20250514", description="Model name/identifier")
@@ -228,7 +229,7 @@ class RetrievalConfig(BaseModel):
     fusion_k: int = Field(default=60, ge=1)
     rerank_enabled: bool = False
     rerank_candidate_k: int = Field(default=20, ge=1)
-    embedding_enabled: bool = False
+    semantic_index_enabled: bool = False
     embedding_dimensions: int = Field(default=64, ge=8, le=4096)
 
 
@@ -442,7 +443,7 @@ class AdapterConfig(BaseModel):
 
     enabled: bool = False
     output_dir: str = ".agent/context"
-    token_budget: int | None = Field(
+    default_token_budget: int | None = Field(
         default=None,
         description="Optional token budget for adapter payload context",
     )

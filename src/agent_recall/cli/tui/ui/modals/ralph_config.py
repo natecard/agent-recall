@@ -12,6 +12,7 @@ from agent_recall.cli.tui.constants import (
     _COMPACT_MODE_OPTIONS,
     _RALPH_CLI_OPTIONS,
 )
+from agent_recall.cli.tui.logic.select_compat import is_select_empty, select_empty_value
 from agent_recall.cli.tui.logic.text_sanitizers import _clean_optional_text
 from agent_recall.cli.tui.types import DiscoverCodingModelsFn
 
@@ -31,6 +32,9 @@ class RalphConfigModal(ModalScreen[dict[str, Any] | None]):
         sleep_sec = self.defaults.get("sleep_seconds", 2)
         compact = _clean_optional_text(self.defaults.get("compact_mode", "always")) or "always"
         enabled = bool(self.defaults.get("enabled", False))
+        cli_select_value = (
+            current_cli if current_cli in dict(_RALPH_CLI_OPTIONS) else select_empty_value()
+        )
 
         with Container(id="modal_overlay"):
             with Vertical(id="modal_card"):
@@ -43,9 +47,7 @@ class RalphConfigModal(ModalScreen[dict[str, Any] | None]):
                     yield Static("Coding CLI", classes="field_label")
                     yield Select(
                         _RALPH_CLI_OPTIONS,
-                        value=(
-                            current_cli if current_cli in dict(_RALPH_CLI_OPTIONS) else Select.BLANK
-                        ),
+                        value=cli_select_value,
                         allow_blank=True,
                         id="ralph_cli",
                         classes="field_input",
@@ -128,7 +130,7 @@ class RalphConfigModal(ModalScreen[dict[str, Any] | None]):
         if event.select.id != "ralph_model_picker":
             return
         selected = event.value
-        if selected == Select.BLANK:
+        if is_select_empty(selected):
             return
         if str(selected) == "__manual__":
             return
@@ -161,7 +163,7 @@ class RalphConfigModal(ModalScreen[dict[str, Any] | None]):
 
         cli_widget = self.query_one("#ralph_cli", Select)
         cli_value = cli_widget.value
-        coding_cli = None if cli_value == Select.BLANK else str(cli_value)
+        coding_cli = None if is_select_empty(cli_value) else str(cli_value)
 
         try:
             max_iter = int(self.query_one("#ralph_max_iterations", Input).value)
@@ -183,7 +185,7 @@ class RalphConfigModal(ModalScreen[dict[str, Any] | None]):
 
         compact_widget = self.query_one("#ralph_compact_mode", Select)
         compact_value = compact_widget.value
-        compact_mode = "always" if compact_value == Select.BLANK else str(compact_value)
+        compact_mode = "always" if is_select_empty(compact_value) else str(compact_value)
 
         cli_model = _clean_optional_text(self.query_one("#ralph_cli_model", Input).value) or None
 
@@ -201,7 +203,7 @@ class RalphConfigModal(ModalScreen[dict[str, Any] | None]):
     def _refresh_model_picker(self) -> None:
         cli_widget = self.query_one("#ralph_cli", Select)
         cli_value = cli_widget.value
-        cli_name = "" if cli_value == Select.BLANK else str(cli_value)
+        cli_name = "" if is_select_empty(cli_value) else str(cli_value)
 
         models: list[str] = []
         if cli_name:

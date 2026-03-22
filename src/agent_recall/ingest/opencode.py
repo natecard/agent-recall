@@ -8,6 +8,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_recall.core.ordering import (
+    key_optional_timestamp_name,
+    key_timestamp_index,
+    key_timestamp_name,
+)
 from agent_recall.ingest.base import RawMessage, RawSession, RawToolCall, SessionIngester
 from agent_recall.ingest.health import HealthStatus, SourceHealthResult
 
@@ -177,7 +182,7 @@ class OpenCodeIngester(SessionIngester):
 
             discovered.append((updated_at.timestamp(), session_file))
 
-        discovered.sort(key=lambda item: (item[0], item[1].name))
+        discovered.sort(key=lambda item: key_timestamp_name(item[0], item[1].name))
         return [path for _, path in discovered]
 
     def get_session_id(self, path: Path) -> str:
@@ -205,9 +210,10 @@ class OpenCodeIngester(SessionIngester):
             )
 
         parsed_parts.sort(
-            key=lambda item: (
-                item[0] if item[0] is not None else float("inf"),
+            key=lambda item: key_optional_timestamp_name(
+                item[0],
                 item[1],
+                missing_last=True,
             )
         )
         return [payload for _, _, payload in parsed_parts]
@@ -447,7 +453,7 @@ class OpenCodeIngester(SessionIngester):
                 sort_key = timestamp.timestamp() if timestamp else float("inf")
                 message_rows.append((sort_key, raw_message))
 
-            message_rows.sort(key=lambda item: item[0])
+            message_rows.sort(key=lambda item: key_timestamp_index(item[0], 0, missing_last=True))
             messages = [item[1] for item in message_rows]
 
         session_directory = self._resolve_path(payload.get("directory"))

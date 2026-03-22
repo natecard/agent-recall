@@ -12,6 +12,7 @@ from typing import Any, Literal
 from agent_recall.core.compact import CompactionEngine
 from agent_recall.core.embedding_indexer import EmbeddingIndexer
 from agent_recall.core.extract import TranscriptExtractor
+from agent_recall.core.ordering import key_timestamp_desc_id
 from agent_recall.core.telemetry import PipelineTelemetry
 from agent_recall.ingest import SessionIngester, get_default_ingesters
 from agent_recall.ingest.base import RawSession
@@ -93,6 +94,8 @@ class AutoSync:
         self.extract_timeout_seconds = 45
         self.extract_retry_attempts = 3
         self.extract_retry_backoff_seconds = 2.0
+        self.extract_retry_max_backoff_seconds = 45.0
+        self.extract_rate_limit_min_messages_per_batch = 20
         self.zero_learning_warning_min_messages = 50
 
     async def sync(
@@ -437,54 +440,121 @@ class AutoSync:
         extraction_error: str | None = None
         extraction_started = time.perf_counter()
         message_count = len(raw_session.messages)
+        initial_messages_per_batch = extractor.messages_per_batch
+        current_attempt = 0
         self._emit_progress(
             {
                 "event": "extraction_session_started",
                 "source": candidate.source_name,
                 "session_id": candidate.session_id,
                 "messages_total": message_count,
+                "messages_per_batch": initial_messages_per_batch,
             }
         )
 
         def _on_extract_progress(event: dict[str, Any]) -> None:
-            if event.get("event") == "extraction_batch_complete":
-                batch_events.append(event)
-            self._emit_progress(event)
+            event_payload = dict(event)
+            if current_attempt > 0:
+                event_payload.setdefault("attempt", current_attempt)
+                event_payload.setdefault("max_attempts", self.extract_retry_attempts)
+            if event_payload.get("event") == "extraction_batch_complete":
+                batch_events.append(event_payload)
+            self._emit_progress(event_payload)
 
-        for attempt in range(1, self.extract_retry_attempts + 1):
-            try:
-                batch_events.clear()
-                entries = await asyncio.wait_for(
-                    extractor.extract(
-                        raw_session,
-                        progress_callback=_on_extract_progress,
-                    ),
-                    timeout=self.extract_timeout_seconds,
-                )
-                extraction_error = None
-                break
-            except TimeoutError:
-                extraction_error = (
-                    f"{candidate.source_name}:{candidate.session_path.name}: "
-                    f"extraction timed out after {self.extract_timeout_seconds}s "
-                    f"(attempt {attempt}/{self.extract_retry_attempts})"
-                )
-                if attempt < self.extract_retry_attempts:
-                    await asyncio.sleep(self.extract_retry_backoff_seconds * attempt)
-            except LLMRateLimitError as exc:
-                extraction_error = (
-                    f"{candidate.source_name}:{candidate.session_path.name}: "
-                    f"extraction rate-limited: {exc} "
-                    f"(attempt {attempt}/{self.extract_retry_attempts})"
-                )
-                if attempt < self.extract_retry_attempts:
-                    await asyncio.sleep(self.extract_retry_backoff_seconds * attempt)
-            except Exception as exc:  # noqa: BLE001
-                extraction_error = (
-                    f"{candidate.source_name}:{candidate.session_path.name}: "
-                    f"extraction failed: {exc}"
-                )
-                break
+        try:
+            for attempt in range(1, self.extract_retry_attempts + 1):
+                current_attempt = attempt
+                try:
+                    batch_events.clear()
+                    entries = await asyncio.wait_for(
+                        extractor.extract(
+                            raw_session,
+                            progress_callback=_on_extract_progress,
+                        ),
+                        timeout=self.extract_timeout_seconds,
+                    )
+                    extraction_error = None
+                    break
+                except TimeoutError:
+                    extraction_error = (
+                        f"{candidate.source_name}:{candidate.session_path.name}: "
+                        f"extraction timed out after {self.extract_timeout_seconds}s "
+                        f"(attempt {attempt}/{self.extract_retry_attempts})"
+                    )
+                    if attempt < self.extract_retry_attempts:
+                        delay = self._compute_extract_retry_delay_seconds(
+                            attempt=attempt,
+                            retry_after_seconds=None,
+                        )
+                        self._emit_progress(
+                            {
+                                "event": "extraction_retry_scheduled",
+                                "source": candidate.source_name,
+                                "session_id": candidate.session_id,
+                                "reason": "timeout",
+                                "attempt": attempt,
+                                "next_attempt": attempt + 1,
+                                "max_attempts": self.extract_retry_attempts,
+                                "delay_seconds": delay,
+                                "messages_per_batch": extractor.messages_per_batch,
+                            }
+                        )
+                        await asyncio.sleep(delay)
+                except LLMRateLimitError as exc:
+                    adjusted = self._maybe_reduce_extract_batch_size(extractor)
+                    if adjusted is not None:
+                        old_size, new_size = adjusted
+                        self._emit_progress(
+                            {
+                                "event": "extraction_batch_size_adjusted",
+                                "source": candidate.source_name,
+                                "session_id": candidate.session_id,
+                                "attempt": attempt,
+                                "max_attempts": self.extract_retry_attempts,
+                                "old_messages_per_batch": old_size,
+                                "new_messages_per_batch": new_size,
+                            }
+                        )
+
+                    retry_after = exc.retry_after_seconds
+                    retry_after_text = (
+                        f" (retry-after {retry_after:.1f}s)"
+                        if isinstance(retry_after, float)
+                        else ""
+                    )
+                    extraction_error = (
+                        f"{candidate.source_name}:{candidate.session_path.name}: "
+                        f"extraction rate-limited: {exc}{retry_after_text} "
+                        f"(attempt {attempt}/{self.extract_retry_attempts})"
+                    )
+                    if attempt < self.extract_retry_attempts:
+                        delay = self._compute_extract_retry_delay_seconds(
+                            attempt=attempt,
+                            retry_after_seconds=retry_after,
+                        )
+                        self._emit_progress(
+                            {
+                                "event": "extraction_retry_scheduled",
+                                "source": candidate.source_name,
+                                "session_id": candidate.session_id,
+                                "reason": "rate_limit",
+                                "attempt": attempt,
+                                "next_attempt": attempt + 1,
+                                "max_attempts": self.extract_retry_attempts,
+                                "delay_seconds": delay,
+                                "retry_after_seconds": retry_after,
+                                "messages_per_batch": extractor.messages_per_batch,
+                            }
+                        )
+                        await asyncio.sleep(delay)
+                except Exception as exc:  # noqa: BLE001
+                    extraction_error = (
+                        f"{candidate.source_name}:{candidate.session_path.name}: "
+                        f"extraction failed: {exc}"
+                    )
+                    break
+        finally:
+            extractor.messages_per_batch = initial_messages_per_batch
 
         extraction_duration_ms = (time.perf_counter() - extraction_started) * 1000.0
         if extraction_error:
@@ -794,7 +864,7 @@ class AutoSync:
         if not isinstance(retrieval_cfg, dict):
             return False
 
-        return bool(retrieval_cfg.get("embedding_enabled", False))
+        return bool(retrieval_cfg.get("semantic_index_enabled", False))
 
     def _resolve_compaction_backend(self) -> str:
         config = self.files.read_config()
@@ -1005,8 +1075,10 @@ class AutoSync:
             missing_ids = sorted(requested_ids - found_ids)
 
         selected.sort(
-            key=lambda candidate: (candidate.sort_timestamp, candidate.session_id),
-            reverse=True,
+            key=lambda candidate: key_timestamp_desc_id(
+                candidate.sort_timestamp,
+                candidate.session_id,
+            )
         )
 
         if max_sessions is not None:
@@ -1058,6 +1130,35 @@ class AutoSync:
             self.progress_callback(payload)
         except Exception:  # noqa: BLE001
             return
+
+    def _compute_extract_retry_delay_seconds(
+        self,
+        *,
+        attempt: int,
+        retry_after_seconds: float | None,
+    ) -> float:
+        base_backoff = max(0.0, float(self.extract_retry_backoff_seconds))
+        exponential_backoff = base_backoff * float(2 ** max(0, attempt - 1))
+        retry_after = max(0.0, float(retry_after_seconds or 0.0))
+        delay = max(exponential_backoff, retry_after)
+        max_backoff = max(0.0, float(self.extract_retry_max_backoff_seconds))
+        if max_backoff > 0:
+            delay = min(delay, max_backoff)
+        return delay
+
+    def _maybe_reduce_extract_batch_size(
+        self,
+        extractor: TranscriptExtractor,
+    ) -> tuple[int, int] | None:
+        current_size = max(1, int(extractor.messages_per_batch))
+        min_size = max(1, int(self.extract_rate_limit_min_messages_per_batch))
+        if current_size <= min_size:
+            return None
+        next_size = max(min_size, current_size // 2)
+        if next_size >= current_size:
+            return None
+        extractor.messages_per_batch = next_size
+        return current_size, next_size
 
     def _compute_session_hash(self, raw_session: RawSession) -> str:
         """Compute a hash of session content for change detection."""

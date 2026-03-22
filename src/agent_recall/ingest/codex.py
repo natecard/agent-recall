@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_recall.core.ordering import key_timestamp_index, key_timestamp_name
 from agent_recall.ingest.base import RawMessage, RawSession, RawToolCall, SessionIngester
 from agent_recall.ingest.health import HealthStatus, SourceHealthResult
 
@@ -211,7 +212,7 @@ class CodexIngester(SessionIngester):
 
             discovered.append((updated_at.timestamp(), session_file))
 
-        discovered.sort(key=lambda item: (item[0], item[1].name))
+        discovered.sort(key=lambda item: key_timestamp_name(item[0], item[1].name))
         return [path for _, path in discovered]
 
     def get_session_id(self, path: Path) -> str:
@@ -416,7 +417,9 @@ class CodexIngester(SessionIngester):
                 )
             )
 
-        message_rows.sort(key=lambda item: (item[0], item[1]))
+        message_rows.sort(
+            key=lambda item: key_timestamp_index(item[0], item[1], missing_last=False)
+        )
         messages = [item[2] for item in message_rows]
 
         native_session_id = str(metadata.get("session_id") or path.stem)

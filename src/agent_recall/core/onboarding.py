@@ -37,12 +37,16 @@ LOCAL_PROVIDERS = {"ollama", "vllm", "lmstudio", "openai-compatible", "custom"}
 API_KEY_ENV_BY_PROVIDER = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
     "google": "GOOGLE_API_KEY",
 }
 
 DEFAULT_MODELS = {
     "anthropic": "claude-sonnet-4-20250514",
     "openai": "gpt-4.1",
+    "openrouter": "openai/gpt-5.2",
+    "mistral": "mistral-large-latest",
     "google": "gemini-2.5-flash",
     "ollama": "llama3.1",
     "vllm": "default",
@@ -53,6 +57,8 @@ DEFAULT_MODELS = {
 DEFAULT_BASE_URLS = {
     "anthropic": "https://api.anthropic.com/v1",
     "openai": "https://api.openai.com/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "mistral": "https://api.mistral.ai/v1",
     "google": "https://generativelanguage.googleapis.com/v1beta",
     "ollama": "http://localhost:11434/v1",
     "vllm": "http://localhost:8000/v1",
@@ -317,7 +323,7 @@ def get_repo_preferred_sources(files: FileStorage) -> list[str] | None:
     onboarding = config_dict.get("onboarding")
     if not isinstance(onboarding, dict):
         return None
-    selected = onboarding.get("selected_agents")
+    selected = onboarding.get("selected_sources")
     normalized = _normalize_source_values(selected)
     return normalized or None
 
@@ -342,8 +348,8 @@ def is_repo_onboarding_complete(files: FileStorage) -> bool:
     if not isinstance(completed_at, str) or not completed_at.strip():
         return False
 
-    selected_agents = _normalize_source_values(onboarding.get("selected_agents"))
-    if not selected_agents:
+    selected_sources = _normalize_source_values(onboarding.get("selected_sources"))
+    if not selected_sources:
         return False
 
     return _repo_matches(onboarding.get("repository_path"), _resolve_repository_root())
@@ -528,6 +534,19 @@ def _openai_like_models_url(base_url: str | None, provider: str) -> str:
     return f"{root}/models"
 
 
+def _openrouter_headers(api_key: str | None) -> dict[str, str]:
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    referer = os.environ.get("OPENROUTER_HTTP_REFERER")
+    if referer:
+        headers["HTTP-Referer"] = referer
+    title = os.environ.get("OPENROUTER_APP_TITLE")
+    if title:
+        headers["X-OpenRouter-Title"] = title
+    return headers
+
+
 def _ollama_tags_url(base_url: str | None) -> str:
     root = (base_url or _default_base_url_for_provider("ollama") or "").rstrip("/")
     if root.endswith("/v1"):
@@ -547,13 +566,37 @@ def discover_provider_models(
     api_key = os.environ.get(env_var) if env_var else None
 
     try:
-        if normalized in {"openai", "vllm", "lmstudio", "openai-compatible", "custom"}:
+        if normalized in {
+            "openai",
+            "mistral",
+            "vllm",
+            "lmstudio",
+            "openai-compatible",
+            "custom",
+        }:
+            resolved_base_url = base_url or _default_base_url_for_provider(normalized)
             headers = {"Accept": "application/json"}
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
             payload = _http_get_json(
-                _openai_like_models_url(base_url, "openai" if normalized == "openai" else "custom"),
+                _openai_like_models_url(
+                    resolved_base_url,
+                    "openai" if normalized == "openai" else "custom",
+                ),
                 headers=headers,
+                timeout_seconds=timeout_seconds,
+            )
+            models = _extract_openai_models(payload)
+            if models:
+                return models, None
+            return [], "provider returned no models"
+
+        if normalized == "openrouter":
+            payload = _http_get_json(
+                _openai_like_models_url(
+                    base_url or _default_base_url_for_provider("openrouter"), "custom"
+                ),
+                headers=_openrouter_headers(api_key),
                 timeout_seconds=timeout_seconds,
             )
             models = _extract_openai_models(payload)
@@ -926,10 +969,10 @@ def _maybe_capture_api_key(
     console.print(f"[success]✓ Stored {env_var} in {secrets_store.path}[/success]")
 
 
-def _discover_source_counts(selected_agents: list[str]) -> dict[str, int]:
+def _discover_source_counts(selected_sources: list[str]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for ingester in get_default_ingesters():
-        if ingester.source_name not in selected_agents:
+        if ingester.source_name not in selected_sources:
             continue
         try:
             counts[ingester.source_name] = len(ingester.discover_sessions())
@@ -972,15 +1015,15 @@ def get_onboarding_defaults(files: FileStorage) -> dict[str, Any]:
     if provider not in available_providers:
         provider = "anthropic" if "anthropic" in available_providers else available_providers[0]
 
-    selected_agents = _normalize_source_values(
-        config_dict.get("onboarding", {}).get("selected_agents")
+    selected_sources = _normalize_source_values(
+        config_dict.get("onboarding", {}).get("selected_sources")
         if isinstance(config_dict.get("onboarding"), dict)
         else None
     )
-    if not selected_agents:
-        selected_agents = _normalize_source_values(defaults.get("selected_agents"))
-    if not selected_agents:
-        selected_agents = list(VALID_AGENT_SOURCES)
+    if not selected_sources:
+        selected_sources = _normalize_source_values(defaults.get("selected_sources"))
+    if not selected_sources:
+        selected_sources = list(VALID_AGENT_SOURCES)
 
     base_url = str(
         llm_config.get("base_url")
@@ -1015,7 +1058,7 @@ def get_onboarding_defaults(files: FileStorage) -> dict[str, Any]:
             llm_config.get("max_tokens", defaults.get("max_tokens", 4096)),
             fallback=4096,
         ),
-        "selected_agents": selected_agents,
+        "selected_sources": selected_sources,
         "validate": False,
         "api_key_env": API_KEY_ENV_BY_PROVIDER.get(provider),
         "configure_coding_agent": True,
@@ -1035,7 +1078,7 @@ def apply_repo_setup(
     *,
     force: bool,
     repository_verified: bool,
-    selected_agents: list[str],
+    selected_sources: list[str],
     provider: str,
     model: str,
     base_url: str | None,
@@ -1060,7 +1103,7 @@ def apply_repo_setup(
             f"Expected one of: {', '.join(available_providers)}"
         )
 
-    normalized_agents = _normalize_source_values(selected_agents)
+    normalized_agents = _normalize_source_values(selected_sources)
     if not normalized_agents:
         raise ValueError("At least one agent source must be selected.")
 
@@ -1166,7 +1209,7 @@ def apply_repo_setup(
         "completed_at": now_iso,
         "repository_path": str(repo_path),
         "repository_verified": True,
-        "selected_agents": normalized_agents,
+        "selected_sources": normalized_agents,
         "source_discovery": discovery,
     }
     files.write_config(config_dict)
@@ -1180,7 +1223,7 @@ def apply_repo_setup(
     defaults["model"] = cleaned_model
     defaults["temperature"] = float(temperature)
     defaults["max_tokens"] = int(max_tokens)
-    defaults["selected_agents"] = normalized_agents
+    defaults["selected_sources"] = normalized_agents
     if cleaned_base_url:
         defaults["base_url"] = cleaned_base_url
     else:
@@ -1202,7 +1245,7 @@ def apply_repo_setup(
         "model": cleaned_model,
         "temperature": float(temperature),
         "max_tokens": int(max_tokens),
-        "selected_agents": normalized_agents,
+        "selected_sources": normalized_agents,
     }
 
     settings["defaults"] = defaults
@@ -1290,15 +1333,15 @@ def ensure_repo_onboarding(
             "anthropic" if "anthropic" in available_providers else available_providers[0]
         )
 
-    selected_agents = _normalize_source_values(
-        config_dict.get("onboarding", {}).get("selected_agents")
+    selected_sources = _normalize_source_values(
+        config_dict.get("onboarding", {}).get("selected_sources")
         if isinstance(config_dict.get("onboarding"), dict)
         else None
     )
-    if not selected_agents:
-        selected_agents = _normalize_source_values(defaults.get("selected_agents"))
-    if not selected_agents:
-        selected_agents = list(VALID_AGENT_SOURCES)
+    if not selected_sources:
+        selected_sources = _normalize_source_values(defaults.get("selected_sources"))
+    if not selected_sources:
+        selected_sources = list(VALID_AGENT_SOURCES)
 
     provider = _prompt_provider(console, default_provider) if interactive else default_provider
 
@@ -1329,7 +1372,7 @@ def ensure_repo_onboarding(
         base_url = None
 
     if interactive:
-        selected_agents = _prompt_agent_sources(console, selected_agents)
+        selected_sources = _prompt_agent_sources(console, selected_sources)
 
     _maybe_capture_api_key(provider, secrets_store, interactive, console)
 
@@ -1404,7 +1447,7 @@ def ensure_repo_onboarding(
             console,
             force=force,
             repository_verified=True,
-            selected_agents=selected_agents,
+            selected_sources=selected_sources,
             provider=provider,
             model=model,
             base_url=base_url,

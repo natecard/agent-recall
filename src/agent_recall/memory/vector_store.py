@@ -13,6 +13,8 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, Field
 
+from agent_recall.core.ordering import key_score_desc_id
+
 
 class VectorRecord(BaseModel):
     id: str
@@ -117,7 +119,7 @@ class LocalVectorStore:
         for record in candidates:
             score = _cosine_similarity(embedding, record.embedding)
             scored.append((record, score))
-        scored.sort(key=lambda item: (-item[1], item[0].id))
+        scored.sort(key=lambda item: key_score_desc_id(item[1], item[0].id))
         return scored[: max(1, int(top_k))]
 
     def prune_older_than(self, *, retention_days: int) -> int:

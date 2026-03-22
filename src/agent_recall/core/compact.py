@@ -130,7 +130,7 @@ class CompactionEngine:
         pattern_threshold = int(compaction_cfg.get("promote_pattern_after_occurrences", 3))
         effective_pattern_threshold = 1 if force else max(1, pattern_threshold)
         recent_token_budget = int(compaction_cfg.get("max_recent_tokens", 1500))
-        embedding_enabled = bool(retrieval_cfg.get("embedding_enabled", False))
+        semantic_index_enabled = bool(retrieval_cfg.get("semantic_index_enabled", False))
         embedding_dimensions = int(retrieval_cfg.get("embedding_dimensions", 64))
         if embedding_dimensions < 8:
             embedding_dimensions = 8
@@ -252,7 +252,7 @@ class CompactionEngine:
                 continue
             embedding = (
                 self._generate_chunk_embedding(entry.content, dimensions=embedding_dimensions)
-                if embedding_enabled
+                if semantic_index_enabled
                 else None
             )
             chunk = Chunk(

@@ -9,6 +9,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Select, Static
 
 from agent_recall.cli.tui.constants import _RALPH_AGENT_TRANSPORT_OPTIONS
+from agent_recall.cli.tui.logic.select_compat import is_select_empty
 
 
 class SettingsModal(ModalScreen[dict[str, Any] | None]):
@@ -88,13 +89,13 @@ class SettingsModal(ModalScreen[dict[str, Any] | None]):
 
         view_widget = self.query_one("#settings_view", Select)
         selected_view = view_widget.value
-        if selected_view == Select.BLANK:
+        if is_select_empty(selected_view):
             error_widget.update("[error]View selection is required[/error]")
             return
 
         transport_widget = self.query_one("#settings_ralph_transport", Select)
         transport_value = transport_widget.value
-        if transport_value == Select.BLANK:
+        if is_select_empty(transport_value):
             error_widget.update("[error]Ralph transport selection is required[/error]")
             return
         ralph_agent_transport = str(transport_value).strip().lower()

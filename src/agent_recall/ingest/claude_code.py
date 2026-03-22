@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_recall.core.ordering import key_timestamp_index, key_timestamp_name
 from agent_recall.ingest.base import RawMessage, RawSession, RawToolCall, SessionIngester
 from agent_recall.ingest.health import HealthStatus, SourceHealthResult
 
@@ -126,7 +127,10 @@ class ClaudeCodeIngester(SessionIngester):
                     continue
             sessions.append(session_file)
 
-        return sorted(sessions, key=lambda session: session.stat().st_mtime)
+        return sorted(
+            sessions,
+            key=lambda session: key_timestamp_name(session.stat().st_mtime, session.name),
+        )
 
     def get_sessions_dir(self) -> Path | None:
         project_dir = self._find_project_dir()
@@ -208,9 +212,15 @@ class ClaudeCodeIngester(SessionIngester):
                 if message is not None:
                     messages.append(message)
 
-        messages.sort(
-            key=lambda message: message.timestamp.timestamp() if message.timestamp else 0.0
+        ordered_messages = sorted(
+            enumerate(messages),
+            key=lambda item: key_timestamp_index(
+                item[1].timestamp.timestamp() if item[1].timestamp else 0.0,
+                item[0],
+                missing_last=False,
+            ),
         )
+        messages = [message for _index, message in ordered_messages]
 
         return RawSession(
             source=self.source_name,

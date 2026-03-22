@@ -168,7 +168,7 @@ async def test_compaction_generates_embeddings_when_enabled(storage, files) -> N
     files.write_config(
         {
             "llm": {"provider": "openai", "model": "gpt-4o-mini"},
-            "retrieval": {"embedding_enabled": True, "embedding_dimensions": 16},
+            "retrieval": {"semantic_index_enabled": True, "embedding_dimensions": 16},
         }
     )
 
@@ -194,7 +194,7 @@ async def test_compaction_uses_semantic_embedder_for_384_dimensions(
     files.write_config(
         {
             "llm": {"provider": "openai", "model": "gpt-4o-mini"},
-            "retrieval": {"embedding_enabled": True, "embedding_dimensions": 384},
+            "retrieval": {"semantic_index_enabled": True, "embedding_dimensions": 384},
         }
     )
 

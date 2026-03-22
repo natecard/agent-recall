@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from agent_recall.core.config_keys import validate_no_legacy_config_keys
+
 
 class KnowledgeTier(StrEnum):
     GUARDRAILS = "GUARDRAILS"
@@ -53,7 +55,11 @@ class FileStorage:
     def read_config(self) -> dict[str, Any]:
         path = self.agent_dir / "config.yaml"
         if path.exists():
-            return yaml.safe_load(path.read_text()) or {}
+            config = yaml.safe_load(path.read_text()) or {}
+            if isinstance(config, dict):
+                validate_no_legacy_config_keys(config)
+                return config
+            return {}
         return {}
 
     def write_config(self, config: dict[str, Any]) -> None:

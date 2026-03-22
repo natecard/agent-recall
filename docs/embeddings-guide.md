@@ -74,7 +74,7 @@ To enable embeddings, update your config:
 # .agent/config.yaml
 retrieval:
   backend: hybrid  # or "semantic" for vector-only
-  embedding_enabled: true
+  semantic_index_enabled: true
 ```
 
 Then run the migration and indexing:
@@ -109,7 +109,7 @@ retrieval:
   backend: hybrid
 
   # Enable semantic embeddings
-  embedding_enabled: true
+  semantic_index_enabled: true
 
   # Embedding dimension (64 for deterministic, 384 for semantic model)
   embedding_dimensions: 384
@@ -130,7 +130,7 @@ retrieval:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `backend` | string | `"fts5"` | Search backend: `fts5` (keyword), `semantic` (vector-only), `hybrid` (both) |
-| `embedding_enabled` | boolean | `false` | Enable semantic embeddings |
+| `semantic_index_enabled` | boolean | `false` | Enable semantic embeddings |
 | `embedding_dimensions` | integer | `64` | Vector dimensions (64=deterministic, 384=semantic model) |
 | `top_k` | integer | `5` | Default results per query |
 | `fusion_k` | integer | `60` | Candidates from each search method before fusion |
@@ -240,12 +240,12 @@ If you need to disable embeddings:
 # .agent/config.yaml
 retrieval:
   backend: fts5
-  embedding_enabled: false
+  semantic_index_enabled: false
 ```
 
 ### Fallback Behavior
 
-When `embedding_enabled: false`:
+When `semantic_index_enabled: false`:
 - `agent-recall context` uses FTS only
 - `agent-recall embedding search` returns an error
 - Database retains existing embeddings (they're not deleted)

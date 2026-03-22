@@ -11,6 +11,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Select, Static
 
 from agent_recall.cli.tui.constants import _RALPH_CLI_OPTIONS
+from agent_recall.cli.tui.logic.select_compat import is_select_empty, select_empty_value
 from agent_recall.cli.tui.logic.text_sanitizers import _clean_optional_text
 from agent_recall.cli.tui.types import DiscoverCodingModelsFn
 
@@ -30,9 +31,7 @@ class CodingAgentStepModal(ModalScreen[dict[str, Any] | None]):
         self.discover_coding_models = discover_coding_models
 
     def compose(self) -> ComposeResult:
-        cli = _clean_optional_text(self.defaults.get("coding_cli", ""))
-        if cli not in dict(_RALPH_CLI_OPTIONS):
-            cli = ""
+        cli = _normalize_cli_value(self.defaults.get("coding_cli"))
         model = _clean_optional_text(self.defaults.get("cli_model", ""))
         ralph = bool(self.defaults.get("ralph_enabled", bool(cli)))
 
@@ -44,7 +43,7 @@ class CodingAgentStepModal(ModalScreen[dict[str, Any] | None]):
                     yield Static("CLI", classes="field_label")
                     yield Select(
                         _RALPH_CLI_OPTIONS,
-                        value=cli if cli else Select.BLANK,
+                        value=cli if cli else select_empty_value(),
                         allow_blank=True,
                         id="setup_coding_cli",
                         classes="field_input",
@@ -82,7 +81,7 @@ class CodingAgentStepModal(ModalScreen[dict[str, Any] | None]):
             return
         if event.select.id == "setup_cli_model_picker":
             val = event.value
-            if val == Select.BLANK or str(val) == "__manual__":
+            if is_select_empty(val) or str(val) == "__manual__":
                 return
             self.query_one("#setup_cli_model", Input).value = str(val)
 
@@ -108,7 +107,7 @@ class CodingAgentStepModal(ModalScreen[dict[str, Any] | None]):
             return
 
         cli_raw = self.query_one("#setup_coding_cli", Select).value
-        cli = None if cli_raw == Select.BLANK else str(cli_raw)
+        cli = _normalize_cli_value(cli_raw) or None
         model = _clean_optional_text(self.query_one("#setup_cli_model", Input).value) or None
         if cli is None:
             model = None
@@ -128,7 +127,7 @@ class CodingAgentStepModal(ModalScreen[dict[str, Any] | None]):
 
     def _refresh_models(self) -> None:
         cli_raw = self.query_one("#setup_coding_cli", Select).value
-        cli = "" if cli_raw == Select.BLANK else str(cli_raw)
+        cli = _normalize_cli_value(cli_raw)
         models, _ = self.discover_coding_models(cli) if cli else ([], None)
 
         picker = self.query_one("#setup_cli_model_picker", Select)
@@ -141,3 +140,13 @@ class CodingAgentStepModal(ModalScreen[dict[str, Any] | None]):
 
         inp = self.query_one("#setup_cli_model", Input)
         inp.placeholder = f"Model for {cli}" if cli else "Select CLI first"
+
+
+def _normalize_cli_value(value: object) -> str:
+    if is_select_empty(value):
+        return ""
+    if not isinstance(value, str):
+        return ""
+    normalized = value.strip().lower()
+    valid = {name for _label, name in _RALPH_CLI_OPTIONS}
+    return normalized if normalized in valid else ""

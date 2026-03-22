@@ -21,8 +21,10 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         self.defaults = defaults
 
     def compose(self) -> ComposeResult:
-        selected_agents = {
-            source for source in self.defaults.get("selected_agents", []) if isinstance(source, str)
+        selected_sources = {
+            source
+            for source in self.defaults.get("selected_sources", [])
+            if isinstance(source, str)
         }
         repo_path = str(self.defaults.get("repository_path", Path.cwd()))
 
@@ -49,7 +51,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                     for source in SOURCE_DEFINITIONS:
                         yield Checkbox(
                             source.display_name,
-                            value=source.name in selected_agents,
+                            value=source.name in selected_sources,
                             id=_source_checkbox_id(source.name),
                         )
                 yield Static("", id="setup_status")
@@ -71,19 +73,19 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             status.update("[error]Repository must be confirmed[/error]")
             return
 
-        selected_agents: list[str] = []
+        selected_sources: list[str] = []
         for source in SOURCE_DEFINITIONS:
             checkbox = self.query_one(f"#{_source_checkbox_id(source.name)}", Checkbox)
             if checkbox.value:
-                selected_agents.append(source.name)
-        if not selected_agents:
-            status.update("[error]Choose at least one agent source[/error]")
+                selected_sources.append(source.name)
+        if not selected_sources:
+            status.update("[error]Choose at least one source[/error]")
             return
 
         self.dismiss(
             {
                 "force": bool(self.query_one("#setup_force", Checkbox).value),
                 "repository_verified": repository_verified,
-                "selected_agents": selected_agents,
+                "selected_sources": selected_sources,
             }
         )

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from agent_recall.cli.command_contract import get_command_contract
 
 VIEW_PRIORITY_MAP: dict[str, list[str]] = {
-    "knowledge": ["knowledge-run", "run:select", "sync", "sessions"],
+    "knowledge": ["knowledge-run", "reprocess", "run:select", "sync", "sessions"],
     "ralph": [
         "ralph-enable",
         "ralph-disable",
@@ -149,6 +149,14 @@ def get_palette_actions() -> list[PaletteAction]:
             keywords="run compact synthesis llm",
         ),
         PaletteAction(
+            "reprocess",
+            "Reprocess Conversations",
+            "Clear sync markers, then re-ingest and synthesize all configured sources",
+            "Memory",
+            shortcut="force full refresh",
+            keywords="reset sync reprocess rerun compact",
+        ),
+        PaletteAction(
             "run:select",
             "Run Selected Conversations",
             "Choose specific conversations for a targeted knowledge update",
@@ -159,11 +167,11 @@ def get_palette_actions() -> list[PaletteAction]:
         PaletteAction(
             "sync",
             "Sync Conversations",
-            "Ingest from enabled sources without running synthesis",
+            "Ingest from enabled sources and run synthesis",
             "Memory",
-            shortcut="ingest only",
+            shortcut="ingest + synthesize",
             binding="Ctrl+Y",
-            keywords="sync ingest",
+            keywords="sync ingest compact synthesis",
         ),
         PaletteAction(
             "status",

@@ -73,3 +73,15 @@ class LLMConnectionError(LLMError):
 
 class LLMRateLimitError(LLMError):
     """Rate limit exceeded."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        if retry_after_seconds is None or retry_after_seconds <= 0:
+            self.retry_after_seconds: float | None = None
+        else:
+            self.retry_after_seconds = float(retry_after_seconds)

@@ -68,7 +68,7 @@ JSON array:"""
 class TranscriptExtractor:
     """Extract semantic learnings from normalized session transcripts."""
 
-    def __init__(self, llm: LLMProvider, messages_per_batch: int = 100):
+    def __init__(self, llm: LLMProvider, messages_per_batch: int = 50):
         self.llm = llm
         self.messages_per_batch = max(1, int(messages_per_batch))
 

@@ -10,6 +10,8 @@ _RALPH_STREAM_FLUSH_MAX_CHARS = 8192
 _PROVIDER_BASE_URL_DEFAULTS = {
     "anthropic": "https://api.anthropic.com/v1",
     "openai": "https://api.openai.com/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "mistral": "https://api.mistral.ai/v1",
     "google": "https://generativelanguage.googleapis.com/v1beta",
     "ollama": "http://localhost:11434/v1",
     "vllm": "http://localhost:8000/v1",

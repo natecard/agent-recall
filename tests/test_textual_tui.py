@@ -155,6 +155,8 @@ def test_palette_contains_views_command() -> None:
 
 def test_clean_optional_text_handles_none_variants() -> None:
     assert _clean_optional_text(None) == ""
+    assert _clean_optional_text(False) == ""
+    assert _clean_optional_text(True) == ""
     assert _clean_optional_text("None") == ""
     assert _clean_optional_text("null") == ""
     assert _clean_optional_text(" value ") == "value"

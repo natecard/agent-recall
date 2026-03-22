@@ -38,6 +38,8 @@ _PROVIDER_DEPENDENCIES: dict[str, tuple[str, str]] = {
     "anthropic": ("anthropic", "anthropic"),
     "google": ("google.genai", "google-genai"),
     "openai": ("openai", "openai"),
+    "openrouter": ("openai", "openai"),
+    "mistral": ("openai", "openai"),
     "ollama": ("openai", "openai"),
     "vllm": ("openai", "openai"),
     "lmstudio": ("openai", "openai"),
@@ -191,6 +193,37 @@ def create_llm_provider(config: LLMConfig) -> LLMProvider:
             timeout=config.timeout,
         )
 
+    if provider == "openrouter":
+        from agent_recall.llm.openai_compat import OpenAICompatibleProvider
+
+        default_headers: dict[str, str] = {}
+        referer = os.environ.get("OPENROUTER_HTTP_REFERER")
+        if referer:
+            default_headers["HTTP-Referer"] = referer
+        title = os.environ.get("OPENROUTER_APP_TITLE")
+        if title:
+            default_headers["X-OpenRouter-Title"] = title
+
+        return OpenAICompatibleProvider(
+            model=config.model,
+            base_url=config.base_url or "https://openrouter.ai/api/v1",
+            api_key_env=config.api_key_env or "OPENROUTER_API_KEY",
+            provider_type="openrouter",
+            timeout=config.timeout,
+            default_headers=default_headers or None,
+        )
+
+    if provider == "mistral":
+        from agent_recall.llm.openai_compat import OpenAICompatibleProvider
+
+        return OpenAICompatibleProvider(
+            model=config.model,
+            base_url=config.base_url or "https://api.mistral.ai/v1",
+            api_key_env=config.api_key_env or "MISTRAL_API_KEY",
+            provider_type="mistral",
+            timeout=config.timeout,
+        )
+
     if provider == "ollama":
         from agent_recall.llm.openai_compat import OpenAICompatibleProvider
 
@@ -247,6 +280,8 @@ def get_available_providers() -> list[str]:
     return [
         "anthropic",
         "openai",
+        "openrouter",
+        "mistral",
         "google",
         "ollama",
         "vllm",
@@ -265,6 +300,8 @@ def validate_provider_config(config: LLMConfig) -> tuple[bool, str]:
     cloud_providers = {
         "anthropic": "ANTHROPIC_API_KEY",
         "openai": "OPENAI_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+        "mistral": "MISTRAL_API_KEY",
         "google": "GOOGLE_API_KEY",
     }
     if provider in cloud_providers:

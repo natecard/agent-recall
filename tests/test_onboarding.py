@@ -73,7 +73,7 @@ def test_repo_preferred_sources_from_onboarding(tmp_path: Path) -> None:
     files.write_config(
         {
             "llm": {"provider": "anthropic", "model": "claude-sonnet-4-20250514"},
-            "onboarding": {"selected_agents": ["cursor", "claude-code"]},
+            "onboarding": {"selected_sources": ["cursor", "claude-code"]},
         }
     )
 
@@ -94,7 +94,7 @@ def test_repo_onboarding_complete_requires_matching_repo(monkeypatch, tmp_path: 
             "onboarding": {
                 "completed_at": "2026-02-01T00:00:00+00:00",
                 "repository_path": str(repo_path.resolve()),
-                "selected_agents": ["cursor"],
+                "selected_sources": ["cursor"],
             },
         }
     )
@@ -108,7 +108,7 @@ def test_repo_onboarding_complete_requires_matching_repo(monkeypatch, tmp_path: 
             "onboarding": {
                 "completed_at": "2026-02-01T00:00:00+00:00",
                 "repository_path": str((tmp_path / "other-repo").resolve()),
-                "selected_agents": ["cursor"],
+                "selected_sources": ["cursor"],
             },
         }
     )
@@ -135,6 +135,33 @@ def test_discover_provider_models_openai(monkeypatch) -> None:
     assert captured["headers"] == {
         "Accept": "application/json",
         "Authorization": "Bearer openai-test-key",
+    }
+
+
+def test_discover_provider_models_openrouter_includes_optional_headers(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_http_get_json(url: str, *, headers=None, timeout_seconds=8.0):
+        _ = timeout_seconds
+        captured["url"] = url
+        captured["headers"] = headers or {}
+        return {"data": [{"id": "openai/gpt-5.2"}]}
+
+    monkeypatch.setattr(onboarding, "_http_get_json", fake_http_get_json)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-test-key")
+    monkeypatch.setenv("OPENROUTER_HTTP_REFERER", "https://example.com")
+    monkeypatch.setenv("OPENROUTER_APP_TITLE", "Agent Recall")
+
+    models, error = discover_provider_models("openrouter")
+
+    assert error is None
+    assert models == ["openai/gpt-5.2"]
+    assert str(captured["url"]).endswith("/api/v1/models")
+    assert captured["headers"] == {
+        "Accept": "application/json",
+        "Authorization": "Bearer openrouter-test-key",
+        "HTTP-Referer": "https://example.com",
+        "X-OpenRouter-Title": "Agent Recall",
     }
 
 
@@ -301,7 +328,7 @@ def test_apply_repo_setup_persists_modal_values(monkeypatch, tmp_path: Path) -> 
         Console(record=True),
         force=True,
         repository_verified=True,
-        selected_agents=["cursor"],
+        selected_sources=["cursor"],
         provider="ollama",
         model="qwen3:4b",
         base_url="http://localhost:11434/v1",
@@ -319,7 +346,7 @@ def test_apply_repo_setup_persists_modal_values(monkeypatch, tmp_path: Path) -> 
     assert config["llm"]["max_tokens"] == 8192
     assert config["llm"]["base_url"] == "http://localhost:11434/v1"
     assert config["onboarding"]["repository_verified"] is True
-    assert config["onboarding"]["selected_agents"] == ["cursor"]
+    assert config["onboarding"]["selected_sources"] == ["cursor"]
     assert config["onboarding"]["source_discovery"]["cursor"] == 2
     assert (agent_dir / "RULES.md").exists()
     assert (agent_dir / "ralph").exists()
@@ -332,7 +359,7 @@ def test_apply_repo_setup_persists_modal_values(monkeypatch, tmp_path: Path) -> 
     settings = LocalSettingsStore().load()
     assert settings["defaults"]["provider"] == "ollama"
     assert settings["defaults"]["model"] == "qwen3:4b"
-    assert settings["defaults"]["selected_agents"] == ["cursor"]
+    assert settings["defaults"]["selected_sources"] == ["cursor"]
 
 
 def test_apply_repo_setup_persists_coding_agent_settings(monkeypatch, tmp_path: Path) -> None:
@@ -360,7 +387,7 @@ def test_apply_repo_setup_persists_coding_agent_settings(monkeypatch, tmp_path: 
         Console(record=True),
         force=True,
         repository_verified=True,
-        selected_agents=["cursor"],
+        selected_sources=["cursor"],
         provider="ollama",
         model="qwen3:4b",
         base_url="http://localhost:11434/v1",
@@ -392,7 +419,7 @@ def test_apply_repo_setup_requires_repository_verification(tmp_path: Path) -> No
             Console(record=True),
             force=True,
             repository_verified=False,
-            selected_agents=["cursor"],
+            selected_sources=["cursor"],
             provider="ollama",
             model="qwen3:4b",
             base_url="http://localhost:11434/v1",
@@ -420,7 +447,7 @@ def test_get_onboarding_defaults_uses_settings_fallback(tmp_path: Path) -> None:
                 "model": "llama3.1",
                 "temperature": 0.25,
                 "max_tokens": 5000,
-                "selected_agents": ["cursor"],
+                "selected_sources": ["cursor"],
                 "base_url": "http://localhost:11434/v1",
             }
         }
@@ -431,5 +458,5 @@ def test_get_onboarding_defaults_uses_settings_fallback(tmp_path: Path) -> None:
     assert defaults["model"] == "llama3.1"
     assert defaults["temperature"] == 0.25
     assert defaults["max_tokens"] == 5000
-    assert defaults["selected_agents"] == ["cursor"]
+    assert defaults["selected_sources"] == ["cursor"]
     assert defaults["base_url"] == "http://localhost:11434/v1"

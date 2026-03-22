@@ -3,11 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
-import os
-import re
-import shlex
 import shutil
-import sys
 import textwrap
 import time
 from collections.abc import Callable
@@ -22,18 +18,20 @@ import typer
 from packaging.version import Version
 from rich import box
 from rich.console import Console, Group
-from rich.markup import escape
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich.theme import Theme
-from typer.main import get_command as get_typer_command
 from typer.testing import CliRunner
 
 from agent_recall import __version__
 from agent_recall.cli import ralph as ralph_cli
 from agent_recall.cli.banner import print_banner
-from agent_recall.cli.command_contract import command_parity_report, get_command_contract
+from agent_recall.cli.command_contract import (
+    command_parity_report,
+    get_command_contract,
+    get_registered_cli_command_paths,
+)
 from agent_recall.cli.commands.context_flow import (
     ContextBundleWriteRequest,
     ContextRequest,
@@ -209,76 +207,6 @@ sync_app = typer.Typer(help="Synchronize native session sources")
 tiers_app = typer.Typer(help="Manage tier files")
 tiers_write_app = typer.Typer(help="Write structured entries to tier files")
 
-_ansi_escape_pattern = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
-_box_drawing_chars = set("│┃─━┄┅┆┇┈┉┊┋┌┍┎┏┐┑┒┓└┕┖┗┘┙┚┛├┝┞┟┠┡┢┣┤┥┦┧┨┩┪┫┬┭┮┯┰┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿")
-_box_drawing_translation = str.maketrans(
-    {
-        "│": " ",
-        "┃": " ",
-        "─": " ",
-        "━": " ",
-        "┄": " ",
-        "┅": " ",
-        "┆": " ",
-        "┇": " ",
-        "┈": " ",
-        "┉": " ",
-        "┊": " ",
-        "┋": " ",
-        "┌": " ",
-        "┍": " ",
-        "┎": " ",
-        "┏": " ",
-        "┐": " ",
-        "┑": " ",
-        "┒": " ",
-        "┓": " ",
-        "└": " ",
-        "┕": " ",
-        "┖": " ",
-        "┗": " ",
-        "┘": " ",
-        "┙": " ",
-        "┚": " ",
-        "┛": " ",
-        "├": " ",
-        "┝": " ",
-        "┞": " ",
-        "┟": " ",
-        "┠": " ",
-        "┡": " ",
-        "┢": " ",
-        "┣": " ",
-        "┤": " ",
-        "┥": " ",
-        "┦": " ",
-        "┧": " ",
-        "┨": " ",
-        "┩": " ",
-        "┪": " ",
-        "┫": " ",
-        "┬": " ",
-        "┭": " ",
-        "┮": " ",
-        "┯": " ",
-        "┰": " ",
-        "┱": " ",
-        "┲": " ",
-        "┳": " ",
-        "┴": " ",
-        "┵": " ",
-        "┶": " ",
-        "┷": " ",
-        "┸": " ",
-        "┹": " ",
-        "┺": " ",
-        "┻": " ",
-        "┼": " ",
-        "┽": " ",
-        "┾": " ",
-        "┿": " ",
-    }
-)
 
 # Initialize theme manager and console
 _theme_manager = ThemeManager(DEFAULT_THEME)
@@ -347,7 +275,7 @@ retrieval:
   fusion_k: 60
   rerank_enabled: false
   rerank_candidate_k: 20
-  embedding_enabled: false
+  semantic_index_enabled: false
   embedding_dimensions: 64
 
 memory:
@@ -412,7 +340,7 @@ ralph:
 adapters:
   enabled: false
   output_dir: .agent/context
-  token_budget: null
+  default_token_budget: null
   per_adapter_token_budget: {}
 """
 
@@ -421,14 +349,17 @@ def _get_theme_manager() -> ThemeManager:
     """Get or initialize theme manager from config."""
     global _theme_manager
     if AGENT_DIR.exists():
-        files = FileStorage(AGENT_DIR)
-        config_dict = files.read_config()
-        theme_name = config_dict.get("theme", {}).get("name", DEFAULT_THEME)
-        if theme_name != _theme_manager.get_theme_name():
-            _theme_manager.set_theme(theme_name)
-            # Update console with new theme
-            global console
-            console = Console(theme=_theme_manager.get_theme())
+        try:
+            files = FileStorage(AGENT_DIR)
+            config_dict = files.read_config()
+            theme_name = config_dict.get("theme", {}).get("name", DEFAULT_THEME)
+            if theme_name != _theme_manager.get_theme_name():
+                _theme_manager.set_theme(theme_name)
+                # Update console with new theme
+                global console
+                console = Console(theme=_theme_manager.get_theme())
+        except Exception:  # noqa: BLE001
+            pass
     return _theme_manager
 
 
@@ -683,38 +614,8 @@ def _tui_help_lines() -> list[str]:
     return build_tui_help_lines()
 
 
-def _collect_cli_commands_for_palette() -> list[str]:
-    root = get_typer_command(app)
-    seen: set[str] = set()
-    commands: list[str] = []
-
-    def _walk(command, prefix: str = "") -> None:
-        mapping = getattr(command, "commands", None)
-        if not isinstance(mapping, dict):
-            return
-        for name in sorted(mapping):
-            subcommand = mapping[name]
-            if getattr(subcommand, "hidden", False):
-                continue
-            full = f"{prefix} {name}".strip()
-            if full not in seen:
-                seen.add(full)
-                commands.append(full)
-            _walk(subcommand, full)
-
-    _walk(root)
-
-    # Include CLI-only contract commands not discovered by Typer walk
-    # (e.g. "ralph set-prds" where action is an argument, not a subcommand)
-    for contract in get_command_contract():
-        if "cli" not in contract.surfaces:
-            continue
-        for cmd in [contract.command, *contract.aliases]:
-            if cmd and cmd not in seen:
-                seen.add(cmd)
-                commands.append(cmd)
-
-    return commands
+def _collect_registered_cli_command_paths() -> list[str]:
+    return get_registered_cli_command_paths()
 
 
 def get_default_prd_path() -> Path:
@@ -728,7 +629,7 @@ def get_default_script_path() -> Path:
 @app.command("command-inventory")
 def command_inventory() -> None:
     """Print command inventory for CLI, TUI, and palette."""
-    cli_commands = set(_collect_cli_commands_for_palette())
+    cli_commands = set(_collect_registered_cli_command_paths())
     tui_slash_commands: set[str] = set()
     for contract in get_command_contract():
         if "tui" not in contract.surfaces:
@@ -793,39 +694,6 @@ def command_inventory() -> None:
     console.print(palette_table)
 
 
-def _normalize_tui_command(raw: str) -> str:
-    text = raw.strip()
-    if not text:
-        return text
-    return text if text.startswith("/") else f"/{text}"
-
-
-def _read_tui_command(timeout_seconds: float) -> str | None:
-    if not is_interactive_terminal():
-        time.sleep(timeout_seconds)
-        return None
-
-    if os.name == "nt":
-        time.sleep(timeout_seconds)
-        return None
-
-    try:
-        import select
-
-        ready, _, _ = select.select([sys.stdin], [], [], timeout_seconds)
-    except (OSError, ValueError):
-        time.sleep(timeout_seconds)
-        return None
-
-    if not ready:
-        return None
-
-    line = sys.stdin.readline()
-    if line == "":
-        return "/quit"
-    return line.rstrip("\n")
-
-
 def _read_adapter_config(files: FileStorage) -> dict[str, Any]:
     config_dict = files.read_config()
     adapter_config = config_dict.get("adapters", {}) if isinstance(config_dict, dict) else {}
@@ -844,7 +712,7 @@ def _write_adapter_config(files: FileStorage, updates: dict[str, object]) -> dic
     return config_dict
 
 
-def _format_adapter_budgets(adapter_config: dict[str, object]) -> str:
+def _format_per_adapter_token_budgets(adapter_config: dict[str, object]) -> str:
     budgets = adapter_config.get("per_adapter_token_budget")
     if not isinstance(budgets, dict):
         return "none"
@@ -858,12 +726,12 @@ def _format_adapter_budgets(adapter_config: dict[str, object]) -> str:
     return ", ".join(normalized) if normalized else "none"
 
 
-def _format_adapter_token_budget(adapter_config: dict[str, object]) -> str:
-    value = adapter_config.get("token_budget")
+def _format_default_adapter_token_budget(adapter_config: dict[str, object]) -> str:
+    value = adapter_config.get("default_token_budget")
     return str(value) if value is not None else "none"
 
 
-def _format_named_token_budgets(values: object) -> str:
+def _format_named_token_budget_map(values: object) -> str:
     if not isinstance(values, dict):
         return "none"
     normalized: list[str] = []
@@ -876,7 +744,7 @@ def _format_named_token_budgets(values: object) -> str:
     return ", ".join(normalized) if normalized else "none"
 
 
-def _parse_named_token_budgets(raw_value: str, *, label: str) -> dict[str, int]:
+def _parse_named_token_budget_map(raw_value: str, *, label: str) -> dict[str, int]:
     parsed: dict[str, int] = {}
     if not raw_value.strip():
         return parsed
@@ -956,206 +824,6 @@ def _read_memory_config(files: FileStorage) -> dict[str, Any]:
 
 def _memory_policy(files: FileStorage) -> MemoryPolicy:
     return MemoryPolicy.from_memory_config(_read_memory_config(files))
-
-
-def _normalize_tui_output_line(line: str) -> str:
-    without_ansi = _ansi_escape_pattern.sub("", line)
-    without_box_chars = without_ansi.translate(_box_drawing_translation)
-    return " ".join(without_box_chars.split())
-
-
-def _strip_ansi_control_sequences(line: str) -> str:
-    return _ansi_escape_pattern.sub("", line)
-
-
-def _looks_like_table_output(lines: list[str]) -> bool:
-    if len(lines) < 3:
-        return False
-    table_like_rows = 0
-    for line in lines:
-        if any(char in _box_drawing_chars for char in line):
-            table_like_rows += 1
-    return table_like_rows >= 2
-
-
-def _execute_tui_slash_command(
-    raw: str,
-    *,
-    terminal_width: int | None = None,
-    terminal_height: int | None = None,
-) -> tuple[bool, list[str]]:
-    get_storage.cache_clear()
-    value = _normalize_tui_command(raw)
-    if not value:
-        return False, []
-
-    if not value.startswith("/"):
-        return False, ["[warning]Commands must start with '/'. Try /help.[/warning]"]
-
-    command_text = value[1:].strip()
-    if not command_text:
-        return False, ["[warning]Empty command. Try /help.[/warning]"]
-
-    try:
-        parts = shlex.split(command_text)
-    except ValueError as exc:
-        return False, [f"[error]Invalid command: {escape(str(exc))}[/error]"]
-
-    original_parts = list(parts)
-    command_name = parts[0].lower()
-    if command_name in {"q", "quit", "exit"}:
-        return True, ["[dim]Leaving TUI...[/dim]"]
-
-    if command_name in {"help", "h", "?"}:
-        return False, _tui_help_lines()
-
-    if command_name == "settings":
-        return False, [
-            "[success]✓ Switched to settings view[/success]",
-            "[dim]Use /view settings[/dim]",
-        ]
-
-    if command_name == "config" and len(parts) >= 2 and parts[1].lower() == "setup":
-        force = "--force" in parts or "-f" in parts
-        quick = "--quick" in parts
-        _run_onboarding_setup(force=force, quick=quick)
-        return False, ["[success]✓ Setup flow completed[/success]"]
-
-    if (
-        command_name == "ralph"
-        and len(parts) >= 2
-        and parts[1].lower()
-        in {
-            "enable",
-            "disable",
-            "status",
-            "select",
-            "set-prds",
-            "get-selected-prds",
-        }
-    ):
-        command = ["ralph", *parts[1:]]
-        result = _slash_runner.invoke(app, command)
-        lines = []
-        if result.exit_code == 0:
-            lines.append(f"[success]✓ /{escape(' '.join(parts))}[/success]")
-        else:
-            lines.append(f"[error]✗ /{escape(' '.join(parts))} (exit {result.exit_code})[/error]")
-        output = result.output.strip()
-        if output:
-            for line in output.splitlines():
-                if line.strip():
-                    lines.append(f"[dim]{escape(line.strip())}[/dim]")
-        return False, lines
-
-    if command_name in {"tui", "open"}:
-        return False, ["[warning]/open is already running.[/warning]"]
-
-    # User-facing alias: "run" communicates intent better than "compact".
-    if command_name == "run":
-        parts = ["sync", *parts[1:]]
-        command_name = "sync"
-
-    invoke_env: dict[str, str] | None = None
-    if terminal_width is not None or terminal_height is not None:
-        invoke_env = {}
-        if terminal_width is not None and terminal_width > 0:
-            invoke_env["COLUMNS"] = str(int(terminal_width))
-        if terminal_height is not None and terminal_height > 0:
-            invoke_env["LINES"] = str(int(terminal_height))
-
-    runner_terminal_width = (
-        terminal_width if terminal_width is not None and terminal_width > 0 else 120
-    )
-    result = _slash_runner.invoke(
-        app,
-        parts,
-        env=invoke_env,
-        terminal_width=max(runner_terminal_width, 80),
-    )
-    command_label_parts = original_parts if original_parts and original_parts[0] == "run" else parts
-    command_label = "/" + " ".join(command_label_parts)
-
-    lines: list[str] = []
-    if result.exit_code == 0:
-        lines.append(f"[success]✓ {escape(command_label)}[/success]")
-    else:
-        lines.append(f"[error]✗ {escape(command_label)} (exit {result.exit_code})[/error]")
-
-    output = result.output.strip()
-    if output:
-        raw_output_lines = output.splitlines()
-        ansi_stripped_lines = [
-            _strip_ansi_control_sequences(raw_line).rstrip()
-            for raw_line in raw_output_lines
-            if raw_line.strip()
-        ]
-        if _looks_like_table_output(ansi_stripped_lines):
-            output_lines = ansi_stripped_lines
-        else:
-            meaningful_lines = []
-            for raw_line in ansi_stripped_lines:
-                normalized = _normalize_tui_output_line(raw_line)
-                if not normalized:
-                    continue
-                if not any(char.isalnum() for char in normalized):
-                    continue
-                meaningful_lines.append(normalized)
-            output_lines = meaningful_lines if meaningful_lines else ansi_stripped_lines
-        for line in output_lines:
-            lines.append(f"[dim]{escape(line)}[/dim]")
-
-    return False, lines
-
-
-def _handle_tui_view_command(raw: str, current_view: str) -> tuple[bool, str, list[str]]:
-    value = _normalize_tui_command(raw)
-    if not value.startswith("/"):
-        return False, current_view, []
-
-    try:
-        parts = shlex.split(value[1:].strip())
-    except ValueError as exc:
-        return True, current_view, [f"[error]Invalid command: {escape(str(exc))}[/error]"]
-
-    if not parts:
-        return False, current_view, []
-
-    command = parts[0].lower()
-    if command not in {"view", "menu"}:
-        return False, current_view, []
-
-    valid_views = {
-        "overview",
-        "sources",
-        "llm",
-        "knowledge",
-        "settings",
-        "timeline",
-        "ralph",
-        "console",
-        "all",
-    }
-    if len(parts) == 1:
-        return (
-            True,
-            current_view,
-            [
-                f"[dim]Current view: {current_view}[/dim]",
-                "[dim]Available views: overview, "
-                "knowledge, settings, timeline, ralph, console, all[/dim]",
-            ],
-        )
-
-    requested = parts[1].strip().lower()
-    if requested not in valid_views:
-        return (
-            True,
-            current_view,
-            [f"[warning]Unknown view '{escape(requested)}'. Try /view overview[/warning]"],
-        )
-
-    return True, requested, [f"[success]✓ Switched to {requested} view[/success]"]
 
 
 @app.command()
@@ -1505,7 +1173,7 @@ def refresh_context(
                     adapter_payloads=bool(adapter_payloads),
                     adapter_output_dir=Path(adapter_cfg.output_dir),
                     adapters=get_default_adapters(),
-                    token_budget=adapter_cfg.token_budget,
+                    token_budget=adapter_cfg.default_token_budget,
                     per_adapter_budgets=adapter_cfg.per_adapter_token_budget,
                     per_provider_budgets=adapter_cfg.per_provider_token_budget,
                     per_model_budgets=adapter_cfg.per_model_token_budget,
@@ -1754,17 +1422,68 @@ def sync(
         ingesters = _filter_ingesters_by_sources(ingesters, selected_sources)
 
     def _sync_progress_logger(event: dict[str, Any]) -> None:
+        def _as_int(value: Any, default: int = 0) -> int:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
+
+        def _as_float(value: Any, default: float = 0.0) -> float:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return default
+
         event_name = str(event.get("event", ""))
         if event_name == "extraction_session_started":
             source_name = str(event.get("source", "?"))
             source_session_id = str(event.get("session_id", "?"))
             total_messages = event.get("messages_total")
-            message_text = (
-                str(int(total_messages)) if isinstance(total_messages, int | float) else "?"
+            message_text = str(_as_int(total_messages, -1)) if total_messages is not None else "?"
+            if message_text == "-1":
+                message_text = "?"
+            batch_size = event.get("messages_per_batch")
+            batch_text = (
+                f", batch size {str(_as_int(batch_size, -1))}"
+                if batch_size is not None and _as_int(batch_size, -1) > 0
+                else ""
             )
             console.print(
                 f"[dim]{source_name}:{source_session_id} extraction started "
-                f"({message_text} messages).[/dim]"
+                f"({message_text} messages{batch_text}).[/dim]"
+            )
+            return
+
+        if event_name == "extraction_batch_size_adjusted":
+            source_name = str(event.get("source", "?"))
+            source_session_id = str(event.get("session_id", "?"))
+            old_size = _as_int(event.get("old_messages_per_batch"), 0)
+            new_size = _as_int(event.get("new_messages_per_batch"), 0)
+            attempt = _as_int(event.get("attempt"), 0)
+            max_attempts = _as_int(event.get("max_attempts"), 0)
+            console.print(
+                f"[warning]{source_name}:{source_session_id} rate limited; reducing batch size "
+                f"from {old_size} to {new_size} (attempt {attempt}/{max_attempts}).[/warning]"
+            )
+            return
+
+        if event_name == "extraction_retry_scheduled":
+            source_name = str(event.get("source", "?"))
+            source_session_id = str(event.get("session_id", "?"))
+            reason = str(event.get("reason", "retry")).replace("_", " ")
+            next_attempt = _as_int(event.get("next_attempt"), 0)
+            max_attempts = _as_int(event.get("max_attempts"), 0)
+            delay_seconds = _as_float(event.get("delay_seconds"), 0.0)
+            retry_after = event.get("retry_after_seconds")
+            retry_after_text = ""
+            if retry_after is not None:
+                retry_after_value = _as_float(retry_after, 0.0)
+                if retry_after_value > 0:
+                    retry_after_text = f", retry-after={retry_after_value:.1f}s"
+            console.print(
+                f"[warning]{source_name}:{source_session_id} {reason}; retrying in "
+                f"{delay_seconds:.1f}s (attempt {next_attempt}/{max_attempts}{retry_after_text})."
+                "[/warning]"
             )
             return
 
@@ -1773,14 +1492,20 @@ def sync(
 
         source_name = str(event.get("source", "?"))
         source_session_id = str(event.get("session_id", "?"))
-        processed = int(event.get("messages_processed", 0))
-        total = int(event.get("messages_total", 0))
-        batch_index = int(event.get("batch_index", 0))
-        batch_count = int(event.get("batch_count", 0))
-        learnings = int(event.get("batch_learnings", 0))
+        processed = _as_int(event.get("messages_processed"), 0)
+        total = _as_int(event.get("messages_total"), 0)
+        batch_index = _as_int(event.get("batch_index"), 0)
+        batch_count = _as_int(event.get("batch_count"), 0)
+        learnings = _as_int(event.get("batch_learnings"), 0)
+        attempt = _as_int(event.get("attempt"), 0)
+        max_attempts = _as_int(event.get("max_attempts"), 0)
+        attempt_suffix = (
+            f", attempt {attempt}/{max_attempts}" if attempt > 1 and max_attempts > 1 else ""
+        )
         console.print(
             f"[dim]{source_name}:{source_session_id} sent {processed}/{total} messages "
-            f"to LLM (batch {batch_index}/{batch_count}, learnings={learnings}).[/dim]"
+            f"to LLM (batch {batch_index}/{batch_count}, learnings={learnings}"
+            f"{attempt_suffix}).[/dim]"
         )
 
     auto_sync = AutoSync(storage, files, llm, ingesters)
@@ -1977,18 +1702,6 @@ def embedding_stats(
         ),
     ]
     console.print(Panel.fit("\n".join(lines), title="Embedding Stats"))
-
-
-def embedding_stats_legacy(
-    stale_days: int = typer.Option(
-        90,
-        "--stale-days",
-        min=0,
-        help="Threshold in days to consider embeddings stale",
-    ),
-):
-    """Backwards-compatible alias for `embedding stats`."""
-    embedding_stats(stale_days=stale_days)
 
 
 @embedding_app.command("reindex")
@@ -2838,8 +2551,8 @@ def status():
             compaction_backend=compaction_backend,
             adapter_enabled=bool(adapter_config.get("enabled")),
             adapter_output_dir=str(adapter_config.get("output_dir") or ".agent/context"),
-            adapter_token_budget=_format_adapter_token_budget(adapter_config),
-            adapter_per_adapter_budgets=_format_adapter_budgets(adapter_config),
+            adapter_token_budget=_format_default_adapter_token_budget(adapter_config),
+            adapter_per_adapter_budgets=_format_per_adapter_token_budgets(adapter_config),
         )
     )
 
@@ -3101,10 +2814,10 @@ def _run_setup_from_payload(payload: dict[str, object]) -> tuple[bool, list[str]
     ensure_initialized()
     files = get_files()
 
-    selected_agents_raw = payload.get("selected_agents")
-    selected_agents = (
-        [source for source in selected_agents_raw if isinstance(source, str)]
-        if isinstance(selected_agents_raw, list)
+    selected_sources_raw = payload.get("selected_sources")
+    selected_sources = (
+        [source for source in selected_sources_raw if isinstance(source, str)]
+        if isinstance(selected_sources_raw, list)
         else []
     )
 
@@ -3153,7 +2866,7 @@ def _run_setup_from_payload(payload: dict[str, object]) -> tuple[bool, list[str]
         capture_console,
         force=bool(payload.get("force", False)),
         repository_verified=bool(payload.get("repository_verified", False)),
-        selected_agents=selected_agents,
+        selected_sources=selected_sources,
         provider=str(payload.get("provider", "")).strip(),
         model=str(payload.get("model", "")).strip(),
         base_url=(
@@ -3478,25 +3191,6 @@ def _write_tui_config(files: FileStorage, updates: dict[str, object]) -> dict[st
     return config_dict
 
 
-@app.command(hidden=True)
-def onboard(
-    force: bool = typer.Option(
-        False,
-        "--force",
-        "-f",
-        help="Run onboarding even if this repository is already configured.",
-    ),
-    quick: bool = typer.Option(
-        False,
-        "--quick",
-        help="Apply onboarding defaults without interactive prompts.",
-    ),
-):
-    """Run onboarding for this repository and persist local provider credentials."""
-    console.print("[warning]'onboard' is deprecated; use 'config setup' instead.[/warning]")
-    _run_onboarding_setup(force=force, quick=quick)
-
-
 @app.command()
 def tui(
     all_cursor_workspaces: bool = typer.Option(
@@ -3669,7 +3363,7 @@ def tui(
             ),
             discover_coding_models=lambda cli: discover_coding_cli_models(cli, timeout_seconds=8.0),
             providers=get_available_providers(),
-            cli_commands=_collect_cli_commands_for_palette(),
+            cli_commands=_collect_registered_cli_command_paths(),
             rich_theme=_theme_manager.get_theme(),
             initial_view=str(tui_config.get("default_view", "overview")),
             all_cursor_workspaces=bool(
@@ -3779,57 +3473,6 @@ def reset_sync(
     )
 
 
-@app.command("config-llm", hidden=True)
-def config_llm(
-    provider: str | None = typer.Option(
-        None,
-        "--provider",
-        "-p",
-        help=("LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"),
-    ),
-    model: str | None = typer.Option(
-        None,
-        "--model",
-        "-m",
-        help="Model name",
-    ),
-    base_url: str | None = typer.Option(
-        None,
-        "--base-url",
-        "-u",
-        help="API base URL (for local/custom providers)",
-    ),
-    temperature: float | None = typer.Option(
-        None,
-        "--temperature",
-        help="Sampling temperature (0.0 to 2.0)",
-        min=0.0,
-        max=2.0,
-    ),
-    max_tokens: int | None = typer.Option(
-        None,
-        "--max-tokens",
-        help="Maximum output tokens (>0)",
-        min=1,
-    ),
-    validate: bool = typer.Option(
-        True,
-        "--validate/--no-validate",
-        help="Validate configuration after setting",
-    ),
-):
-    """Backwards-compatible alias for `config model`."""
-    console.print("[warning]'config-llm' is deprecated; use 'config model' instead.[/warning]")
-    _run_model_config(
-        provider=provider,
-        model=model,
-        base_url=base_url,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        validate=validate,
-    )
-
-
 @config_app.command("setup")
 def config_setup(
     force: bool = typer.Option(
@@ -3854,7 +3497,10 @@ def config_model(
         None,
         "--provider",
         "-p",
-        help=("LLM provider: anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible"),
+        help=(
+            "LLM provider: anthropic, openai, openrouter, mistral, google, "
+            "ollama, vllm, lmstudio, openai-compatible"
+        ),
     ),
     model: str | None = typer.Option(
         None,
@@ -3943,19 +3589,19 @@ def config_adapters(
     if output_dir is not None:
         updates["output_dir"] = str(output_dir)
     if token_budget is not None:
-        updates["token_budget"] = token_budget
+        updates["default_token_budget"] = token_budget
     if per_adapter_token_budget is not None:
-        updates["per_adapter_token_budget"] = _parse_named_token_budgets(
+        updates["per_adapter_token_budget"] = _parse_named_token_budget_map(
             per_adapter_token_budget,
             label="per-adapter",
         )
     if per_provider_token_budget is not None:
-        updates["per_provider_token_budget"] = _parse_named_token_budgets(
+        updates["per_provider_token_budget"] = _parse_named_token_budget_map(
             per_provider_token_budget,
             label="per-provider",
         )
     if per_model_token_budget is not None:
-        updates["per_model_token_budget"] = _parse_named_token_budgets(
+        updates["per_model_token_budget"] = _parse_named_token_budget_map(
             per_model_token_budget,
             label="per-model",
         )
@@ -3966,12 +3612,12 @@ def config_adapters(
             "[bold]Context Adapters:[/bold]",
             f"  Enabled: {'yes' if bool(adapter_config.get('enabled')) else 'no'}",
             f"  Output dir: {adapter_config.get('output_dir') or '.agent/context'}",
-            f"  Token budget: {_format_adapter_token_budget(adapter_config)}",
-            f"  Per-adapter budgets: {_format_adapter_budgets(adapter_config)}",
+            f"  Token budget: {_format_default_adapter_token_budget(adapter_config)}",
+            f"  Per-adapter budgets: {_format_per_adapter_token_budgets(adapter_config)}",
             "  Per-provider budgets: "
-            f"{_format_named_token_budgets(adapter_config.get('per_provider_token_budget'))}",
+            f"{_format_named_token_budget_map(adapter_config.get('per_provider_token_budget'))}",
             "  Per-model budgets: "
-            f"{_format_named_token_budgets(adapter_config.get('per_model_token_budget'))}",
+            f"{_format_named_token_budget_map(adapter_config.get('per_model_token_budget'))}",
         ]
         console.print(Panel.fit("\n".join(lines), title="Context Adapters"))
         return
@@ -3982,12 +3628,12 @@ def config_adapters(
         "[success]✓ Adapter settings updated[/success]",
         f"  Enabled: {'yes' if bool(adapter_config.get('enabled')) else 'no'}",
         f"  Output dir: {adapter_config.get('output_dir') or '.agent/context'}",
-        f"  Token budget: {_format_adapter_token_budget(adapter_config)}",
-        f"  Per-adapter budgets: {_format_adapter_budgets(adapter_config)}",
+        f"  Token budget: {_format_default_adapter_token_budget(adapter_config)}",
+        f"  Per-adapter budgets: {_format_per_adapter_token_budgets(adapter_config)}",
         "  Per-provider budgets: "
-        f"{_format_named_token_budgets(adapter_config.get('per_provider_token_budget'))}",
+        f"{_format_named_token_budget_map(adapter_config.get('per_provider_token_budget'))}",
         "  Per-model budgets: "
-        f"{_format_named_token_budgets(adapter_config.get('per_model_token_budget'))}",
+        f"{_format_named_token_budget_map(adapter_config.get('per_model_token_budget'))}",
     ]
     console.print(Panel.fit("\n".join(lines), title="Context Adapters"))
 
@@ -4007,6 +3653,8 @@ def providers():
     providers_info = [
         ("anthropic", "Cloud", "ANTHROPIC_API_KEY", "-"),
         ("openai", "Cloud", "OPENAI_API_KEY", "-"),
+        ("openrouter", "Cloud", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1"),
+        ("mistral", "Cloud", "MISTRAL_API_KEY", "https://api.mistral.ai/v1"),
         ("google", "Cloud", "GOOGLE_API_KEY", "-"),
         ("ollama", "Local", "-", "http://localhost:11434/v1"),
         ("vllm", "Local", "- (optional)", "http://localhost:8000/v1"),
@@ -4026,6 +3674,8 @@ def providers():
         "  agent-recall config model --provider anthropic --model claude-sonnet-4-20250514"
     )
     console.print("  agent-recall config model --provider ollama --model llama3.1")
+    console.print("  agent-recall config model --provider openrouter --model openai/gpt-5.2")
+    console.print("  agent-recall config model --provider mistral --model mistral-large-latest")
     console.print("  agent-recall config model --provider lmstudio --model local-model")
     console.print(
         "  agent-recall config model --provider openai-compatible --base-url "

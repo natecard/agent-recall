@@ -212,8 +212,11 @@ def execute_tui_slash_command(
         return False, ["[warning]/open is already running.[/warning]"]
 
     if command_name == "run":
-        parts = ["sync", *parts[1:]]
+        parts = ["sync", "--compact", "--verbose", *parts[1:]]
         command_name = "sync"
+
+    if command_name == "sync" and "--verbose" not in parts and "-v" not in parts:
+        parts.append("--verbose")
 
     invoke_env: dict[str, str] | None = None
     if terminal_width is not None or terminal_height is not None:

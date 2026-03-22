@@ -24,7 +24,7 @@ def test_command_parity_report_flags_untracked_surfaces() -> None:
 
 
 def test_command_contract_tui_commands_present_in_suggestions() -> None:
-    cli_commands = cli_main._collect_cli_commands_for_palette()
+    cli_commands = cli_main._collect_registered_cli_command_paths()
     suggestions = set(_build_command_suggestions(cli_commands))
 
     report = command_parity_report(

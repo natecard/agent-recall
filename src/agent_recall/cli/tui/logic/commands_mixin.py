@@ -168,10 +168,44 @@ class CommandsMixin:
         self._append_activity("Manual refresh complete.")
 
     def action_sync_conversations(self: Any) -> None:
-        self._run_backend_command("sync --no-compact")
+        self._run_backend_command("sync --compact --verbose")
 
     def action_run_knowledge_update(self: Any) -> None:
-        self._run_backend_command("run")
+        self._run_backend_command("sync --compact --verbose")
+
+    def action_reprocess_conversations(self: Any) -> None:
+        if self._result_list_open:
+            self._close_inline_result_list(announce=False)
+        self._append_activity("> sync reset")
+        self._append_activity("> sync --compact --verbose")
+        self.status = "Reprocessing conversations"
+        self._append_activity("Reprocess run started. Loading...")
+        viewport_width = max(int(self.size.width or 0), 80)
+        viewport_height = max(int(self.size.height or 0), 24)
+
+        def _run_reprocess() -> tuple[bool, list[str]]:
+            _reset_exit, reset_lines = self._execute_command(
+                "sync reset",
+                viewport_width,
+                viewport_height,
+            )
+            should_exit, sync_lines = self._execute_command(
+                "sync --compact --verbose",
+                viewport_width,
+                viewport_height,
+            )
+            return should_exit, [*reset_lines, *sync_lines]
+
+        worker = self.run_worker(
+            _run_reprocess,
+            thread=True,
+            group="tui-ops",
+            exclusive=True,
+            exit_on_error=False,
+        )
+        worker_key = id(worker)
+        self._worker_context[worker_key] = "command"
+        self._knowledge_run_workers.add(worker_key)
 
     def action_switch_to_forecast(self: Any) -> None:
         self.current_view = "forecast"

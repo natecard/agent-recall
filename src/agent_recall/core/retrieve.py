@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from agent_recall.core.embeddings import cosine_similarity, generate_embedding
+from agent_recall.core.ordering import key_component_score_desc, key_score_desc_id
 from agent_recall.core.semantic_embedder import embed_single, get_embedding_dimension
 from agent_recall.storage.base import Storage, UnsupportedStorageCapabilityError
 from agent_recall.storage.models import Chunk, SemanticLabel
@@ -150,12 +151,12 @@ class Retriever:
             )
 
         ranked.sort(
-            key=lambda item: (
-                -item.score,
-                -item.components.feedback,
-                -item.components.semantic,
-                -item.components.lexical,
-                str(item.chunk.id),
+            key=lambda item: key_component_score_desc(
+                score=item.score,
+                feedback=item.components.feedback,
+                semantic=item.components.semantic,
+                lexical=item.components.lexical,
+                identifier=item.chunk.id,
             )
         )
         logger.debug(
@@ -200,7 +201,7 @@ class Retriever:
             if similarity >= min_similarity:
                 scored.append((chunk, similarity))
 
-        scored.sort(key=lambda row: (-row[1], str(row[0].id)))
+        scored.sort(key=lambda row: key_score_desc_id(row[1], row[0].id))
         return scored
 
     def _rerank_chunks(self, query: str, chunks: list[Chunk], top_k: int) -> list[Chunk]:
@@ -242,13 +243,13 @@ class Retriever:
             )
 
         ranked.sort(
-            key=lambda item: (
-                -item.score,
-                -item.components.feedback,
-                -item.components.semantic,
-                -item.components.lexical,
-                item.rank_hint,
-                str(item.chunk.id),
+            key=lambda item: key_component_score_desc(
+                score=item.score,
+                feedback=item.components.feedback,
+                semantic=item.components.semantic,
+                lexical=item.components.lexical,
+                rank_hint=item.rank_hint,
+                identifier=item.chunk.id,
             )
         )
         return [item.chunk for item in ranked[:top_k]]

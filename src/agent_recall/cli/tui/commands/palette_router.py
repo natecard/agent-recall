@@ -57,6 +57,9 @@ def handle_palette_action(app, action_id: str | None) -> None:
     if action_id == "run:select":
         app.action_open_session_run_modal()
         return
+    if action_id == "reprocess":
+        app.action_reprocess_conversations()
+        return
     if action_id == "sessions":
         app.action_open_sessions_view_modal()
         return
@@ -72,8 +75,8 @@ def handle_palette_action(app, action_id: str | None) -> None:
 
     command_by_action = {
         "status": "status",
-        "sync": "sync --no-compact",
-        "knowledge-run": "run",
+        "sync": "sync --compact --verbose",
+        "knowledge-run": "sync --compact --verbose",
         "ralph-enable": "ralph enable",
         "ralph-disable": "ralph disable",
         "ralph-status": "ralph status",

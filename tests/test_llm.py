@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -9,7 +10,7 @@ from agent_recall.llm import (
     ensure_provider_dependency,
     get_available_providers,
 )
-from agent_recall.llm.base import LLMConfigError, Message
+from agent_recall.llm.base import LLMConfigError, LLMRateLimitError, Message
 from agent_recall.llm.openai_compat import OpenAICompatibleProvider
 from agent_recall.storage.models import LLMConfig
 
@@ -62,8 +63,40 @@ class TestProviderFactory:
         providers = get_available_providers()
         assert "anthropic" in providers
         assert "openai" in providers
+        assert "openrouter" in providers
+        assert "mistral" in providers
         assert "ollama" in providers
         assert "google" in providers
+
+    def test_create_openrouter_provider(self, monkeypatch) -> None:
+        monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
+        monkeypatch.setenv("OPENROUTER_HTTP_REFERER", "https://example.com")
+        monkeypatch.setenv("OPENROUTER_APP_TITLE", "Agent Recall")
+        config = LLMConfig(
+            provider="openrouter",
+            model="openai/gpt-5.2",
+        )
+        provider = create_llm_provider(config)
+        assert isinstance(provider, OpenAICompatibleProvider)
+        assert provider.provider_name == "OpenRouter"
+        assert provider.base_url == "https://openrouter.ai/api/v1"
+        assert provider.api_key == "or-key"
+        assert provider.default_headers == {
+            "HTTP-Referer": "https://example.com",
+            "X-OpenRouter-Title": "Agent Recall",
+        }
+
+    def test_create_mistral_provider(self, monkeypatch) -> None:
+        monkeypatch.setenv("MISTRAL_API_KEY", "mistral-key")
+        config = LLMConfig(
+            provider="mistral",
+            model="mistral-large-latest",
+        )
+        provider = create_llm_provider(config)
+        assert isinstance(provider, OpenAICompatibleProvider)
+        assert provider.provider_name == "Mistral"
+        assert provider.base_url == "https://api.mistral.ai/v1"
+        assert provider.api_key == "mistral-key"
 
     def test_create_ollama_provider(self) -> None:
         config = LLMConfig(
@@ -239,3 +272,40 @@ class TestLLMGeneration:
 
         assert response.content == "Test response"
         assert response.model == "test-model"
+
+    @pytest.mark.asyncio
+    async def test_generate_rate_limit_parses_retry_after_and_metadata(self) -> None:
+        provider = OpenAICompatibleProvider(
+            model="openai/gpt-5.2",
+            base_url="https://openrouter.ai/api/v1",
+            provider_type="openrouter",
+            api_key="test-key",
+        )
+
+        class FakeRateLimitError(Exception):
+            status_code = 429
+
+            def __init__(self) -> None:
+                super().__init__("provider rate limit")
+                self.body = {
+                    "error": {
+                        "message": "Provider returned error",
+                        "code": 429,
+                        "metadata": {
+                            "raw": "temporarily rate-limited upstream. Please retry shortly.",
+                            "provider_name": "OpenInference",
+                        },
+                    }
+                }
+                self.response = SimpleNamespace(headers={"Retry-After": "3"})
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=FakeRateLimitError())
+        provider._client = mock_client
+
+        with pytest.raises(LLMRateLimitError) as exc_info:
+            await provider.generate([Message(role="user", content="Hello")])
+
+        assert exc_info.value.retry_after_seconds == pytest.approx(3.0)
+        assert "rate limit exceeded" in str(exc_info.value).lower()
+        assert "OpenInference" in str(exc_info.value)

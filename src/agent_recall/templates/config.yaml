@@ -34,7 +34,7 @@ retrieval:
   fusion_k: 60
   rerank_enabled: false
   rerank_candidate_k: 20
-  embedding_enabled: false
+  semantic_index_enabled: false
   embedding_dimensions: 64
 
 memory:
@@ -116,7 +116,7 @@ ralph:
 adapters:
   enabled: false
   output_dir: .agent/context
-  token_budget:
+  default_token_budget:
   per_adapter_token_budget: {}
   per_provider_token_budget: {}
   per_model_token_budget: {}

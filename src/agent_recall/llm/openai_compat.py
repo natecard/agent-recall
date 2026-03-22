@@ -3,6 +3,9 @@ from __future__ import annotations
 import os
 import socket
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
+from typing import Any
 from urllib.parse import urlparse
 
 from agent_recall.llm.base import (
@@ -30,6 +33,18 @@ class OpenAICompatibleProvider(LLMProvider):
             "api_key_env": None,
             "api_key_required": False,
             "default_model": "llama3.1",
+        },
+        "openrouter": {
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key_env": "OPENROUTER_API_KEY",
+            "api_key_required": True,
+            "default_model": "openai/gpt-5.2",
+        },
+        "mistral": {
+            "base_url": "https://api.mistral.ai/v1",
+            "api_key_env": "MISTRAL_API_KEY",
+            "api_key_required": True,
+            "default_model": "mistral-large-latest",
         },
         "vllm": {
             "base_url": "http://localhost:8000/v1",
@@ -65,6 +80,7 @@ class OpenAICompatibleProvider(LLMProvider):
         api_key_env: str | None = "OPENAI_API_KEY",
         provider_type: str | None = None,
         timeout: float = 120.0,
+        default_headers: dict[str, str] | None = None,
     ):
         if provider_type and provider_type in self.KNOWN_PROVIDERS:
             defaults = self.KNOWN_PROVIDERS[provider_type]
@@ -85,6 +101,7 @@ class OpenAICompatibleProvider(LLMProvider):
         self.base_url = base_url
         self.timeout = timeout
         self._provider_type = provider_type or self._infer_provider_type(base_url)
+        self.default_headers = dict(default_headers) if default_headers else None
 
         if api_key:
             self.api_key = api_key
@@ -102,6 +119,8 @@ class OpenAICompatibleProvider(LLMProvider):
     def provider_name(self) -> str:
         type_names = {
             "openai": "OpenAI",
+            "openrouter": "OpenRouter",
+            "mistral": "Mistral",
             "ollama": "Ollama (Local)",
             "vllm": "vLLM (Local)",
             "lmstudio": "LMStudio (Local)",
@@ -123,6 +142,8 @@ class OpenAICompatibleProvider(LLMProvider):
         lowered = base_url.lower()
         if "11434" in lowered:
             return "ollama"
+        if "mistral.ai" in lowered:
+            return "mistral"
         if "8000" in lowered:
             return "vllm"
         if "1234" in lowered:
@@ -156,6 +177,7 @@ class OpenAICompatibleProvider(LLMProvider):
                 base_url=self.base_url,
                 api_key=self.api_key or "not-needed",
                 timeout=self.timeout,
+                default_headers=self.default_headers,
             )
 
         return self._client
@@ -201,8 +223,13 @@ class OpenAICompatibleProvider(LLMProvider):
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
-            if "rate" in error and "limit" in error:
-                raise LLMRateLimitError(f"Rate limit exceeded: {exc}") from exc
+            if self._is_rate_limited_error(exc):
+                message = self._build_rate_limited_message(exc)
+                retry_after = self._extract_retry_after_seconds(exc)
+                raise LLMRateLimitError(
+                    message,
+                    retry_after_seconds=retry_after,
+                ) from exc
             if "auth" in error or "api_key" in error or "401" in error:
                 raise LLMConfigError(f"Authentication error: {exc}") from exc
             if "connect" in error or "timeout" in error or "refused" in error:
@@ -258,7 +285,11 @@ class OpenAICompatibleProvider(LLMProvider):
         try:
             from openai import OpenAI
 
-            client = OpenAI(base_url=self.base_url, api_key=self.api_key)
+            client = OpenAI(
+                base_url=self.base_url,
+                api_key=self.api_key,
+                default_headers=self.default_headers,
+            )
             client.chat.completions.create(
                 model=self.model,
                 max_tokens=5,
@@ -267,6 +298,127 @@ class OpenAICompatibleProvider(LLMProvider):
             return True, f"Connected to {self.provider_name} ({self.model})"
         except Exception as exc:  # noqa: BLE001
             return False, f"Validation failed: {exc}"
+
+    @staticmethod
+    def _is_rate_limited_error(exc: Exception) -> bool:
+        status_code = getattr(exc, "status_code", None)
+        try:
+            if status_code is not None and int(status_code) == 429:
+                return True
+        except (TypeError, ValueError):
+            pass
+
+        lowered = str(exc).lower()
+        return "rate" in lowered and "limit" in lowered
+
+    @staticmethod
+    def _extract_retry_after_seconds(exc: Exception) -> float | None:
+        headers = OpenAICompatibleProvider._extract_response_headers(exc)
+        if headers:
+            retry_after = OpenAICompatibleProvider._parse_retry_after_header(
+                headers.get("retry-after")
+            )
+            if retry_after is not None:
+                return retry_after
+
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict):
+            error_payload = body.get("error")
+            if isinstance(error_payload, dict):
+                metadata = error_payload.get("metadata")
+                if isinstance(metadata, dict):
+                    for key in ("retry_after", "retry_after_seconds", "retry_after_ms"):
+                        raw_value = metadata.get(key)
+                        if raw_value is None:
+                            continue
+                        parsed = OpenAICompatibleProvider._parse_retry_after_value(raw_value, key)
+                        if parsed is not None:
+                            return parsed
+        return None
+
+    @staticmethod
+    def _extract_response_headers(exc: Exception) -> dict[str, str]:
+        for attr in ("response", "http_response"):
+            response = getattr(exc, attr, None)
+            headers = getattr(response, "headers", None)
+            if headers is None:
+                continue
+            try:
+                return {str(key).lower(): str(value) for key, value in dict(headers).items()}
+            except Exception:  # noqa: BLE001
+                continue
+        return {}
+
+    @staticmethod
+    def _parse_retry_after_header(raw_value: str | None) -> float | None:
+        if raw_value is None:
+            return None
+
+        raw = str(raw_value).strip()
+        if not raw:
+            return None
+
+        try:
+            seconds = float(raw)
+            if seconds > 0:
+                return seconds
+        except ValueError:
+            pass
+
+        try:
+            retry_at = parsedate_to_datetime(raw)
+        except (TypeError, ValueError):
+            return None
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=UTC)
+        now = datetime.now(UTC)
+        delta = (retry_at - now).total_seconds()
+        return delta if delta > 0 else None
+
+    @staticmethod
+    def _parse_retry_after_value(raw_value: Any, key: str) -> float | None:
+        try:
+            parsed = float(raw_value)
+        except (TypeError, ValueError):
+            return None
+        if parsed <= 0:
+            return None
+        if key.endswith("_ms"):
+            return parsed / 1000.0
+        return parsed
+
+    @staticmethod
+    def _build_rate_limited_message(exc: Exception) -> str:
+        status_code = getattr(exc, "status_code", None)
+        code_text = ""
+        try:
+            if status_code is not None:
+                code_text = f"HTTP {int(status_code)}"
+        except (TypeError, ValueError):
+            code_text = ""
+
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict):
+            error_payload = body.get("error")
+            if isinstance(error_payload, dict):
+                metadata = error_payload.get("metadata")
+                provider_name = ""
+                raw_message = ""
+                if isinstance(metadata, dict):
+                    provider_name = str(metadata.get("provider_name", "")).strip()
+                    raw_message = str(metadata.get("raw", "")).strip()
+                message = str(error_payload.get("message", "")).strip()
+
+                detail = raw_message or message
+                detail = detail or str(exc).strip()
+                if provider_name:
+                    detail = f"{detail} (provider: {provider_name})"
+                prefix = f"{code_text} rate limit exceeded" if code_text else "Rate limit exceeded"
+                return f"{prefix}: {detail}"
+
+        message = str(exc).strip() or "request was rate limited"
+        prefix = f"{code_text} rate limit exceeded" if code_text else "Rate limit exceeded"
+        return f"{prefix}: {message}"
 
     @staticmethod
     def _messages_to_prompt(messages: list[Message]) -> str:

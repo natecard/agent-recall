@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from agent_recall.core.ordering import key_timestamp_index, key_timestamp_name
 from agent_recall.ingest.base import RawMessage, RawSession, RawToolCall, SessionIngester
 from agent_recall.ingest.health import HealthStatus, SourceHealthResult
 
@@ -329,7 +330,7 @@ class CursorIngester(SessionIngester):
             )
 
         refs.sort(
-            key=lambda ref: (
+            key=lambda ref: key_timestamp_name(
                 (
                     ref.created_at.timestamp()
                     if ref.created_at
@@ -437,9 +438,10 @@ class CursorIngester(SessionIngester):
 
         sorted_messages = sorted(
             enumerate(messages),
-            key=lambda item: (
+            key=lambda item: key_timestamp_index(
                 item[1].timestamp.timestamp() if item[1].timestamp else 0.0,
                 item[0],
+                missing_last=False,
             ),
         )
 
@@ -475,9 +477,10 @@ class CursorIngester(SessionIngester):
 
         sorted_messages = sorted(
             enumerate(messages),
-            key=lambda item: (
+            key=lambda item: key_timestamp_index(
                 item[1].timestamp.timestamp() if item[1].timestamp else 0.0,
                 item[0],
+                missing_last=False,
             ),
         )
 
@@ -563,9 +566,12 @@ class CursorIngester(SessionIngester):
                     bubble_id = key.rsplit(":", 1)[-1]
                     bubble_payloads[bubble_id] = value
 
-                def _bubble_sort_key(item: tuple[str, dict[str, Any]]) -> float:
+                def _bubble_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[float, str]:
                     timestamp = self._extract_timestamp(item[1])
-                    return timestamp.timestamp() if timestamp else 0.0
+                    return key_timestamp_name(
+                        timestamp.timestamp() if timestamp else 0.0,
+                        item[0],
+                    )
 
                 ordered_bubbles = sorted(
                     bubble_payloads.items(),

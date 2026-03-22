@@ -13,6 +13,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Select, Static
 
 from agent_recall.cli.tui.constants import _PROVIDER_BASE_URL_DEFAULTS
+from agent_recall.cli.tui.logic.select_compat import is_select_empty
 from agent_recall.cli.tui.logic.text_sanitizers import _clean_optional_text
 from agent_recall.cli.tui.types import DiscoverModelsFn
 from agent_recall.core.onboarding import API_KEY_ENV_BY_PROVIDER
@@ -131,7 +132,7 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
             return
         if event.select.id == "model_picker":
             val = event.value
-            if val == Select.BLANK or str(val) == "__manual__":
+            if is_select_empty(val) or str(val) == "__manual__":
                 return
             self.query_one("#model_name", Input).value = str(val)
 
@@ -151,7 +152,7 @@ class ModelConfigModal(ModalScreen[dict[str, Any] | None]):
 
         err = self.query_one("#model_error", Static)
         provider = self.query_one("#model_provider", Select).value
-        if provider == Select.BLANK:
+        if is_select_empty(provider):
             err.update("[error]Provider required[/error]")
             return
         try:

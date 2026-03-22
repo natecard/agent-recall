@@ -131,17 +131,8 @@ def handle_local_command(app, raw: str) -> bool:
         return True
 
     if action == "ralph" and second in {"hooks-install", "hooks"}:
-        if len(parts) > 2 and parts[2].lower() == "uninstall":
-            app._run_backend_command("ralph hooks uninstall", bypass_local=True)
-            app.status = "Uninstalling Claude hooks"
-        else:
-            app._run_backend_command("ralph hooks install", bypass_local=True)
-            app.status = "Installing Claude hooks"
-        return True
-
-    if action == "ralph" and second == "hooks" and len(parts) > 2:
-        third = parts[2].lower()
-        if third == "install":
+        third = parts[2].lower() if len(parts) > 2 else "install"
+        if second == "hooks-install" or third == "install":
             app._run_backend_command("ralph hooks install", bypass_local=True)
             app.status = "Installing Claude hooks"
             return True
@@ -149,6 +140,8 @@ def handle_local_command(app, raw: str) -> bool:
             app._run_backend_command("ralph hooks uninstall", bypass_local=True)
             app.status = "Uninstalling Claude hooks"
             return True
+        app._append_activity("Unknown Ralph hooks command.")
+        return True
 
     if action == "ralph" and second == "plugin" and len(parts) > 2:
         third = parts[2].lower()

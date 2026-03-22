@@ -71,7 +71,7 @@ agent-recall sync --source cursor --cursor-db-path "/path/to/state.vscdb" --no-c
 - `Ctrl+P` command palette
 - `Ctrl+G` settings/preferences
 - `Ctrl+K` run knowledge update
-- `Ctrl+Y` sync conversations
+- `Ctrl+Y` sync conversations + synthesis
 - `Ctrl+T` theme picker
 - `Ctrl+Q` quit
 
@@ -81,7 +81,7 @@ Repository config lives in `.agent/config.yaml`.
 
 ```yaml
 llm:
-  provider: openai  # anthropic, openai, google, ollama, vllm, lmstudio, openai-compatible
+  provider: openai  # anthropic, openai, openrouter, mistral, google, ollama, vllm, lmstudio, openai-compatible
   model: gpt-5-mini
   base_url: null    # e.g. http://localhost:11434/v1 for ollama
 ```
@@ -91,6 +91,7 @@ You can manage provider/model settings from CLI:
 ```bash
 agent-recall providers
 agent-recall config model --provider ollama --model llama3.1
+agent-recall config model --provider mistral --model mistral-large-latest
 agent-recall config model --temperature 0.2 --max-tokens 8192
 agent-recall test-llm
 ```
@@ -146,6 +147,8 @@ Migration path from local to shared:
 ### LLM providers
 
 - OpenAI (built-in)
+- OpenRouter (OpenAI-compatible endpoint)
+- Mistral (OpenAI-compatible endpoint)
 - Anthropic (`agent-recall[anthropic]`)
 - Google (`agent-recall[google]`)
 - Ollama (OpenAI-compatible endpoint)

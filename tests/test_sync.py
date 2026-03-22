@@ -380,7 +380,7 @@ async def test_sync_and_compact_external_backend_reports_pending(
 async def test_sync_and_compact_backfills_missing_embeddings_when_enabled(
     storage, files, tmp_path: Path, monkeypatch
 ) -> None:
-    files.write_config({"retrieval": {"embedding_enabled": True, "embedding_dimensions": 384}})
+    files.write_config({"retrieval": {"semantic_index_enabled": True, "embedding_dimensions": 384}})
 
     preexisting = Chunk(
         source=ChunkSource.MANUAL,
@@ -417,7 +417,7 @@ async def test_sync_and_compact_backfills_missing_embeddings_when_enabled(
 async def test_sync_and_compact_skip_embeddings_does_not_backfill(
     storage, files, tmp_path: Path
 ) -> None:
-    files.write_config({"retrieval": {"embedding_enabled": True, "embedding_dimensions": 384}})
+    files.write_config({"retrieval": {"semantic_index_enabled": True, "embedding_dimensions": 384}})
 
     preexisting = Chunk(
         source=ChunkSource.MANUAL,
@@ -561,6 +561,91 @@ async def test_auto_sync_retries_rate_limit_then_processes(
 
 
 @pytest.mark.asyncio
+async def test_auto_sync_rate_limit_honors_retry_after_and_reduces_batch_size(
+    storage,
+    files,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    class RetryAfterLLM(LLMProvider):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        @property
+        def provider_name(self) -> str:
+            return "retry-after"
+
+        @property
+        def model_name(self) -> str:
+            return "retry-after-model"
+
+        async def generate(
+            self,
+            messages: list[Message],
+            temperature: float = 0.3,
+            max_tokens: int = 4096,
+        ) -> LLMResponse:
+            _ = (messages, temperature, max_tokens)
+            self.calls += 1
+            if self.calls == 1:
+                raise LLMRateLimitError("retry later", retry_after_seconds=0.25)
+            return LLMResponse(
+                content=(
+                    '[{"label": "pattern", "content": "Use stable retry pacing", '
+                    '"tags": ["sync"], "confidence": 0.8}]'
+                ),
+                model="retry-after-model",
+            )
+
+        def validate(self) -> tuple[bool, str]:
+            return True, "ok"
+
+    sleep_calls: list[float] = []
+
+    async def _fake_sleep(seconds: float) -> None:
+        sleep_calls.append(float(seconds))
+
+    monkeypatch.setattr("agent_recall.core.sync.asyncio.sleep", _fake_sleep)
+
+    progress_events: list[dict[str, object]] = []
+    llm = RetryAfterLLM()
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=llm,
+        ingesters=[FakeIngester("cursor", [session_path])],
+        progress_callback=progress_events.append,
+    )
+    sync.extract_retry_attempts = 2
+    sync.extract_retry_backoff_seconds = 0.0
+
+    results = await sync.sync()
+
+    assert llm.calls == 2
+    assert results["sessions_processed"] == 1
+    assert sleep_calls == [pytest.approx(0.25)]
+    assert sync.extractor is not None
+    assert sync.extractor.messages_per_batch == 50
+
+    retry_events = [
+        event for event in progress_events if event.get("event") == "extraction_retry_scheduled"
+    ]
+    assert len(retry_events) == 1
+    assert retry_events[0]["reason"] == "rate_limit"
+    assert retry_events[0]["delay_seconds"] == pytest.approx(0.25)
+
+    batch_resize_events = [
+        event for event in progress_events if event.get("event") == "extraction_batch_size_adjusted"
+    ]
+    assert len(batch_resize_events) == 1
+    assert batch_resize_events[0]["old_messages_per_batch"] == 50
+    assert batch_resize_events[0]["new_messages_per_batch"] == 25
+
+
+@pytest.mark.asyncio
 async def test_auto_sync_warns_when_long_session_yields_no_learnings(
     storage,
     files,
@@ -651,8 +736,8 @@ async def test_auto_sync_batches_extraction_and_emits_progress(
 
     results = await sync.sync()
     assert results["sessions_processed"] == 1
-    assert results["llm_requests"] == 3
-    assert results["by_source"]["cursor"]["llm_batches"] == 3
+    assert results["llm_requests"] == 5
+    assert results["by_source"]["cursor"]["llm_batches"] == 5
 
     session_events = [
         event for event in progress_events if event.get("event") == "extraction_session_started"
@@ -661,10 +746,12 @@ async def test_auto_sync_batches_extraction_and_emits_progress(
         event for event in progress_events if event.get("event") == "extraction_batch_complete"
     ]
     assert len(session_events) == 1
-    assert len(batch_events) == 3
-    assert batch_events[0]["messages_processed"] == 100
-    assert batch_events[1]["messages_processed"] == 200
-    assert batch_events[2]["messages_processed"] == 205
+    assert len(batch_events) == 5
+    assert batch_events[0]["messages_processed"] == 50
+    assert batch_events[1]["messages_processed"] == 100
+    assert batch_events[2]["messages_processed"] == 150
+    assert batch_events[3]["messages_processed"] == 200
+    assert batch_events[4]["messages_processed"] == 205
 
 
 def test_auto_sync_list_sessions_includes_titles_and_processed_state(

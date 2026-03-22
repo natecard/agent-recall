@@ -8,6 +8,8 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Select, Static
 
+from agent_recall.cli.tui.logic.select_compat import is_select_empty
+
 LAYOUT_WIDGETS: list[tuple[str, str]] = [
     ("knowledge", "Knowledge Base"),
     ("sources", "Session Sources"),
@@ -80,7 +82,7 @@ class LayoutCustomiserModal(ModalScreen[dict[str, Any] | None]):
 
         error_widget = self.query_one("#layout_error", Static)
         banner_value = self.query_one("#layout_banner_size", Select).value
-        if banner_value == Select.BLANK:
+        if is_select_empty(banner_value):
             error_widget.update("[error]Select a banner size[/error]")
             return
 

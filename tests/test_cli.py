@@ -9,6 +9,7 @@ from uuid import UUID
 from typer.testing import CliRunner
 
 import agent_recall.cli.app_commands as cli_main
+from agent_recall.cli.tui import router as tui_router
 from agent_recall.core.pr_context import DiffScope
 from agent_recall.core.telemetry import PipelineTelemetry
 from agent_recall.ingest.base import RawMessage, RawSession
@@ -23,8 +24,26 @@ from agent_recall.storage.models import (
     SemanticLabel,
 )
 from agent_recall.storage.sqlite import SQLiteStorage
+from tests.support.cli_test_utils import initialize_agent_repo, load_agent_config
 
 runner = CliRunner()
+
+
+def _run_tui_slash(
+    raw: str,
+    *,
+    terminal_width: int | None = None,
+    terminal_height: int | None = None,
+) -> tuple[bool, list[str]]:
+    return tui_router.execute_tui_slash_command(
+        raw,
+        app=cli_main.app,
+        slash_runner=cli_main._slash_runner,
+        get_help_lines=cli_main._tui_help_lines,
+        run_onboarding_setup=cli_main._run_onboarding_setup,
+        terminal_width=terminal_width,
+        terminal_height=terminal_height,
+    )
 
 
 class DummyProvider(LLMProvider):
@@ -171,7 +190,7 @@ def test_cli_smoke_fresh_repo_init_onboarding_sync_context(monkeypatch) -> None:
 
     with runner.isolated_filesystem():
         Path(".git").mkdir()
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
 
         setup = runner.invoke(cli_main.app, ["config", "setup", "--quick", "--force"])
         assert setup.exit_code == 0
@@ -221,13 +240,13 @@ def test_run_setup_payload_persists_coding_agent_config(monkeypatch) -> None:
 
     with runner.isolated_filesystem():
         Path(".git").mkdir()
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
 
         changed, _lines = cli_main._run_setup_from_payload(
             {
                 "force": True,
                 "repository_verified": True,
-                "selected_agents": ["cursor"],
+                "selected_sources": ["cursor"],
                 "provider": "ollama",
                 "model": "qwen3:4b",
                 "base_url": "http://localhost:11434/v1",
@@ -242,7 +261,7 @@ def test_run_setup_payload_persists_coding_agent_config(monkeypatch) -> None:
         )
 
         assert changed is True
-        config = FileStorage(Path(".agent")).read_config()
+        config = load_agent_config()
         assert config["ralph"]["coding_cli"] == "codex"
         assert config["ralph"]["cli_model"] == "gpt-5.3-codex"
         assert config["ralph"]["enabled"] is True
@@ -250,7 +269,7 @@ def test_run_setup_payload_persists_coding_agent_config(monkeypatch) -> None:
 
 def test_cli_session_flow() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         assert runner.invoke(cli_main.app, ["start", "build feature"]).exit_code == 0
         assert (
             runner.invoke(
@@ -321,7 +340,7 @@ def test_cli_context_uses_retrieval_config_defaults(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "Retriever", FakeRetriever)
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         files = FileStorage(Path(".agent"))
         config = files.read_config()
         config["retrieval"] = {
@@ -346,7 +365,7 @@ def test_cli_context_uses_retrieval_config_defaults(monkeypatch) -> None:
 
 def test_cli_context_reads_shared_tier_files_when_shared_backend_enabled() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         files = FileStorage(Path(".agent"))
         config = files.read_config()
 
@@ -377,7 +396,7 @@ def test_cli_context_for_pr_uses_scoped_template(monkeypatch) -> None:
     from agent_recall.cli.commands import context_flow
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         cli_main.get_storage.cache_clear()
         storage = SQLiteStorage(Path(".agent") / "state.db")
         storage.store_chunk(
@@ -458,7 +477,7 @@ def test_cli_retrieve_accepts_backend_and_tuning_overrides(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "Retriever", FakeRetriever)
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         files = FileStorage(Path(".agent"))
         config = files.read_config()
         config["retrieval"] = {
@@ -541,7 +560,7 @@ def test_cli_retrieve_uses_retrieval_config_defaults(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "Retriever", FakeRetriever)
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         files = FileStorage(Path(".agent"))
         config = files.read_config()
         config["retrieval"] = {
@@ -610,7 +629,7 @@ def test_cli_retrieve_uses_memory_mode_backend_when_retrieval_default(monkeypatc
     monkeypatch.setattr(cli_main, "Retriever", FakeRetriever)
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         files = FileStorage(Path(".agent"))
         config = files.read_config()
         config["retrieval"] = {"backend": "fts5", "top_k": 5}
@@ -624,7 +643,7 @@ def test_cli_retrieve_uses_memory_mode_backend_when_retrieval_default(monkeypatc
 
 def test_cli_feedback_add_and_list() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         cli_main.get_storage.cache_clear()
         storage = SQLiteStorage(Path(".agent") / "state.db")
         chunk = Chunk(
@@ -660,7 +679,7 @@ def test_cli_feedback_add_and_list() -> None:
 
 def test_cli_feedback_evaluate_json() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         cli_main.get_storage.cache_clear()
         storage = SQLiteStorage(Path(".agent") / "state.db")
         first = Chunk(
@@ -689,7 +708,7 @@ def test_cli_feedback_evaluate_json() -> None:
 
 def test_cli_topic_threads_rebuild_and_summary() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         cli_main.get_storage.cache_clear()
         storage = SQLiteStorage(Path(".agent") / "state.db")
         entry = LogEntry(
@@ -735,7 +754,7 @@ def test_cli_topic_threads_rebuild_and_summary() -> None:
 
 def test_cli_rule_confidence_refresh_and_status() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         guardrails_path = Path(".agent") / "GUARDRAILS.md"
         style_path = Path(".agent") / "STYLE.md"
         guardrails_path.write_text("# Guardrails\n\n- Keep tests deterministic\n", encoding="utf-8")
@@ -764,7 +783,7 @@ def test_cli_rule_confidence_refresh_and_status() -> None:
 
 def test_cli_memory_pack_export_validate_import() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         cli_main.get_storage.cache_clear()
         storage = SQLiteStorage(Path(".agent") / "state.db")
         storage.store_chunk(
@@ -802,7 +821,7 @@ def test_cli_memory_pack_export_validate_import() -> None:
 
 def test_cli_attribution_summary_and_list() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         cli_main.get_storage.cache_clear()
         storage = SQLiteStorage(Path(".agent") / "state.db")
         storage.append_entry(
@@ -847,7 +866,7 @@ def test_cli_attribution_summary_and_list() -> None:
 
 def test_cli_external_compaction_queue_list_with_attribution() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         cli_main.get_storage.cache_clear()
         storage = SQLiteStorage(Path(".agent") / "state.db")
         source_session_id = "attr-session-1"
@@ -907,7 +926,7 @@ def test_cli_external_compaction_queue_list_with_attribution() -> None:
 
 def test_cli_external_compaction_queue_list_uses_flow_helper(monkeypatch) -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         cli_main.get_storage.cache_clear()
         captured: dict[str, object] = {}
 
@@ -941,7 +960,7 @@ def test_cli_external_compaction_queue_list_uses_flow_helper(monkeypatch) -> Non
 
 def test_cli_external_compaction_queue_approve_uses_flow_helper(monkeypatch) -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         cli_main.get_storage.cache_clear()
         captured: dict[str, object] = {}
 
@@ -972,10 +991,10 @@ def test_cli_external_compaction_queue_approve_uses_flow_helper(monkeypatch) -> 
 
 def test_cli_memory_mode_and_vector_migration() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         mode_result = runner.invoke(cli_main.app, ["memory", "mode", "--set", "hybrid"])
         assert mode_result.exit_code == 0
-        config = FileStorage(Path(".agent")).read_config()
+        config = load_agent_config()
         assert config["memory"]["mode"] == "hybrid"
 
         cli_main.get_storage.cache_clear()
@@ -1008,7 +1027,7 @@ def test_cli_memory_mode_and_vector_migration() -> None:
 
 def test_cli_memory_migrate_vectors_uses_service(monkeypatch) -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         captured: dict[str, object] = {}
 
         class FakeMigrationService:
@@ -1044,7 +1063,7 @@ def test_cli_memory_migrate_vectors_uses_service(monkeypatch) -> None:
 
 def test_cli_curation_list_renders_pending_entries() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         cli_main.get_storage.cache_clear()
         storage = SQLiteStorage(Path(".agent") / "state.db")
         assert storage.list_entries_by_curation_status(CurationStatus.PENDING, limit=1) == []
@@ -1063,7 +1082,7 @@ def test_cli_curation_list_renders_pending_entries() -> None:
 
 def test_cli_curation_approve_and_reject() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         cli_main.get_storage.cache_clear()
         storage = SQLiteStorage(Path(".agent") / "state.db")
 
@@ -1088,7 +1107,7 @@ def test_cli_curation_approve_and_reject() -> None:
 
 def test_cli_refresh_context_writes_bundle_using_active_task() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         assert runner.invoke(cli_main.app, ["start", "implement oauth callback"]).exit_code == 0
 
         result = runner.invoke(cli_main.app, ["context", "refresh"])
@@ -1112,7 +1131,7 @@ def test_cli_refresh_context_writes_bundle_using_active_task() -> None:
 
 def test_cli_refresh_context_writes_adapter_payloads() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         assert runner.invoke(cli_main.app, ["start", "adapter payload run"]).exit_code == 0
 
         result = runner.invoke(cli_main.app, ["context", "refresh", "--adapter-payloads"])
@@ -1131,14 +1150,14 @@ def test_cli_refresh_context_writes_adapter_payloads() -> None:
 
 def test_cli_refresh_context_applies_adapter_token_budget() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         assert runner.invoke(cli_main.app, ["start", "budgeted adapter payload"]).exit_code == 0
         files = FileStorage(Path(".agent"))
         config = files.read_config()
         config["adapters"] = {
             "enabled": True,
             "output_dir": ".agent/context",
-            "token_budget": 1,
+            "default_token_budget": 1,
             "per_adapter_token_budget": {"codex": 2},
         }
         files.write_config(config)
@@ -1156,7 +1175,7 @@ def test_cli_refresh_context_applies_adapter_token_budget() -> None:
 
 def test_cli_refresh_context_applies_provider_and_model_token_budget() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         assert (
             runner.invoke(cli_main.app, ["start", "provider model adapter budget"]).exit_code == 0
         )
@@ -1198,7 +1217,7 @@ def test_cli_refresh_context_applies_provider_and_model_token_budget() -> None:
 
 def test_cli_refresh_context_respects_adapter_opt_out() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         files = FileStorage(Path(".agent"))
         config = files.read_config()
         config["adapters"] = {
@@ -1217,7 +1236,7 @@ def test_cli_refresh_context_respects_adapter_opt_out() -> None:
 
 def test_cli_refresh_context_adapter_payload_not_duplicated() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         assert runner.invoke(cli_main.app, ["start", "adapter idempotency"]).exit_code == 0
         (Path(".agent") / "GUARDRAILS.md").write_text("# Guardrails\n\nKeep it tight.\n")
 
@@ -1259,7 +1278,7 @@ def test_cli_refresh_context_uses_bundle_helper(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "write_context_bundle", fake_write_context_bundle)
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["context", "refresh", "--task", "helper test"])
         assert result.exit_code == 0
         assert "request" in captured
@@ -1281,7 +1300,7 @@ def test_cli_refresh_context_retries_transient_failure(monkeypatch) -> None:
     monkeypatch.setattr(cli_main.time, "sleep", lambda _seconds: None)
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["context", "refresh", "--task", "retry diagnostics"])
         assert result.exit_code == 0
         assert attempts["count"] == 3
@@ -1300,7 +1319,7 @@ def test_cli_refresh_context_reports_retry_diagnostics_on_failure(monkeypatch) -
     monkeypatch.setattr(cli_main.time, "sleep", lambda _seconds: None)
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["context", "refresh", "--task", "failing task"])
         assert result.exit_code == 1
         assert attempts["count"] == 3
@@ -1353,7 +1372,7 @@ def test_cli_sync_background_prints_failure_diagnostics(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "AutoSync", lambda *_args, **_kwargs: object())
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["sync", "background"])
         assert result.exit_code == 1
         assert "Sync failed" in result.output
@@ -1363,7 +1382,7 @@ def test_cli_sync_background_prints_failure_diagnostics(monkeypatch) -> None:
 
 def test_cli_invalid_label() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(
             cli_main.app,
             ["log", "bad label", "--label", "not-a-label"],
@@ -1381,7 +1400,7 @@ def test_cli_compact(monkeypatch) -> None:
     )
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         assert runner.invoke(cli_main.app, ["start", "task"]).exit_code == 0
         assert runner.invoke(cli_main.app, ["log", "note", "--label", "gotcha"]).exit_code == 0
         assert runner.invoke(cli_main.app, ["end", "done"]).exit_code == 0
@@ -1394,7 +1413,7 @@ def test_cli_compact(monkeypatch) -> None:
 def test_cli_compact_external_backend_shows_guidance() -> None:
     with runner.isolated_filesystem():
         cli_main.get_storage.cache_clear()
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         files = FileStorage(Path(".agent"))
         config = files.read_config()
         config.setdefault("compaction", {})
@@ -1410,7 +1429,7 @@ def test_cli_compact_external_backend_shows_guidance() -> None:
 def test_cli_external_compaction_export_and_apply() -> None:
     with runner.isolated_filesystem():
         cli_main.get_storage.cache_clear()
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
 
         storage = SQLiteStorage(Path(".agent") / "state.db")
         source_session_id = "codex-export-1"
@@ -1461,7 +1480,7 @@ def test_cli_external_compaction_export_and_apply() -> None:
 def test_cli_external_compaction_cleanup_state() -> None:
     with runner.isolated_filesystem():
         cli_main.get_storage.cache_clear()
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
 
         storage = SQLiteStorage(Path(".agent") / "state.db")
         valid_session_id = "cleanup-valid-1"
@@ -1506,7 +1525,7 @@ def test_cli_external_compaction_cleanup_state() -> None:
 def test_cli_external_compaction_apply_defaults_to_dry_run() -> None:
     with runner.isolated_filesystem():
         cli_main.get_storage.cache_clear()
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         notes_path = Path("notes.json")
         notes_path.write_text(
             json.dumps(
@@ -1536,7 +1555,7 @@ def test_cli_external_compaction_apply_defaults_to_dry_run() -> None:
 def test_cli_external_compaction_apply_invalid_payload_json_mode() -> None:
     with runner.isolated_filesystem():
         cli_main.get_storage.cache_clear()
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         invalid_path = Path("invalid-notes.json")
         invalid_path.write_text(
             json.dumps(
@@ -1573,7 +1592,7 @@ def test_cli_external_compaction_apply_invalid_payload_json_mode() -> None:
 def test_cli_external_compaction_template_write_target_requires_opt_in() -> None:
     with runner.isolated_filesystem():
         cli_main.get_storage.cache_clear()
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         Path(".agent/config.yaml").write_text(
             """
 compaction:
@@ -1635,7 +1654,7 @@ compaction:
 def test_cli_external_compaction_queue_review_flow() -> None:
     with runner.isolated_filesystem():
         cli_main.get_storage.cache_clear()
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
 
         storage = SQLiteStorage(Path(".agent") / "state.db")
         source_session_id = "queue-session-1"
@@ -1746,7 +1765,7 @@ def test_cli_external_compaction_queue_review_flow() -> None:
 def test_cli_status_shows_backend_specific_next_step() -> None:
     with runner.isolated_filesystem():
         cli_main.get_storage.cache_clear()
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
 
         result = runner.invoke(cli_main.app, ["status"])
         assert result.exit_code == 0
@@ -1757,7 +1776,7 @@ def test_cli_status_shows_backend_specific_next_step() -> None:
 def test_cli_status_external_compaction_guidance_when_mcp_backend_pending() -> None:
     with runner.isolated_filesystem():
         cli_main.get_storage.cache_clear()
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         Path(".agent/config.yaml").write_text(
             (
                 "compaction:\n"
@@ -1791,7 +1810,7 @@ def test_cli_status_external_compaction_guidance_when_mcp_backend_pending() -> N
 def test_cli_metrics_report_json_renders_recent_runs() -> None:
     with runner.isolated_filesystem():
         cli_main.get_storage.cache_clear()
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
 
         files = FileStorage(Path(".agent"))
         telemetry = PipelineTelemetry.from_config(
@@ -1863,7 +1882,7 @@ def test_cli_sync_no_compact(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "get_default_ingesters", lambda **_kwargs: [])
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["sync", "--no-compact"])
         assert result.exit_code == 0
         assert "Sessions discovered:" in result.output
@@ -1900,7 +1919,7 @@ def test_cli_sync_session_filters_wiring(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "get_default_ingesters", lambda **_kwargs: [])
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(
             cli_main.app,
             [
@@ -1943,7 +1962,7 @@ def test_cli_sync_selected_sessions_already_processed_feedback(monkeypatch) -> N
     monkeypatch.setattr(cli_main, "get_default_ingesters", lambda **_kwargs: [])
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(
             cli_main.app,
             [
@@ -1994,7 +2013,7 @@ def test_cli_sessions_lists_titles(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "get_default_ingesters", lambda **_kwargs: [])
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(
             cli_main.app,
             [
@@ -2025,7 +2044,7 @@ def test_cli_sources(monkeypatch) -> None:
     )
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["sources"])
         assert result.exit_code == 0
         assert "cursor" in result.output
@@ -2064,7 +2083,7 @@ def test_cli_sources_conversation_table_responsive_columns(monkeypatch) -> None:
     )
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
 
         monkeypatch.setattr(cli_main, "_conversation_table_mode", lambda _width: "wide")
         wide = runner.invoke(cli_main.app, ["sources"])
@@ -2083,12 +2102,14 @@ def test_cli_providers_command() -> None:
     result = runner.invoke(cli_main.app, ["providers"])
     assert result.exit_code == 0
     assert "openai-compatible" in result.output
+    assert "openrouter" in result.output
+    assert "mistral" in result.output
     assert "ollama" in result.output
 
 
-def test_cli_config_llm_no_validate(monkeypatch) -> None:
+def test_cli_config_llm_command_removed(monkeypatch) -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         monkeypatch.setattr(
             cli_main,
             "ensure_provider_dependency",
@@ -2098,13 +2119,13 @@ def test_cli_config_llm_no_validate(monkeypatch) -> None:
             cli_main.app,
             ["config-llm", "--provider", "ollama", "--model", "llama3.1", "--no-validate"],
         )
-        assert result.exit_code == 0
-        assert "LLM Configuration Updated" in result.output
+        assert result.exit_code != 0
+        assert "No such command" in result.output
 
 
-def test_cli_config_llm_generation_settings(monkeypatch) -> None:
+def test_cli_config_model_generation_settings(monkeypatch) -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         monkeypatch.setattr(
             cli_main,
             "ensure_provider_dependency",
@@ -2112,20 +2133,28 @@ def test_cli_config_llm_generation_settings(monkeypatch) -> None:
         )
         result = runner.invoke(
             cli_main.app,
-            ["config-llm", "--temperature", "0.2", "--max-tokens", "8192", "--no-validate"],
+            [
+                "config",
+                "model",
+                "--temperature",
+                "0.2",
+                "--max-tokens",
+                "8192",
+                "--no-validate",
+            ],
         )
         assert result.exit_code == 0
         assert "Temperature: 0.2" in result.output
         assert "Max tokens: 8192" in result.output
 
-        config = FileStorage(Path(".agent")).read_config()
+        config = load_agent_config()
         assert config["llm"]["temperature"] == 0.2
         assert config["llm"]["max_tokens"] == 8192
 
 
 def test_cli_config_model_subcommand(monkeypatch) -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         monkeypatch.setattr(
             cli_main,
             "ensure_provider_dependency",
@@ -2143,7 +2172,7 @@ def test_cli_test_llm(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "get_llm", lambda: DummyProvider())
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["test-llm"])
         assert result.exit_code == 0
         assert "Generation successful" in result.output
@@ -2186,7 +2215,7 @@ def test_cli_sync_cursor_override_wiring(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "get_ingester", fake_get_ingester)
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         db_override = Path("custom.vscdb")
         storage_override = Path("workspace-storage")
         result = runner.invoke(
@@ -2222,7 +2251,7 @@ def test_cli_sources_all_cursor_workspaces_flag(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "get_default_ingesters", fake_get_default_ingesters)
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["sources", "--all-cursor-workspaces"])
         assert result.exit_code == 0
         assert captured["cursor_all_workspaces"] is True
@@ -2230,7 +2259,7 @@ def test_cli_sources_all_cursor_workspaces_flag(monkeypatch) -> None:
 
 def test_cli_reset_sync_all_markers() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
 
         storage = SQLiteStorage(Path(".agent") / "state.db")
         storage.mark_session_processed("cursor-workspace-1")
@@ -2247,7 +2276,7 @@ def test_cli_reset_sync_all_markers() -> None:
 
 def test_cli_reset_sync_by_source() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
 
         storage = SQLiteStorage(Path(".agent") / "state.db")
         storage.mark_session_processed("cursor-workspace-2")
@@ -2277,7 +2306,7 @@ def test_cli_tui_single_iteration(monkeypatch) -> None:
     )
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(
             cli_main.app,
             ["tui", "--iterations", "1"],
@@ -2300,7 +2329,7 @@ def test_cli_open_single_iteration(monkeypatch) -> None:
     )
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(
             cli_main.app,
             ["open", "--iterations", "1"],
@@ -2326,13 +2355,13 @@ def test_cli_open_injects_stored_api_keys(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "inject_stored_api_keys", fake_inject)
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["open", "--iterations", "1"])
         assert result.exit_code == 0
         assert calls["count"] == 1
 
 
-def test_cli_onboard_quick_persists_repo_setup(monkeypatch) -> None:
+def test_cli_onboard_command_removed(monkeypatch) -> None:
     monkeypatch.setattr(
         cli_main,
         "get_default_ingesters",
@@ -2347,23 +2376,10 @@ def test_cli_onboard_quick_persists_repo_setup(monkeypatch) -> None:
     )
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["onboard", "--quick"])
-        assert result.exit_code == 0
-
-        config = FileStorage(Path(".agent")).read_config()
-        onboarding = config.get("onboarding", {})
-
-        assert onboarding.get("repository_verified") is True
-        assert onboarding.get("selected_agents") == [
-            "cursor",
-            "claude-code",
-            "opencode",
-            "codex",
-        ]
-        assert config.get("llm", {}).get("provider") == "anthropic"
-        assert config.get("llm", {}).get("temperature") == 0.3
-        assert config.get("llm", {}).get("max_tokens") == 4096
+        assert result.exit_code != 0
+        assert "No such command" in result.output
 
 
 def test_cli_config_setup_quick_persists_repo_setup(monkeypatch) -> None:
@@ -2381,15 +2397,15 @@ def test_cli_config_setup_quick_persists_repo_setup(monkeypatch) -> None:
     )
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["config", "setup", "--quick"])
         assert result.exit_code == 0
 
-        config = FileStorage(Path(".agent")).read_config()
+        config = load_agent_config()
         onboarding = config.get("onboarding", {})
 
         assert onboarding.get("repository_verified") is True
-        assert onboarding.get("selected_agents") == [
+        assert onboarding.get("selected_sources") == [
             "cursor",
             "claude-code",
             "opencode",
@@ -2440,14 +2456,14 @@ def test_cli_sync_uses_onboarding_selected_sources(monkeypatch) -> None:
     )
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
 
         files = FileStorage(Path(".agent"))
         config = files.read_config()
         config["onboarding"] = {
             "completed_at": "2026-02-01T00:00:00+00:00",
             "repository_path": str(Path.cwd().resolve()),
-            "selected_agents": ["cursor"],
+            "selected_sources": ["cursor"],
         }
         files.write_config(config)
 
@@ -2469,7 +2485,7 @@ def test_cli_compact_uses_spinner(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "get_llm", lambda: DummyProvider())
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         assert runner.invoke(cli_main.app, ["start", "task"]).exit_code == 0
         assert runner.invoke(cli_main.app, ["log", "note", "--label", "gotcha"]).exit_code == 0
         assert runner.invoke(cli_main.app, ["end", "done"]).exit_code == 0
@@ -2490,7 +2506,7 @@ def test_cli_test_llm_uses_spinners(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "get_llm", lambda: DummyProvider())
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["test-llm"])
         assert result.exit_code == 0
         assert any("validating" in description.lower() for description in calls)
@@ -2507,7 +2523,7 @@ def test_cli_ingest_uses_spinner(monkeypatch) -> None:
     monkeypatch.setattr(cli_main, "run_with_spinner", fake_run_with_spinner)
 
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         transcript = Path("session.jsonl")
         transcript.write_text('{"content": "hello from transcript"}\n')
         result = runner.invoke(cli_main.app, ["ingest", str(transcript)])
@@ -2529,7 +2545,7 @@ def test_cli_ingest_uses_spinner(monkeypatch) -> None:
 
 
 def test_tui_slash_quit_command() -> None:
-    should_exit, lines = cli_main._execute_tui_slash_command("/quit")
+    should_exit, lines = _run_tui_slash("/quit")
     assert should_exit is True
     assert any("Leaving TUI" in line for line in lines)
 
@@ -2550,7 +2566,7 @@ def test_tui_slash_compact_dispatch(monkeypatch) -> None:
 
     monkeypatch.setattr(cli_main._slash_runner, "invoke", fake_invoke)
 
-    should_exit, lines = cli_main._execute_tui_slash_command(
+    should_exit, lines = _run_tui_slash(
         "/compact --force",
         terminal_width=132,
         terminal_height=44,
@@ -2577,10 +2593,10 @@ def test_tui_slash_run_alias_dispatch(monkeypatch) -> None:
 
     monkeypatch.setattr(cli_main._slash_runner, "invoke", fake_invoke)
 
-    should_exit, lines = cli_main._execute_tui_slash_command("/run --max-sessions 2")
+    should_exit, lines = _run_tui_slash("/run --max-sessions 2")
 
     assert should_exit is False
-    assert captured["args"] == ["sync", "--max-sessions", "2"]
+    assert captured["args"] == ["sync", "--compact", "--verbose", "--max-sessions", "2"]
     assert any("/run --max-sessions 2" in line for line in lines)
 
 
@@ -2593,11 +2609,11 @@ def test_tui_slash_ralph_commands_dispatch(monkeypatch) -> None:
 
     monkeypatch.setattr(cli_main._slash_runner, "invoke", fake_invoke)
 
-    should_exit, _lines = cli_main._execute_tui_slash_command("/ralph enable")
+    should_exit, _lines = _run_tui_slash("/ralph enable")
     assert should_exit is False
-    should_exit, _lines = cli_main._execute_tui_slash_command("/ralph disable")
+    should_exit, _lines = _run_tui_slash("/ralph disable")
     assert should_exit is False
-    should_exit, _lines = cli_main._execute_tui_slash_command("/ralph status")
+    should_exit, _lines = _run_tui_slash("/ralph status")
     assert should_exit is False
 
     assert captured == [["ralph", "enable"], ["ralph", "disable"], ["ralph", "status"]]
@@ -2620,7 +2636,7 @@ def test_tui_slash_preserves_table_output(monkeypatch) -> None:
         lambda *_args, **_kwargs: FakeResult(),
     )
 
-    should_exit, lines = cli_main._execute_tui_slash_command("/sources")
+    should_exit, lines = _run_tui_slash("/sources")
 
     assert should_exit is False
     assert any("cursor" in line.lower() for line in lines)
@@ -2645,7 +2661,7 @@ def test_tui_slash_normalizes_theme_table_rows(monkeypatch) -> None:
         lambda *_args, **_kwargs: FakeResult(),
     )
 
-    should_exit, lines = cli_main._execute_tui_slash_command("/theme list")
+    should_exit, lines = _run_tui_slash("/theme list")
 
     assert should_exit is False
     assert any("dark+" in line for line in lines)
@@ -2664,7 +2680,7 @@ def test_tui_slash_does_not_truncate_output_lines(monkeypatch) -> None:
         lambda *_args, **_kwargs: FakeResult(),
     )
 
-    should_exit, lines = cli_main._execute_tui_slash_command("/status")
+    should_exit, lines = _run_tui_slash("/status")
 
     assert should_exit is False
     assert any("line-12" in line for line in lines)
@@ -2672,32 +2688,32 @@ def test_tui_slash_does_not_truncate_output_lines(monkeypatch) -> None:
 
 
 def test_tui_slash_disallows_nested_tui() -> None:
-    should_exit, lines = cli_main._execute_tui_slash_command("/tui")
+    should_exit, lines = _run_tui_slash("/tui")
     assert should_exit is False
     assert any("already running" in line for line in lines)
 
-    should_exit, lines = cli_main._execute_tui_slash_command("/open")
+    should_exit, lines = _run_tui_slash("/open")
     assert should_exit is False
     assert any("already running" in line for line in lines)
 
 
 def test_tui_view_command_switches_view() -> None:
-    handled, next_view, lines = cli_main._handle_tui_view_command("/view llm", "overview")
+    handled, next_view, lines = tui_router.handle_tui_view_command("/view timeline", "overview")
     assert handled is True
-    assert next_view == "llm"
-    assert any("Switched to llm" in line for line in lines)
+    assert next_view == "timeline"
+    assert any("Switched to timeline" in line for line in lines)
 
 
 def test_tui_view_command_rejects_unknown_view() -> None:
-    handled, next_view, lines = cli_main._handle_tui_view_command("/view unknown", "overview")
+    handled, next_view, lines = tui_router.handle_tui_view_command("/view unknown", "overview")
     assert handled is True
     assert next_view == "overview"
     assert any("Unknown view" in line for line in lines)
 
 
 def test_tui_normalize_command_accepts_non_slash() -> None:
-    assert cli_main._normalize_tui_command("config setup --quick") == "/config setup --quick"
-    assert cli_main._normalize_tui_command("/status") == "/status"
+    assert tui_router.normalize_tui_command("config setup --quick") == "/config setup --quick"
+    assert tui_router.normalize_tui_command("/status") == "/status"
 
 
 def test_conversation_table_mode_thresholds() -> None:
@@ -2715,7 +2731,7 @@ def test_tui_slash_config_setup_uses_direct_flow(monkeypatch) -> None:
 
     monkeypatch.setattr(cli_main, "_run_onboarding_setup", fake_setup)
 
-    should_exit, lines = cli_main._execute_tui_slash_command("config setup --force --quick")
+    should_exit, lines = _run_tui_slash("config setup --force --quick")
     assert should_exit is False
     assert captured["force"] is True
     assert captured["quick"] is True
@@ -2723,13 +2739,13 @@ def test_tui_slash_config_setup_uses_direct_flow(monkeypatch) -> None:
 
 
 def test_tui_settings_command_helper() -> None:
-    should_exit, lines = cli_main._execute_tui_slash_command("/settings")
+    should_exit, lines = _run_tui_slash("/settings")
     assert should_exit is False
     assert any("settings view" in line.lower() for line in lines)
 
 
 def test_tui_palette_command_catalog_includes_cli_commands() -> None:
-    commands = cli_main._collect_cli_commands_for_palette()
+    commands = cli_main._collect_registered_cli_command_paths()
     assert "status" in commands
     assert "config setup" in commands
     assert "config model" in commands
@@ -2740,7 +2756,7 @@ def test_tui_palette_command_catalog_includes_cli_commands() -> None:
 
 def test_cli_ralph_status_uses_defaults() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["ralph", "status"])
         assert result.exit_code == 0
         assert "Ralph Loop" in result.output
@@ -2749,7 +2765,7 @@ def test_cli_ralph_status_uses_defaults() -> None:
 
 def test_cli_ralph_status_reports_last_outcome() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         (Path(".agent") / "RECENT.md").write_text(
             "# Recent\n\n## 2026-02-13T10:00:00Z Iteration 1\n- Outcome: progressed\n"
         )
@@ -2764,7 +2780,7 @@ def test_cli_ralph_status_reports_last_outcome() -> None:
 
 def test_cli_ralph_enable_updates_config() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(
             cli_main.app,
             ["ralph", "enable", "--max-iterations", "12", "--sleep-seconds", "3"],
@@ -2773,7 +2789,7 @@ def test_cli_ralph_enable_updates_config() -> None:
         assert "Status: enabled" in result.output
         assert "Max iterations: 12" in result.output
         assert "Sleep seconds:  3" in result.output
-        config = FileStorage(Path(".agent")).read_config()
+        config = load_agent_config()
         ralph_config = config.get("ralph", {})
         assert ralph_config.get("enabled") is True
         assert ralph_config.get("max_iterations") == 12
@@ -2782,7 +2798,7 @@ def test_cli_ralph_enable_updates_config() -> None:
 
 def test_cli_ralph_select_prints_instructions() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["ralph", "select"])
         assert result.exit_code == 0
         assert "TUI" in result.output
@@ -2792,7 +2808,7 @@ def test_cli_ralph_select_prints_instructions() -> None:
 
 def test_cli_ralph_get_selected_prds_outputs_ids() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         (Path("agent_recall") / "ralph").mkdir(parents=True)
         (Path("agent_recall") / "ralph" / "prd.json").write_text(
             json.dumps(
@@ -2823,21 +2839,21 @@ def test_cli_ralph_get_selected_prds_outputs_ids() -> None:
 
 def test_cli_ralph_compact_mode_updates_config() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(
             cli_main.app,
             ["ralph", "enable", "--compact-mode", "on-failure"],
         )
         assert result.exit_code == 0
         assert "Compact mode:   on-failure" in result.output
-        config = FileStorage(Path(".agent")).read_config()
+        config = load_agent_config()
         ralph_config = config.get("ralph", {})
         assert ralph_config.get("compact_mode") == "on-failure"
 
 
 def test_cli_ralph_archive_completed_uses_default_prd_path() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         (Path(".agent") / "ralph").mkdir(parents=True)
         (Path(".agent") / "ralph" / "prd.json").write_text(
             json.dumps(
@@ -2863,7 +2879,7 @@ def test_cli_ralph_archive_completed_uses_default_prd_path() -> None:
 
 def test_cli_ralph_archive_completed_missing_prd_exits_with_error() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["ralph", "archive-completed"])
         assert result.exit_code == 1
         assert "PRD file not found" in result.output
@@ -2871,7 +2887,7 @@ def test_cli_ralph_archive_completed_missing_prd_exits_with_error() -> None:
 
 def test_cli_ralph_archive_completed_no_passing_items() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         (Path(".agent") / "ralph").mkdir(parents=True)
         (Path(".agent") / "ralph" / "prd.json").write_text(
             json.dumps(
@@ -2894,7 +2910,7 @@ def test_cli_ralph_archive_completed_no_passing_items() -> None:
 def test_cli_ralph_archive_completed_prune_only() -> None:
     """--prune-only removes archived items from PRD without archiving new ones."""
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         (Path(".agent") / "ralph").mkdir(parents=True)
         prd_path = Path(".agent") / "ralph" / "prd.json"
         prd_path.write_text(
@@ -2931,7 +2947,7 @@ def test_cli_ralph_archive_completed_prune_only() -> None:
 
 def test_cli_ralph_search_archive_with_populated_archive() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         (Path(".agent") / "ralph").mkdir(parents=True)
         (Path(".agent") / "ralph" / "prd.json").write_text(
             json.dumps(
@@ -2952,7 +2968,7 @@ def test_cli_ralph_search_archive_with_populated_archive() -> None:
 
 def test_cli_ralph_search_archive_empty_archive() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["ralph", "search-archive", "anything"])
         assert result.exit_code == 0
         assert "No matching archived items found" in result.output
@@ -2960,7 +2976,7 @@ def test_cli_ralph_search_archive_empty_archive() -> None:
 
 def test_cli_ralph_refresh_context_with_agent_dir() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(cli_main.app, ["ralph", "refresh-context"])
         assert result.exit_code == 0
         assert "Context refreshed" in result.output
@@ -2969,7 +2985,7 @@ def test_cli_ralph_refresh_context_with_agent_dir() -> None:
 
 def test_cli_ralph_refresh_context_with_parameters() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(
             cli_main.app,
             [
@@ -2996,7 +3012,7 @@ def test_cli_ralph_refresh_context_without_agent_dir_exits_with_error() -> None:
 
 def test_cli_config_adapters_updates_config() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(
             cli_main.app,
             [
@@ -3012,17 +3028,17 @@ def test_cli_config_adapters_updates_config() -> None:
             ],
         )
         assert result.exit_code == 0
-        config = FileStorage(Path(".agent")).read_config()
+        config = load_agent_config()
         adapters = config.get("adapters", {})
         assert adapters.get("enabled") is True
         assert adapters.get("output_dir") == "agent-context"
-        assert adapters.get("token_budget") == 120
+        assert adapters.get("default_token_budget") == 120
         assert adapters.get("per_adapter_token_budget") == {"codex": 40, "cursor": 80}
 
 
 def test_cli_config_adapters_supports_provider_and_model_budgets() -> None:
     with runner.isolated_filesystem():
-        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        initialize_agent_repo(runner, cli_main.app)
         result = runner.invoke(
             cli_main.app,
             [
@@ -3036,7 +3052,7 @@ def test_cli_config_adapters_supports_provider_and_model_budgets() -> None:
             ],
         )
         assert result.exit_code == 0
-        config = FileStorage(Path(".agent")).read_config()
+        config = load_agent_config()
         adapters = config.get("adapters", {})
         assert adapters.get("per_provider_token_budget") == {"anthropic": 60}
         assert adapters.get("per_model_token_budget") == {"claude-sonnet-4-20250514": 90}

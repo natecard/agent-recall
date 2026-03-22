@@ -664,9 +664,9 @@ class AgentRecallTextualApp(
             return
         if self._result_list_open:
             self._close_inline_result_list(announce=False)
-        self._append_activity(f"> sync --no-compact --source {source_name}")
+        self._append_activity(f"> sync --compact --verbose --source {source_name}")
         self.status = f"Syncing source: {source_name}"
-        command_parts = ["sync", "--no-compact", "--source", source_name]
+        command_parts = ["sync", "--compact", "--verbose", "--source", source_name]
         if self.all_cursor_workspaces:
             command_parts.append("--all-cursor-workspaces")
         command = " ".join(command_parts)

@@ -48,6 +48,8 @@ def _activity_line_theme_style(line: str) -> str | None:
 def _clean_optional_text(value: Any) -> str:
     if value is None:
         return ""
+    if isinstance(value, bool):
+        return ""
     text = str(value).strip()
     if text.lower() in {"none", "null"}:
         return ""
