@@ -113,7 +113,7 @@ def _is_knowledge_run_command(command: str) -> bool:
     action = parts[0].lower()
     if action in {"run", "compact"}:
         return True
-    if action == "sync" and "--no-compact" not in parts:
+    if action == "sync" and "--compact" in parts and "--no-compact" not in parts:
         return True
     return False
 
@@ -142,7 +142,7 @@ def get_palette_actions() -> list[PaletteAction]:
         PaletteAction(
             "knowledge-run",
             "Run Knowledge Update",
-            "Ingest conversations and synthesize GUARDRAILS, STYLE, and RECENT",
+            "Ingest conversations and force synthesis of GUARDRAILS, STYLE, and RECENT",
             "Memory",
             shortcut="ingest + synthesize",
             binding="Ctrl+K",
@@ -150,11 +150,11 @@ def get_palette_actions() -> list[PaletteAction]:
         ),
         PaletteAction(
             "reprocess",
-            "Reprocess Conversations",
-            "Clear sync markers, then re-ingest and synthesize all configured sources",
+            "Reset Learnings State",
+            "Reset processed markers/checkpoints so conversations can be re-ingested",
             "Memory",
-            shortcut="force full refresh",
-            keywords="reset sync reprocess rerun compact",
+            shortcut="reset ingestion state",
+            keywords="reset learnings sync unprocessed checkpoint",
         ),
         PaletteAction(
             "run:select",
@@ -167,11 +167,11 @@ def get_palette_actions() -> list[PaletteAction]:
         PaletteAction(
             "sync",
             "Sync Conversations",
-            "Ingest from enabled sources and run synthesis",
+            "Ingest from enabled sources only (no synthesis)",
             "Memory",
-            shortcut="ingest + synthesize",
+            shortcut="ingest only",
             binding="Ctrl+Y",
-            keywords="sync ingest compact synthesis",
+            keywords="sync ingest no compact",
         ),
         PaletteAction(
             "status",

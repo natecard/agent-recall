@@ -4,6 +4,7 @@ llm:
 
 compaction:
   backend: llm
+  max_hours_before_compact: 24
   external:
     write_target: runtime
     allow_template_writes: false

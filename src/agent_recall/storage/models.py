@@ -208,6 +208,7 @@ class CompactionConfig(BaseModel):
         "'coding_cli' uses coding CLI agent, "
         "'mcp_external' delegates note synthesis to an external MCP-connected agent",
     )
+    max_hours_before_compact: float = Field(default=24.0, ge=0.0)
     max_recent_tokens: int = 1500
     max_tier_tokens: int = 10000
     max_sessions_before_compact: int = 5

@@ -75,8 +75,8 @@ def handle_palette_action(app, action_id: str | None) -> None:
 
     command_by_action = {
         "status": "status",
-        "sync": "sync --compact --verbose",
-        "knowledge-run": "sync --compact --verbose",
+        "sync": "sync --no-compact --verbose",
+        "knowledge-run": "sync --compact --force --verbose",
         "ralph-enable": "ralph enable",
         "ralph-disable": "ralph disable",
         "ralph-status": "ralph status",

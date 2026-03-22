@@ -55,6 +55,11 @@ _TUI_COMMAND_MANIFEST: tuple[TuiCommandManifestEntry, ...] = (
         description="Reset sync markers",
     ),
     TuiCommandManifestEntry(
+        command="reset-learnings",
+        aliases=("reset",),
+        description="Reset learning ingestion state (processed markers + checkpoints)",
+    ),
+    TuiCommandManifestEntry(
         command="run",
         description="Alias for sync (includes synthesis by default)",
     ),

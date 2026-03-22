@@ -66,6 +66,7 @@ def get_all_cli_commands() -> list[str]:
         "/select",
         "/sync",
         "/sync --no-compact",
+        "/reset",
         "/settings",
         "/layout",
         "/preferences",
@@ -128,7 +129,9 @@ def build_tui_help_lines() -> list[str]:
         "[dim]/view overview|knowledge|queue|settings|timeline|ralph|forecast|console|all[/dim] "
         "- switch TUI view"
     )
-    lines.append("[dim]/run[/dim] - Alias for /sync (includes synthesis by default)")
+    lines.append("[dim]/run[/dim] - Ingest + force synthesis now")
+    lines.append("[dim]/sync[/dim] - Ingest only (no synthesis)")
+    lines.append("[dim]/reset[/dim] - Reset learnings ingestion state")
     lines.append("[dim]/settings[/dim] - Open settings view")
     lines.append("[dim]/layout[/dim] - Customise dashboard layout")
     lines.append("[dim]/quit[/dim] - Exit the TUI")

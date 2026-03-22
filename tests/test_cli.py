@@ -22,6 +22,7 @@ from agent_recall.storage.models import (
     LogEntry,
     LogSource,
     SemanticLabel,
+    SessionCheckpoint,
 )
 from agent_recall.storage.sqlite import SQLiteStorage
 from tests.support.cli_test_utils import initialize_agent_repo, load_agent_config
@@ -2474,6 +2475,33 @@ def test_cli_sync_uses_onboarding_selected_sources(monkeypatch) -> None:
         assert "Using configured sources: cursor" in result.output
 
 
+def test_cli_reset_learnings_clears_processed_and_checkpoints() -> None:
+    with runner.isolated_filesystem():
+        cli_main.get_storage.cache_clear()
+        initialize_agent_repo(runner, cli_main.app)
+
+        storage = SQLiteStorage(Path(".agent") / "state.db")
+        source_session_id = "cursor-reset-state"
+        storage.mark_session_processed(source_session_id)
+        storage.save_session_checkpoint(
+            SessionCheckpoint(
+                source_session_id=source_session_id,
+                last_message_index=4,
+                content_hash="deadbeef",
+            )
+        )
+
+        assert storage.is_session_processed(source_session_id) is True
+        assert storage.get_session_checkpoint(source_session_id) is not None
+
+        result = runner.invoke(cli_main.app, ["reset-learnings"])
+        assert result.exit_code == 0
+        assert "Reset learning ingestion state" in result.output
+
+        assert storage.is_session_processed(source_session_id) is False
+        assert storage.get_session_checkpoint(source_session_id) is None
+
+
 def test_cli_compact_uses_spinner(monkeypatch) -> None:
     calls: list[str] = []
 
@@ -2596,8 +2624,46 @@ def test_tui_slash_run_alias_dispatch(monkeypatch) -> None:
     should_exit, lines = _run_tui_slash("/run --max-sessions 2")
 
     assert should_exit is False
-    assert captured["args"] == ["sync", "--compact", "--verbose", "--max-sessions", "2"]
+    assert captured["args"] == ["sync", "--compact", "--force", "--verbose", "--max-sessions", "2"]
     assert any("/run --max-sessions 2" in line for line in lines)
+
+
+def test_tui_slash_sync_defaults_to_no_compact(monkeypatch) -> None:
+    captured = {"args": None}
+
+    class FakeResult:
+        exit_code = 0
+        output = "Sync complete\n"
+
+    def fake_invoke(_app, args, **_kwargs):
+        captured["args"] = args
+        return FakeResult()
+
+    monkeypatch.setattr(cli_main._slash_runner, "invoke", fake_invoke)
+
+    should_exit, _lines = _run_tui_slash("/sync --max-sessions 2")
+
+    assert should_exit is False
+    assert captured["args"] == ["sync", "--max-sessions", "2", "--no-compact", "--verbose"]
+
+
+def test_tui_slash_reset_routes_to_reset_learnings(monkeypatch) -> None:
+    captured = {"args": None}
+
+    class FakeResult:
+        exit_code = 0
+        output = "Reset complete\n"
+
+    def fake_invoke(_app, args, **_kwargs):
+        captured["args"] = args
+        return FakeResult()
+
+    monkeypatch.setattr(cli_main._slash_runner, "invoke", fake_invoke)
+
+    should_exit, _lines = _run_tui_slash("/reset")
+
+    assert should_exit is False
+    assert captured["args"] == ["reset-learnings"]
 
 
 def test_tui_slash_ralph_commands_dispatch(monkeypatch) -> None:

@@ -71,7 +71,7 @@ agent-recall sync --source cursor --cursor-db-path "/path/to/state.vscdb" --no-c
 - `Ctrl+P` command palette
 - `Ctrl+G` settings/preferences
 - `Ctrl+K` run knowledge update
-- `Ctrl+Y` sync conversations + synthesis
+- `Ctrl+Y` sync conversations (ingest only)
 - `Ctrl+T` theme picker
 - `Ctrl+Q` quit
 
@@ -93,6 +93,7 @@ agent-recall providers
 agent-recall config model --provider ollama --model llama3.1
 agent-recall config model --provider mistral --model mistral-large-latest
 agent-recall config model --temperature 0.2 --max-tokens 8192
+agent-recall reset-learnings  # reset processed markers/checkpoints for full re-ingest
 agent-recall test-llm
 ```
 

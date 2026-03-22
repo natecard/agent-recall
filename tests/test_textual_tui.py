@@ -282,8 +282,10 @@ def test_palette_cli_command_redundancy_filter() -> None:
 def test_is_knowledge_run_command() -> None:
     assert _is_knowledge_run_command("run")
     assert _is_knowledge_run_command("compact")
-    assert _is_knowledge_run_command("sync")
-    assert _is_knowledge_run_command("sync --source cursor")
+    assert _is_knowledge_run_command("sync --compact")
+    assert _is_knowledge_run_command("sync --compact --source cursor")
+    assert not _is_knowledge_run_command("sync")
+    assert not _is_knowledge_run_command("sync --source cursor")
     assert not _is_knowledge_run_command("sync --no-compact")
     assert not _is_knowledge_run_command("status")
 
@@ -1686,6 +1688,7 @@ def test_slash_command_map_includes_ralph_and_view_select() -> None:
     assert command_map.get("ralph-notifications") == "ralph-notifications"
     assert command_map.get("ralph-terminal") == "ralph-terminal"
     assert command_map.get("run:select") == "run:select"
+    assert command_map.get("reset") == "reprocess"
 
 
 def test_slash_command_aliases() -> None:

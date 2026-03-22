@@ -5,7 +5,7 @@ import hashlib
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -19,7 +19,7 @@ from agent_recall.ingest.base import RawSession
 from agent_recall.ingest.sources import normalize_source_name
 from agent_recall.llm.base import LLMProvider, LLMRateLimitError
 from agent_recall.storage.base import Storage
-from agent_recall.storage.files import FileStorage
+from agent_recall.storage.files import TIER_FILES, FileStorage, KnowledgeTier
 from agent_recall.storage.models import PipelineEventAction, PipelineStage, SessionCheckpoint
 
 
@@ -71,6 +71,18 @@ class SessionExtractStage:
 class SessionPersistStage:
     entries_written: int
     duration_ms: float
+
+
+@dataclass(frozen=True)
+class _CompactionDecision:
+    should_compact: bool
+    reason: str
+    sessions_processed: int
+    session_threshold: int
+    recent_tokens: int
+    token_threshold: int
+    hours_since_recent: float | None
+    age_threshold_hours: float | None
 
 
 class AutoSync:
@@ -787,10 +799,51 @@ class AutoSync:
             telemetry_run_id=run_id,
         )
 
-        if int(sync_results["learnings_extracted"]) > 0 or force_compact:
+        learnings_extracted = int(sync_results["learnings_extracted"])
+        if learnings_extracted > 0 or force_compact:
+            decision = self._resolve_compaction_decision(
+                sync_results=sync_results,
+                force_compact=force_compact,
+            )
             backend = self._resolve_compaction_backend()
             compact_started = time.perf_counter()
-            if backend == "mcp_external":
+            if not decision.should_compact:
+                sync_results["compaction"] = {
+                    "backend": backend,
+                    "deferred": True,
+                    "deferred_reason": decision.reason,
+                    "sessions_processed": decision.sessions_processed,
+                    "session_threshold": decision.session_threshold,
+                    "recent_tokens": decision.recent_tokens,
+                    "token_threshold": decision.token_threshold,
+                    "hours_since_recent": decision.hours_since_recent,
+                    "age_threshold_hours": decision.age_threshold_hours,
+                    "guardrails_updated": False,
+                    "style_updated": False,
+                    "recent_updated": False,
+                    "chunks_indexed": 0,
+                    "llm_requests": 0,
+                    "llm_responses": 0,
+                }
+                telemetry.record_event(
+                    run_id=run_id,
+                    stage=PipelineStage.COMPACT,
+                    action=PipelineEventAction.COMPLETE,
+                    success=True,
+                    duration_ms=(time.perf_counter() - compact_started) * 1000.0,
+                    metadata={
+                        "backend": backend,
+                        "deferred": True,
+                        "reason": decision.reason,
+                        "sessions_processed": decision.sessions_processed,
+                        "session_threshold": decision.session_threshold,
+                        "recent_tokens": decision.recent_tokens,
+                        "token_threshold": decision.token_threshold,
+                        "hours_since_recent": decision.hours_since_recent,
+                        "age_threshold_hours": decision.age_threshold_hours,
+                    },
+                )
+            elif backend == "mcp_external":
                 pending_limit = self._resolve_external_pending_limit()
                 pending_sessions = self.storage.list_recent_source_sessions(limit=pending_limit)
                 sync_results["compaction"] = {
@@ -854,6 +907,123 @@ class AutoSync:
             sync_results["embedding_indexing"] = indexer.index_missing_embeddings()
 
         return sync_results
+
+    def _resolve_compaction_decision(
+        self,
+        *,
+        sync_results: dict[str, Any],
+        force_compact: bool,
+    ) -> _CompactionDecision:
+        sessions_processed = int(sync_results.get("sessions_processed", 0))
+        recent_tokens = self._estimate_recent_tokens()
+        hours_since_recent = self._hours_since_recent_tier_update()
+
+        config = self.files.read_config()
+        compaction_cfg = config.get("compaction") if isinstance(config, dict) else {}
+        if not isinstance(compaction_cfg, dict):
+            compaction_cfg = {}
+
+        session_threshold = self._coerce_positive_int(
+            compaction_cfg.get("max_sessions_before_compact"),
+            default=5,
+        )
+        token_threshold = self._coerce_positive_int(
+            compaction_cfg.get("max_recent_tokens"),
+            default=1500,
+        )
+        age_threshold_hours = self._coerce_nonnegative_float_or_none(
+            compaction_cfg.get("max_hours_before_compact"),
+            default=24.0,
+        )
+
+        if force_compact:
+            return _CompactionDecision(
+                should_compact=True,
+                reason="forced",
+                sessions_processed=sessions_processed,
+                session_threshold=session_threshold,
+                recent_tokens=recent_tokens,
+                token_threshold=token_threshold,
+                hours_since_recent=hours_since_recent,
+                age_threshold_hours=age_threshold_hours,
+            )
+
+        session_reached = sessions_processed >= session_threshold
+        token_reached = recent_tokens >= token_threshold
+        age_reached = False
+        if age_threshold_hours is not None:
+            if hours_since_recent is None:
+                age_reached = True
+            else:
+                age_reached = hours_since_recent >= age_threshold_hours
+
+        if session_reached:
+            reason = "session_threshold"
+        elif token_reached:
+            reason = "token_threshold"
+        elif age_reached:
+            reason = "age_threshold"
+        else:
+            reason = "below_thresholds"
+
+        return _CompactionDecision(
+            should_compact=session_reached or token_reached or age_reached,
+            reason=reason,
+            sessions_processed=sessions_processed,
+            session_threshold=session_threshold,
+            recent_tokens=recent_tokens,
+            token_threshold=token_threshold,
+            hours_since_recent=hours_since_recent,
+            age_threshold_hours=age_threshold_hours,
+        )
+
+    def _estimate_recent_tokens(self) -> int:
+        content = self.files.read_tier(KnowledgeTier.RECENT).strip()
+        if not content:
+            return 0
+        return max(1, (len(content) + 3) // 4)
+
+    def _hours_since_recent_tier_update(self) -> float | None:
+        path = self._resolve_recent_tier_path()
+        if path is None:
+            return None
+        try:
+            modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+        except OSError:
+            return None
+        elapsed = (datetime.now(UTC) - modified_at).total_seconds() / 3600.0
+        return max(0.0, elapsed)
+
+    def _resolve_recent_tier_path(self) -> Path | None:
+        shared_dir = self.files.shared_tiers_dir
+        if shared_dir is not None:
+            shared_path = shared_dir / TIER_FILES[KnowledgeTier.RECENT]
+            if shared_path.exists():
+                return shared_path
+        local_path = self.files.agent_dir / TIER_FILES[KnowledgeTier.RECENT]
+        if local_path.exists():
+            return local_path
+        return None
+
+    @staticmethod
+    def _coerce_positive_int(raw_value: Any, *, default: int) -> int:
+        try:
+            parsed = int(raw_value)
+        except (TypeError, ValueError):
+            parsed = default
+        return max(1, parsed)
+
+    @staticmethod
+    def _coerce_nonnegative_float_or_none(raw_value: Any, *, default: float) -> float | None:
+        if raw_value is None:
+            return default
+        try:
+            parsed = float(raw_value)
+        except (TypeError, ValueError):
+            parsed = default
+        if parsed < 0:
+            return None
+        return parsed
 
     def _embedding_indexing_enabled(self) -> bool:
         config = self.files.read_config()

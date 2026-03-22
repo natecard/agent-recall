@@ -246,6 +246,7 @@ llm:
 
 compaction:
   backend: llm
+  max_hours_before_compact: 24
   external:
     write_target: runtime
     allow_template_writes: false
@@ -1610,6 +1611,34 @@ def sync(
         lines.append(f"  Style updated:      {'✓' if comp.get('style_updated') else '-'}")
         lines.append(f"  Recent updated:     {'✓' if comp.get('recent_updated') else '-'}")
         lines.append(f"  Chunks indexed:     {comp.get('chunks_indexed', 0)}")
+        if comp.get("deferred"):
+            reason = str(comp.get("deferred_reason", "threshold"))
+            session_threshold = int(comp.get("session_threshold", 0))
+            sessions_processed = int(comp.get("sessions_processed", 0))
+            token_threshold = int(comp.get("token_threshold", 0))
+            recent_tokens = int(comp.get("recent_tokens", 0))
+            age_threshold = comp.get("age_threshold_hours")
+            hours_since_recent = comp.get("hours_since_recent")
+            lines.append(
+                "  [warning]Status: deferred until auto-compaction threshold is met.[/warning]"
+            )
+            lines.append(f"  Deferred reason:    {reason}")
+            lines.append(
+                f"  Session threshold:  {sessions_processed}/{session_threshold} sessions processed"
+            )
+            lines.append(f"  Token threshold:    {recent_tokens}/{token_threshold} recent tokens")
+            if isinstance(age_threshold, int | float):
+                if isinstance(hours_since_recent, int | float):
+                    lines.append(
+                        f"  Age threshold:      {float(hours_since_recent):.1f}/"
+                        f"{float(age_threshold):.1f} hours since RECENT update"
+                    )
+                else:
+                    lines.append(
+                        f"  Age threshold:      unknown/{float(age_threshold):.1f} hours "
+                        "since RECENT update"
+                    )
+            lines.append("  Next step: agent-recall sync --compact --force")
         if comp.get("external_required"):
             lines.append("  External compaction required: yes")
             lines.append(
@@ -3468,6 +3497,27 @@ def reset_sync(
             f"Scope: {scope}\n"
             f"Cleared processed session markers: {removed}\n\n"
             "[dim]Note: log entries/chunks are unchanged.[/dim]",
+            title="Reset Complete",
+        )
+    )
+
+
+@app.command("reset-learnings")
+def reset_learnings():
+    """Reset repository learning ingestion state to allow full re-ingest."""
+    _get_theme_manager()
+    storage = get_storage()
+
+    removed_processed = storage.clear_processed_sessions()
+    removed_checkpoints = storage.clear_session_checkpoints()
+
+    console.print(
+        Panel.fit(
+            "[success]✓ Reset learning ingestion state[/success]\n\n"
+            "Scope: repository\n"
+            f"Cleared processed session markers: {removed_processed}\n"
+            f"Cleared session checkpoints: {removed_checkpoints}\n\n"
+            "[dim]Note: extracted log entries/chunks are unchanged.[/dim]",
             title="Reset Complete",
         )
     )

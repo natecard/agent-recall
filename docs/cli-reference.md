@@ -18,6 +18,7 @@
 - `agent-recall sources [--all-cursor-workspaces] [--max-sessions N]`
 - `agent-recall sessions [--source S] [--since-days N] [--format table|json]`
 - `agent-recall sync reset [--source S] [--session-id ID]`
+- `agent-recall reset-learnings`
 - `agent-recall ingest <path> [--source-session-id ID]`
 - `agent-recall command-inventory`
 - `agent-recall metrics report [--limit N] [--format table|json]`
@@ -44,8 +45,8 @@ Breaking changes:
 Inside `agent-recall open` / `tui`, use keybindings:
 - `Ctrl+P` opens a searchable command palette.
 - `Ctrl+G` opens settings/preferences.
-- `Ctrl+K` runs a full knowledge update (sync + compact).
-- `Ctrl+Y` runs sync + compact.
+- `Ctrl+K` runs a full knowledge update (sync + force compact).
+- `Ctrl+Y` runs sync ingest only (`--no-compact`).
 - `Ctrl+R` refreshes the dashboard immediately.
 - `Ctrl+T` opens the theme picker.
 - `Ctrl+Q` quits the TUI.

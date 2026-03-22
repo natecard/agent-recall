@@ -133,6 +133,20 @@ def render_sync_summary(
                 f"{values.get('learnings_extracted', 0)} learnings"
             )
 
+    compaction = results.get("compaction")
+    if isinstance(compaction, dict):
+        lines.append("")
+        lines.append("Knowledge synthesis:")
+        lines.append(f"  Backend: {compaction.get('backend', 'llm')}")
+        if compaction.get("deferred"):
+            lines.append("  Status: deferred until auto-compaction threshold is met")
+            lines.append(f"  Reason: {compaction.get('deferred_reason', 'threshold')}")
+            lines.append("  Next step: agent-recall sync --compact --force")
+        else:
+            lines.append(f"  Guardrails updated: {bool(compaction.get('guardrails_updated'))}")
+            lines.append(f"  Style updated: {bool(compaction.get('style_updated'))}")
+            lines.append(f"  Recent updated: {bool(compaction.get('recent_updated'))}")
+
     errors = results.get("errors", [])
     if errors:
         lines.append("")

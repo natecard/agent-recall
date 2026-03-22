@@ -212,8 +212,15 @@ def execute_tui_slash_command(
         return False, ["[warning]/open is already running.[/warning]"]
 
     if command_name == "run":
-        parts = ["sync", "--compact", "--verbose", *parts[1:]]
+        parts = ["sync", "--compact", "--force", "--verbose", *parts[1:]]
         command_name = "sync"
+
+    if command_name == "reset":
+        parts = ["reset-learnings", *parts[1:]]
+        command_name = "reset-learnings"
+
+    if command_name == "sync" and "--compact" not in parts and "--no-compact" not in parts:
+        parts.append("--no-compact")
 
     if command_name == "sync" and "--verbose" not in parts and "-v" not in parts:
         parts.append("--verbose")

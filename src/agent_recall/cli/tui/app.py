@@ -664,9 +664,9 @@ class AgentRecallTextualApp(
             return
         if self._result_list_open:
             self._close_inline_result_list(announce=False)
-        self._append_activity(f"> sync --compact --verbose --source {source_name}")
+        self._append_activity(f"> sync --no-compact --verbose --source {source_name}")
         self.status = f"Syncing source: {source_name}"
-        command_parts = ["sync", "--compact", "--verbose", "--source", source_name]
+        command_parts = ["sync", "--no-compact", "--verbose", "--source", source_name]
         if self.all_cursor_workspaces:
             command_parts.append("--all-cursor-workspaces")
         command = " ".join(command_parts)
@@ -838,6 +838,8 @@ class AgentRecallTextualApp(
             "run:select": "run:select",
             "run-select": "run:select",
             "select": "run:select",
+            "reset": "reprocess",
+            "reset-learnings": "reprocess",
         }
 
     def _handle_slash_command(self, command: str) -> None:
@@ -851,6 +853,7 @@ class AgentRecallTextualApp(
             )
             self._append_activity("  /run:select         - Run selected conversations")
             self._append_activity("  /sync, /s           - Sync conversations (ingest only)")
+            self._append_activity("  /reset              - Reset learnings ingestion state")
             self._append_activity("  /refresh, /r        - Refresh dashboard")
             self._append_activity("")
             self._append_activity("[bold cyan]Views[/bold cyan]")

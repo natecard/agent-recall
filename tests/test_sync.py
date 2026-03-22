@@ -324,7 +324,7 @@ async def test_sync_and_compact_includes_compaction_results(storage, files, tmp_
         ingesters=[FakeIngester("cursor", [session_path])],
     )
 
-    results = await sync.sync_and_compact()
+    results = await sync.sync_and_compact(force_compact=True)
 
     assert "compaction" in results
     assert results["sessions_processed"] == 1
@@ -368,12 +368,43 @@ async def test_sync_and_compact_external_backend_reports_pending(
         ingesters=[FakeIngester("cursor", [session_path])],
     )
 
-    results = await sync.sync_and_compact()
+    results = await sync.sync_and_compact(force_compact=True)
 
     compaction = results.get("compaction", {})
     assert compaction.get("backend") == "mcp_external"
     assert compaction.get("external_required") is True
     assert "pending_external_conversations" in compaction
+
+
+@pytest.mark.asyncio
+async def test_sync_and_compact_defers_until_thresholds(storage, files, tmp_path: Path) -> None:
+    files.write_config(
+        {
+            "compaction": {
+                "max_sessions_before_compact": 5,
+                "max_recent_tokens": 5000,
+                "max_hours_before_compact": 9999,
+            }
+        }
+    )
+
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[FakeIngester("cursor", [session_path])],
+    )
+
+    results = await sync.sync_and_compact()
+
+    compaction = results.get("compaction", {})
+    assert compaction.get("deferred") is True
+    assert compaction.get("deferred_reason") == "below_thresholds"
+    assert compaction.get("llm_requests") == 0
+    assert compaction.get("recent_updated") is False
 
 
 @pytest.mark.asyncio
