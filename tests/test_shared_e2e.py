@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-import agent_recall.cli.main as cli_main
+import agent_recall.cli.app_commands as cli_main
 from agent_recall.llm.base import LLMProvider, LLMResponse, Message
 
 runner = CliRunner()

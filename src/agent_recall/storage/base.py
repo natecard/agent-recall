@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -36,6 +37,42 @@ class NamespaceValidationError(Exception):
     pass
 
 
+class UnsupportedStorageCapabilityError(RuntimeError):
+    """Raised when an optional storage capability is not supported by a backend."""
+
+    def __init__(self, capability: str) -> None:
+        self.capability = capability
+        super().__init__(f"Storage backend does not support capability: {capability}")
+
+
+@dataclass(frozen=True)
+class StorageCapabilities:
+    external_compaction_state: bool = False
+    external_compaction_queue: bool = False
+    external_compaction_evidence: bool = False
+    retrieval_feedback: bool = False
+    topic_threads: bool = False
+    rule_confidence: bool = False
+
+    def merge(self, other: StorageCapabilities | None) -> StorageCapabilities:
+        if other is None:
+            return self
+        return StorageCapabilities(
+            external_compaction_state=(
+                self.external_compaction_state or other.external_compaction_state
+            ),
+            external_compaction_queue=(
+                self.external_compaction_queue or other.external_compaction_queue
+            ),
+            external_compaction_evidence=(
+                self.external_compaction_evidence or other.external_compaction_evidence
+            ),
+            retrieval_feedback=(self.retrieval_feedback or other.retrieval_feedback),
+            topic_threads=(self.topic_threads or other.topic_threads),
+            rule_confidence=(self.rule_confidence or other.rule_confidence),
+        )
+
+
 def validate_shared_namespace(tenant_id: str, project_id: str) -> None:
     """Validate that tenant and project IDs are properly set for shared storage.
 
@@ -60,6 +97,11 @@ class Storage(ABC):
     local SQLite, shared remote database) to ensure they are interchangeable
     throughout the application.
     """
+
+    @property
+    def capabilities(self) -> StorageCapabilities:
+        """Declared optional capabilities supported by this storage backend."""
+        return StorageCapabilities()
 
     @abstractmethod
     def create_session(self, session: Session) -> None:
@@ -275,13 +317,28 @@ class Storage(ABC):
         ...
 
     # External compaction review queue APIs (optional by backend).
+    def list_external_compaction_states(self, limit: int | None = None) -> list[dict[str, str]]:
+        raise UnsupportedStorageCapabilityError("external_compaction_state")
+
+    def upsert_external_compaction_state(
+        self,
+        source_session_id: str,
+        *,
+        source_hash: str,
+        processed_at: str,
+    ) -> None:
+        raise UnsupportedStorageCapabilityError("external_compaction_state")
+
+    def delete_external_compaction_state(self, source_session_id: str) -> int:
+        raise UnsupportedStorageCapabilityError("external_compaction_state")
+
     def enqueue_external_compaction_queue(
         self,
         notes: list[dict[str, Any]],
         *,
         actor: str,
     ) -> list[dict[str, Any]]:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("external_compaction_queue")
 
     def list_external_compaction_queue(
         self,
@@ -289,7 +346,7 @@ class Storage(ABC):
         states: list[str] | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("external_compaction_queue")
 
     def update_external_compaction_queue_state(
         self,
@@ -298,13 +355,13 @@ class Storage(ABC):
         target_state: str,
         actor: str,
     ) -> dict[str, int]:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("external_compaction_queue")
 
     def record_external_compaction_evidence(self, notes: list[dict[str, Any]]) -> int:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("external_compaction_evidence")
 
     def list_external_compaction_evidence(self, limit: int = 200) -> list[dict[str, Any]]:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("external_compaction_evidence")
 
     def record_retrieval_feedback(
         self,
@@ -316,7 +373,7 @@ class Storage(ABC):
         source: str = "cli",
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("retrieval_feedback")
 
     def list_retrieval_feedback(
         self,
@@ -325,7 +382,7 @@ class Storage(ABC):
         query: str | None = None,
         chunk_id: UUID | None = None,
     ) -> list[dict[str, Any]]:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("retrieval_feedback")
 
     def get_retrieval_feedback_scores(
         self,
@@ -333,13 +390,13 @@ class Storage(ABC):
         query: str,
         chunk_ids: list[UUID],
     ) -> dict[UUID, float]:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("retrieval_feedback")
 
     def replace_topic_threads(self, threads: list[dict[str, Any]]) -> int:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("topic_threads")
 
     def list_topic_threads(self, *, limit: int = 20) -> list[dict[str, Any]]:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("topic_threads")
 
     def get_topic_thread(
         self,
@@ -347,7 +404,7 @@ class Storage(ABC):
         *,
         limit_links: int = 50,
     ) -> dict[str, Any] | None:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("topic_threads")
 
     def sync_rule_confidence(
         self,
@@ -356,7 +413,7 @@ class Storage(ABC):
         default_confidence: float = 0.6,
         reinforcement_factor: float = 0.15,
     ) -> dict[str, int]:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("rule_confidence")
 
     def list_rule_confidence(
         self,
@@ -364,7 +421,7 @@ class Storage(ABC):
         limit: int = 200,
         stale_only: bool = False,
     ) -> list[dict[str, Any]]:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("rule_confidence")
 
     def decay_rule_confidence(
         self,
@@ -372,7 +429,7 @@ class Storage(ABC):
         half_life_days: float = 45.0,
         stale_after_days: float = 60.0,
     ) -> dict[str, int]:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("rule_confidence")
 
     def archive_and_prune_rule_confidence(
         self,
@@ -382,7 +439,7 @@ class Storage(ABC):
         dry_run: bool = True,
         limit: int = 500,
     ) -> list[dict[str, Any]]:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("rule_confidence")
 
     def get_rule_confidence_summary(self) -> dict[str, Any]:
-        raise NotImplementedError
+        raise UnsupportedStorageCapabilityError("rule_confidence")

@@ -3,15 +3,31 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from uuid import UUID
 
 from agent_recall.core.embeddings import cosine_similarity, generate_embedding
 from agent_recall.core.semantic_embedder import embed_single, get_embedding_dimension
-from agent_recall.storage.base import Storage
+from agent_recall.storage.base import Storage, UnsupportedStorageCapabilityError
 from agent_recall.storage.models import Chunk, SemanticLabel
 
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ScoreComponents:
+    lexical: float = 0.0
+    semantic: float = 0.0
+    feedback: float = 0.0
+
+
+@dataclass(frozen=True)
+class ScoredChunk:
+    chunk: Chunk
+    score: float
+    components: ScoreComponents
+    rank_hint: int = 0
 
 
 class Retriever:
@@ -107,34 +123,41 @@ class Retriever:
 
         if not chunks_by_id:
             return []
-        feedback_scores = self._feedback_scores(query=query, chunks=list(chunks_by_id.values()))
 
+        feedback_scores = self._feedback_scores(query=query, chunks=list(chunks_by_id.values()))
         weighted_fts = self.fts_weight if fts_weight is None else max(0.0, float(fts_weight))
         weighted_semantic = (
             self.semantic_weight if semantic_weight is None else max(0.0, float(semantic_weight))
         )
-        weighted_results: list[tuple[float, float, float, float, str, Chunk]] = []
+
+        ranked: list[ScoredChunk] = []
         for chunk_id, chunk in chunks_by_id.items():
-            fts_score = fts_rank_scores.get(chunk_id, 0.0)
-            semantic_score = semantic_scores.get(chunk_id, 0.0)
-            feedback_score = feedback_scores.get(chunk_id, 0.0)
-            hybrid_score = (
-                (weighted_fts * fts_score)
-                + (weighted_semantic * semantic_score)
-                + (feedback_score * self.feedback_weight)
+            components = ScoreComponents(
+                lexical=fts_rank_scores.get(chunk_id, 0.0),
+                semantic=semantic_scores.get(chunk_id, 0.0),
+                feedback=self._feedback_component(feedback_scores, chunk_id),
             )
-            weighted_results.append(
-                (
-                    hybrid_score,
-                    feedback_score,
-                    semantic_score,
-                    fts_score,
-                    str(chunk.id),
-                    chunk,
+            ranked.append(
+                ScoredChunk(
+                    chunk=chunk,
+                    score=self._fuse_hybrid_score(
+                        components,
+                        fts_weight=weighted_fts,
+                        semantic_weight=weighted_semantic,
+                    ),
+                    components=components,
                 )
             )
 
-        weighted_results.sort(key=lambda row: (-row[0], -row[1], -row[2], -row[3], row[4]))
+        ranked.sort(
+            key=lambda item: (
+                -item.score,
+                -item.components.feedback,
+                -item.components.semantic,
+                -item.components.lexical,
+                str(item.chunk.id),
+            )
+        )
         logger.debug(
             "Hybrid search: %d FTS + %d semantic = %d unique, top %d returned",
             len(fts_chunks),
@@ -142,7 +165,7 @@ class Retriever:
             len(chunks_by_id),
             limit,
         )
-        return [chunk for *_meta, chunk in weighted_results[:limit]]
+        return [item.chunk for item in ranked[:limit]]
 
     def _rank_vector_candidates(
         self,
@@ -194,38 +217,41 @@ class Retriever:
         )
         feedback_scores = self._feedback_scores(query=query, chunks=chunks)
 
-        scored: list[tuple[float, float, float, float, int, str, Chunk]] = []
+        ranked: list[ScoredChunk] = []
         for rank, chunk in enumerate(chunks, start=1):
-            lexical_score = self._lexical_overlap_score(
-                query_terms=query_terms,
-                query_text=query_text,
-                chunk=chunk,
+            components = ScoreComponents(
+                lexical=self._lexical_overlap_score(
+                    query_terms=query_terms,
+                    query_text=query_text,
+                    chunk=chunk,
+                ),
+                semantic=self._semantic_similarity_component(
+                    query_embedding=query_embedding,
+                    dimensions=dimensions,
+                    chunk=chunk,
+                ),
+                feedback=self._feedback_component(feedback_scores, chunk.id),
             )
-            similarity = 0.0
-            if (
-                query_embedding is not None
-                and chunk.embedding is not None
-                and len(chunk.embedding) == dimensions
-            ):
-                similarity = max(0.0, cosine_similarity(query_embedding, chunk.embedding))
-
-            feedback_score = feedback_scores.get(chunk.id, 0.0)
-            score = lexical_score + (similarity * 0.75)
-            score += feedback_score * (0.3 + self.feedback_weight)
-            scored.append(
-                (
-                    score,
-                    feedback_score,
-                    similarity,
-                    lexical_score,
-                    rank,
-                    str(chunk.id),
-                    chunk,
+            ranked.append(
+                ScoredChunk(
+                    chunk=chunk,
+                    score=self._fuse_rerank_score(components),
+                    components=components,
+                    rank_hint=rank,
                 )
             )
 
-        scored.sort(key=lambda row: (-row[0], -row[1], -row[2], -row[3], row[4], row[5]))
-        return [chunk for *_meta, chunk in scored[:top_k]]
+        ranked.sort(
+            key=lambda item: (
+                -item.score,
+                -item.components.feedback,
+                -item.components.semantic,
+                -item.components.lexical,
+                item.rank_hint,
+                str(item.chunk.id),
+            )
+        )
+        return [item.chunk for item in ranked[:top_k]]
 
     def search_vector_primary(self, query: str, top_k: int = 5) -> list[Chunk]:
         limit = max(1, int(top_k))
@@ -248,12 +274,14 @@ class Retriever:
     def _feedback_scores(self, query: str, chunks: list[Chunk]) -> dict[UUID, float]:
         if not chunks:
             return {}
+        if not self.storage.capabilities.retrieval_feedback:
+            return {}
         score_fn = getattr(self.storage, "get_retrieval_feedback_scores", None)
         if not callable(score_fn):
             return {}
         try:
             raw_scores = score_fn(query=query, chunk_ids=[chunk.id for chunk in chunks])
-        except (NotImplementedError, ValueError, TypeError):
+        except (UnsupportedStorageCapabilityError, ValueError, TypeError):
             return {}
         if not isinstance(raw_scores, dict):
             return {}
@@ -275,6 +303,38 @@ class Retriever:
             except (TypeError, ValueError):
                 continue
         return normalized
+
+    def _feedback_component(self, scores: dict[UUID, float], chunk_id: UUID) -> float:
+        return scores.get(chunk_id, 0.0)
+
+    def _semantic_similarity_component(
+        self,
+        *,
+        query_embedding: list[float] | None,
+        dimensions: int,
+        chunk: Chunk,
+    ) -> float:
+        if query_embedding is None or chunk.embedding is None or len(chunk.embedding) != dimensions:
+            return 0.0
+        return max(0.0, cosine_similarity(query_embedding, chunk.embedding))
+
+    def _fuse_hybrid_score(
+        self,
+        components: ScoreComponents,
+        *,
+        fts_weight: float,
+        semantic_weight: float,
+    ) -> float:
+        return (
+            (fts_weight * components.lexical)
+            + (semantic_weight * components.semantic)
+            + (components.feedback * self.feedback_weight)
+        )
+
+    def _fuse_rerank_score(self, components: ScoreComponents) -> float:
+        score = components.lexical + (components.semantic * 0.75)
+        score += components.feedback * (0.3 + self.feedback_weight)
+        return score
 
     @staticmethod
     def _tokenize(text: str) -> set[str]:

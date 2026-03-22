@@ -520,7 +520,7 @@ def test_ralph_loop_runtime_validation_signal_enriches_memory_files(tmp_path: Pa
 
 
 def test_ralph_loop_compaction_and_synthesis_before_refresh_context(tmp_path: Path) -> None:
-    """Compaction and synthesis run before refresh-context
+    """Compaction and synthesis run before context refresh
     so next-iteration prompt uses optimized memory."""
     _write_default_repo_layout(tmp_path)
     compact_marker = "- [COMPACT-MARKER] compaction-ran-before-refresh"
@@ -542,7 +542,7 @@ def test_ralph_loop_compaction_and_synthesis_before_refresh_context(tmp_path: Pa
     prompt_2 = prompt_path.read_text()
     assert compact_marker in prompt_2, (
         "Iteration 2 prompt must include compacted content; "
-        "compaction runs before refresh-context so next iteration sees optimized memory"
+        "compaction runs before context refresh so next iteration sees optimized memory"
     )
 
 

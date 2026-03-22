@@ -8,7 +8,7 @@ from uuid import UUID
 
 from typer.testing import CliRunner
 
-import agent_recall.cli.main as cli_main
+import agent_recall.cli.app_commands as cli_main
 from agent_recall.core.pr_context import DiffScope
 from agent_recall.core.telemetry import PipelineTelemetry
 from agent_recall.ingest.base import RawMessage, RawSession
@@ -374,6 +374,8 @@ def test_cli_context_reads_shared_tier_files_when_shared_backend_enabled() -> No
 
 
 def test_cli_context_for_pr_uses_scoped_template(monkeypatch) -> None:
+    from agent_recall.cli.commands import context_flow
+
     with runner.isolated_filesystem():
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
         cli_main.get_storage.cache_clear()
@@ -388,7 +390,7 @@ def test_cli_context_for_pr_uses_scoped_template(monkeypatch) -> None:
             )
         )
         monkeypatch.setattr(
-            cli_main,
+            context_flow,
             "extract_git_diff_scope",
             lambda **kwargs: DiffScope(
                 base_ref="origin/main",
@@ -899,8 +901,73 @@ def test_cli_external_compaction_queue_list_with_attribution() -> None:
         )
         assert list_result.exit_code == 0
         payload = json.loads(list_result.output)
-        assert payload["queue"]
-        assert payload["queue"][0]["attribution"] == "cursor/openai:1"
+        assert payload["data"]["queue"]
+        assert payload["data"]["queue"][0]["attribution"] == "cursor/openai:1"
+
+
+def test_cli_external_compaction_queue_list_uses_flow_helper(monkeypatch) -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        cli_main.get_storage.cache_clear()
+        captured: dict[str, object] = {}
+
+        def fake_load_queue_rows(adapter, *, request, resolve_attribution=None):  # noqa: ANN001
+            captured["adapter"] = adapter
+            captured["request"] = request
+            captured["resolve_attribution"] = resolve_attribution
+            return [
+                {
+                    "id": 11,
+                    "state": "pending",
+                    "tier": "GUARDRAILS",
+                    "line": "- [GOTCHA] flow helper test",
+                    "source_session_ids": [],
+                    "actor": "system",
+                    "timestamp": "2026-03-21T00:00:00+00:00",
+                }
+            ]
+
+        monkeypatch.setattr(cli_main, "load_queue_rows", fake_load_queue_rows)
+
+        result = runner.invoke(
+            cli_main.app,
+            ["external-compaction", "queue", "list", "--format", "json"],
+        )
+        assert result.exit_code == 0
+        assert "request" in captured
+        payload = json.loads(result.output)
+        assert payload["data"]["queue"][0]["id"] == 11
+
+
+def test_cli_external_compaction_queue_approve_uses_flow_helper(monkeypatch) -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        cli_main.get_storage.cache_clear()
+        captured: dict[str, object] = {}
+
+        def fake_transition_queue_rows(adapter, *, request):  # noqa: ANN001
+            captured["adapter"] = adapter
+            captured["request"] = request
+            return {"updated": 1, "skipped": 0}
+
+        monkeypatch.setattr(cli_main, "transition_queue_rows", fake_transition_queue_rows)
+
+        result = runner.invoke(
+            cli_main.app,
+            [
+                "external-compaction",
+                "queue",
+                "approve",
+                "--id",
+                "1",
+                "--format",
+                "json",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "request" in captured
+        payload = json.loads(result.output)
+        assert payload["data"]["updated"] == 1
 
 
 def test_cli_memory_mode_and_vector_migration() -> None:
@@ -988,7 +1055,7 @@ def test_cli_refresh_context_writes_bundle_using_active_task() -> None:
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
         assert runner.invoke(cli_main.app, ["start", "implement oauth callback"]).exit_code == 0
 
-        result = runner.invoke(cli_main.app, ["refresh-context"])
+        result = runner.invoke(cli_main.app, ["context", "refresh"])
         assert result.exit_code == 0
         assert "Context bundle refreshed" in result.output
         assert "implement oauth callback" in result.output
@@ -1012,7 +1079,7 @@ def test_cli_refresh_context_writes_adapter_payloads() -> None:
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
         assert runner.invoke(cli_main.app, ["start", "adapter payload run"]).exit_code == 0
 
-        result = runner.invoke(cli_main.app, ["refresh-context", "--adapter-payloads"])
+        result = runner.invoke(cli_main.app, ["context", "refresh", "--adapter-payloads"])
         assert result.exit_code == 0
         assert "Adapters:" in result.output
 
@@ -1040,7 +1107,7 @@ def test_cli_refresh_context_applies_adapter_token_budget() -> None:
         }
         files.write_config(config)
 
-        result = runner.invoke(cli_main.app, ["refresh-context"])
+        result = runner.invoke(cli_main.app, ["context", "refresh"])
         assert result.exit_code == 0
 
         bundle_dir = Path(".agent") / "context"
@@ -1073,7 +1140,7 @@ def test_cli_refresh_context_applies_provider_and_model_token_budget() -> None:
         }
         files.write_config(config)
 
-        provider_only = runner.invoke(cli_main.app, ["refresh-context"])
+        provider_only = runner.invoke(cli_main.app, ["context", "refresh"])
         assert provider_only.exit_code == 0
         bundle_dir = Path(".agent") / "context"
         provider_payload = json.loads((bundle_dir / "codex" / "context.json").read_text())
@@ -1083,7 +1150,7 @@ def test_cli_refresh_context_applies_provider_and_model_token_budget() -> None:
         config["adapters"]["per_model_token_budget"] = {"claude-sonnet-4-20250514": 2}
         files.write_config(config)
 
-        model_override = runner.invoke(cli_main.app, ["refresh-context"])
+        model_override = runner.invoke(cli_main.app, ["context", "refresh"])
         assert model_override.exit_code == 0
         model_payload = json.loads((bundle_dir / "codex" / "context.json").read_text())
         model_budget_len = len(model_payload["context"])
@@ -1104,7 +1171,7 @@ def test_cli_refresh_context_respects_adapter_opt_out() -> None:
         }
         files.write_config(config)
 
-        result = runner.invoke(cli_main.app, ["refresh-context", "--no-adapter-payloads"])
+        result = runner.invoke(cli_main.app, ["context", "refresh", "--no-adapter-payloads"])
         assert result.exit_code == 0
 
         bundle_dir = Path(".agent") / "context"
@@ -1118,9 +1185,9 @@ def test_cli_refresh_context_adapter_payload_not_duplicated() -> None:
         assert runner.invoke(cli_main.app, ["start", "adapter idempotency"]).exit_code == 0
         (Path(".agent") / "GUARDRAILS.md").write_text("# Guardrails\n\nKeep it tight.\n")
 
-        first = runner.invoke(cli_main.app, ["refresh-context", "--adapter-payloads"])
+        first = runner.invoke(cli_main.app, ["context", "refresh", "--adapter-payloads"])
         assert first.exit_code == 0
-        second = runner.invoke(cli_main.app, ["refresh-context", "--adapter-payloads"])
+        second = runner.invoke(cli_main.app, ["context", "refresh", "--adapter-payloads"])
         assert second.exit_code == 0
 
         adapter_dir = Path(".agent") / "context" / "codex"
@@ -1150,7 +1217,7 @@ def test_cli_refresh_context_retries_transient_failure(monkeypatch) -> None:
 
     with runner.isolated_filesystem():
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
-        result = runner.invoke(cli_main.app, ["refresh-context", "--task", "retry diagnostics"])
+        result = runner.invoke(cli_main.app, ["context", "refresh", "--task", "retry diagnostics"])
         assert result.exit_code == 0
         assert attempts["count"] == 3
         assert "Retries:  2" in result.output
@@ -1173,7 +1240,7 @@ def test_cli_refresh_context_reports_retry_diagnostics_on_failure(monkeypatch) -
 
     with runner.isolated_filesystem():
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
-        result = runner.invoke(cli_main.app, ["refresh-context", "--task", "failing task"])
+        result = runner.invoke(cli_main.app, ["context", "refresh", "--task", "failing task"])
         assert result.exit_code == 1
         assert attempts["count"] == 3
         assert "Context refresh failed after 3 attempt(s)." in result.output
@@ -1226,7 +1293,7 @@ def test_cli_sync_background_prints_failure_diagnostics(monkeypatch) -> None:
 
     with runner.isolated_filesystem():
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
-        result = runner.invoke(cli_main.app, ["sync-background"])
+        result = runner.invoke(cli_main.app, ["sync", "background"])
         assert result.exit_code == 1
         assert "Sync failed" in result.output
         assert "Failure diagnostics:" in result.output
@@ -1371,8 +1438,8 @@ def test_cli_external_compaction_cleanup_state() -> None:
         )
         assert result.exit_code == 0
         payload = json.loads(result.output)
-        assert payload["removed_stale"] >= 1
-        assert payload["removed"] >= 1
+        assert payload["data"]["removed_stale"] >= 1
+        assert payload["data"]["removed"] >= 1
 
 
 def test_cli_external_compaction_apply_defaults_to_dry_run() -> None:
@@ -1400,7 +1467,7 @@ def test_cli_external_compaction_apply_defaults_to_dry_run() -> None:
         )
         assert result.exit_code == 0
         payload = json.loads(result.output)
-        assert payload["dry_run"] is True
+        assert payload["data"]["dry_run"] is True
         guardrails = Path(".agent/GUARDRAILS.md").read_text(encoding="utf-8")
         assert "Keep migration lock order deterministic." not in guardrails
 
@@ -1550,8 +1617,8 @@ def test_cli_external_compaction_queue_review_flow() -> None:
         )
         assert queued.exit_code == 0
         queue_payload = json.loads(queued.output)
-        assert queue_payload["queued"] == 1
-        queue_id = int(queue_payload["items"][0]["id"])
+        assert queue_payload["data"]["queued"] == 1
+        queue_id = int(queue_payload["data"]["items"][0]["id"])
 
         approve = runner.invoke(
             cli_main.app,
@@ -1567,7 +1634,7 @@ def test_cli_external_compaction_queue_review_flow() -> None:
         )
         assert approve.exit_code == 0
         approve_payload = json.loads(approve.output)
-        assert approve_payload["updated"] == 1
+        assert approve_payload["data"]["updated"] == 1
 
         preview = runner.invoke(
             cli_main.app,
@@ -1582,7 +1649,7 @@ def test_cli_external_compaction_queue_review_flow() -> None:
         )
         assert preview.exit_code == 0
         preview_payload = json.loads(preview.output)
-        assert preview_payload["notes_considered"] >= 1
+        assert preview_payload["data"]["notes_considered"] >= 1
 
         apply_approved = runner.invoke(
             cli_main.app,
@@ -1596,8 +1663,8 @@ def test_cli_external_compaction_queue_review_flow() -> None:
         )
         assert apply_approved.exit_code == 0
         apply_payload = json.loads(apply_approved.output)
-        assert apply_payload["queue_items_applied"] == 1
-        assert apply_payload["notes_applied"] >= 1
+        assert apply_payload["data"]["queue_items_applied"] == 1
+        assert apply_payload["data"]["notes_applied"] >= 1
 
         second_apply = runner.invoke(
             cli_main.app,
@@ -1611,8 +1678,8 @@ def test_cli_external_compaction_queue_review_flow() -> None:
         )
         assert second_apply.exit_code == 0
         second_payload = json.loads(second_apply.output)
-        assert second_payload["queue_items_considered"] == 0
-        assert second_payload["notes_applied"] == 0
+        assert second_payload["data"]["queue_items_considered"] == 0
+        assert second_payload["data"]["notes_applied"] == 0
 
 
 def test_cli_status_shows_backend_specific_next_step() -> None:
@@ -1683,8 +1750,8 @@ def test_cli_metrics_report_json_renders_recent_runs() -> None:
         result = runner.invoke(cli_main.app, ["metrics", "report", "--format", "json"])
         assert result.exit_code == 0
         payload = json.loads(result.output)
-        assert payload["snapshot"]["counters"]["events_total"] >= 1
-        assert payload["recent_runs"][0]["run_id"] == run_id
+        assert payload["data"]["snapshot"]["counters"]["events_total"] >= 1
+        assert payload["data"]["recent_runs"][0]["run_id"] == run_id
 
 
 def test_cli_sync_no_compact(monkeypatch) -> None:
@@ -1827,7 +1894,7 @@ def test_cli_sync_selected_sessions_already_processed_feedback(monkeypatch) -> N
         )
         assert result.exit_code == 0
         assert "already processed" in result.output
-        assert "reset-sync --session-id <id>" in result.output
+        assert "sync reset --session-id <id>" in result.output
 
 
 def test_cli_sessions_lists_titles(monkeypatch) -> None:
@@ -2108,7 +2175,7 @@ def test_cli_reset_sync_all_markers() -> None:
         storage.mark_session_processed("cursor-workspace-1")
         storage.mark_session_processed("claude-code-session-1")
 
-        result = runner.invoke(cli_main.app, ["reset-sync"])
+        result = runner.invoke(cli_main.app, ["sync", "reset"])
         assert result.exit_code == 0
         assert "Cleared processed session markers: 2" in result.output
 
@@ -2125,7 +2192,7 @@ def test_cli_reset_sync_by_source() -> None:
         storage.mark_session_processed("cursor-workspace-2")
         storage.mark_session_processed("claude-code-session-2")
 
-        result = runner.invoke(cli_main.app, ["reset-sync", "--source", "cursor"])
+        result = runner.invoke(cli_main.app, ["sync", "reset", "--source", "cursor"])
         assert result.exit_code == 0
         assert "Cleared processed session markers: 1" in result.output
 

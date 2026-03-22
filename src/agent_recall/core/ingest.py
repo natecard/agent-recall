@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agent_recall.core.log import LogWriter
 from agent_recall.storage.base import Storage
+from agent_recall.storage.metadata import AttributionMetadata, build_entry_metadata
 from agent_recall.storage.models import LogSource, SemanticLabel
 
 
@@ -39,27 +40,35 @@ class TranscriptIngestor:
             if not content:
                 continue
 
-            attribution: dict[str, str] = {
-                "agent_source": str(
+            attribution = AttributionMetadata(
+                agent_source=str(
                     payload.get("source") or payload.get("agent") or payload.get("tool") or "jsonl"
                 )
-            }
+            )
             provider = payload.get("provider")
             model = payload.get("model")
             if isinstance(provider, str) and provider.strip():
-                attribution["provider"] = provider.strip()
+                attribution = AttributionMetadata(
+                    agent_source=attribution.agent_source,
+                    provider=provider.strip(),
+                    model=attribution.model,
+                )
             if isinstance(model, str) and model.strip():
-                attribution["model"] = model.strip()
+                attribution = AttributionMetadata(
+                    agent_source=attribution.agent_source,
+                    provider=attribution.provider,
+                    model=model.strip(),
+                )
 
             self.log_writer.log(
                 content=content,
                 label=default_label,
                 source=LogSource.INGESTED,
                 source_session_id=source_session_id,
-                metadata={
-                    "attribution": attribution,
-                    "ingested_from": str(path),
-                },
+                metadata=build_entry_metadata(
+                    attribution=attribution,
+                    ingested_from=str(path),
+                ),
             )
             count += 1
 

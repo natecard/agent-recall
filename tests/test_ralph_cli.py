@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 from typer.testing import CliRunner
 
-import agent_recall.cli.main as cli_main
+import agent_recall.cli.app_commands as cli_main
 from agent_recall.cli.ralph import build_agent_cmd_from_ralph_config
 from agent_recall.ralph.costs import summarize_costs
 from agent_recall.ralph.notifications import build_notification_content

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import agent_recall.cli.main as cli_main
+import agent_recall.cli.app_commands as cli_main
 from agent_recall.cli.command_contract import command_parity_report
 from agent_recall.cli.tui import _build_command_suggestions
 

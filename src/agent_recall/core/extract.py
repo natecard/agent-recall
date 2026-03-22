@@ -8,6 +8,7 @@ from typing import Any
 
 from agent_recall.ingest.base import RawMessage, RawSession
 from agent_recall.llm.base import LLMProvider, Message
+from agent_recall.storage.metadata import AttributionMetadata, build_entry_metadata
 from agent_recall.storage.models import CurationStatus, LogEntry, LogSource, SemanticLabel
 
 EXTRACTION_SYSTEM_PROMPT = """You are analyzing a development session transcript
@@ -249,11 +250,11 @@ class TranscriptExtractor:
         confidence = max(0.0, min(1.0, confidence))
 
         evidence = str(learning.get("evidence", ""))
-        attribution = {
-            "agent_source": session.source,
-            "provider": self.llm.provider_name,
-            "model": self.llm.model_name,
-        }
+        attribution = AttributionMetadata(
+            agent_source=session.source,
+            provider=self.llm.provider_name,
+            model=self.llm.model_name,
+        )
 
         return LogEntry(
             session_id=None,
@@ -264,12 +265,12 @@ class TranscriptExtractor:
             tags=tags,
             confidence=confidence,
             curation_status=CurationStatus.PENDING,
-            metadata={
-                "evidence": evidence,
-                "source_tool": session.source,
-                "extracted_at": datetime.now(UTC).isoformat(),
-                "attribution": attribution,
-            },
+            metadata=build_entry_metadata(
+                attribution=attribution,
+                evidence=evidence,
+                source_tool=session.source,
+                extracted_at=datetime.now(UTC).isoformat(),
+            ),
         )
 
     @staticmethod

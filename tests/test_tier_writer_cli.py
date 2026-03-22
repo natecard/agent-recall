@@ -10,7 +10,7 @@ runner = CliRunner()
 
 
 class TestWriteGuardrailsCommand:
-    """Test write-guardrails CLI command."""
+    """Test tiers write guardrails CLI command."""
 
     def test_write_guardrails_success(self):
         with runner.isolated_filesystem():
@@ -21,7 +21,9 @@ class TestWriteGuardrailsCommand:
             result = runner.invoke(
                 app,
                 [
-                    "write-guardrails",
+                    "tiers",
+                    "write",
+                    "guardrails",
                     "--iteration",
                     "1",
                     "--item-id",
@@ -53,7 +55,9 @@ class TestWriteGuardrailsCommand:
             runner.invoke(
                 app,
                 [
-                    "write-guardrails",
+                    "tiers",
+                    "write",
+                    "guardrails",
                     "--iteration",
                     "1",
                     "--item-id",
@@ -67,7 +71,9 @@ class TestWriteGuardrailsCommand:
             result = runner.invoke(
                 app,
                 [
-                    "write-guardrails",
+                    "tiers",
+                    "write",
+                    "guardrails",
                     "--iteration",
                     "1",
                     "--item-id",
@@ -82,7 +88,7 @@ class TestWriteGuardrailsCommand:
 
 
 class TestWriteGuardrailsFailureCommand:
-    """Test write-guardrails-failure CLI command."""
+    """Test tiers write guardrails-failure CLI command."""
 
     def test_write_hard_failure(self):
         with runner.isolated_filesystem():
@@ -93,7 +99,9 @@ class TestWriteGuardrailsFailureCommand:
             result = runner.invoke(
                 app,
                 [
-                    "write-guardrails-failure",
+                    "tiers",
+                    "write",
+                    "guardrails-failure",
                     "--iteration",
                     "1",
                     "--item-id",
@@ -120,7 +128,7 @@ class TestWriteGuardrailsFailureCommand:
 
 
 class TestWriteStyleCommand:
-    """Test write-style CLI command."""
+    """Test tiers write style CLI command."""
 
     def test_write_style_success(self):
         with runner.isolated_filesystem():
@@ -131,7 +139,9 @@ class TestWriteStyleCommand:
             result = runner.invoke(
                 app,
                 [
-                    "write-style",
+                    "tiers",
+                    "write",
+                    "style",
                     "--iteration",
                     "1",
                     "--item-id",
@@ -151,7 +161,7 @@ class TestWriteStyleCommand:
 
 
 class TestWriteRecentCommand:
-    """Test write-recent CLI command."""
+    """Test tiers write recent CLI command."""
 
     def test_write_recent_success(self):
         with runner.isolated_filesystem():
@@ -162,7 +172,9 @@ class TestWriteRecentCommand:
             result = runner.invoke(
                 app,
                 [
-                    "write-recent",
+                    "tiers",
+                    "write",
+                    "recent",
                     "--iteration",
                     "1",
                     "--item-id",
@@ -191,7 +203,7 @@ class TestWriteRecentCommand:
 
 
 class TestLintTiersCommand:
-    """Test lint-tiers CLI command."""
+    """Test tiers lint CLI command."""
 
     def test_lint_all_valid(self):
         with runner.isolated_filesystem():
@@ -211,7 +223,7 @@ class TestLintTiersCommand:
                 "# Recent\n\n## 2024-01-15T10:00:00Z Iteration 1\n- Valid entry\n"
             )
 
-            result = runner.invoke(app, ["lint-tiers"])
+            result = runner.invoke(app, ["tiers", "lint"])
 
             assert result.exit_code == 0
             assert "All tier files passed" in result.output
@@ -228,7 +240,7 @@ class TestLintTiersCommand:
 
             result = runner.invoke(
                 app,
-                ["lint-tiers", "--tier", "guardrails"],
+                ["tiers", "lint", "--tier", "guardrails"],
             )
 
             assert result.exit_code == 1
@@ -247,7 +259,7 @@ class TestLintTiersCommand:
 
             result = runner.invoke(
                 app,
-                ["lint-tiers", "--tier", "guardrails"],
+                ["tiers", "lint", "--tier", "guardrails"],
             )
 
             assert result.exit_code == 0
@@ -255,7 +267,7 @@ class TestLintTiersCommand:
 
 
 class TestTierStatsCommand:
-    """Test tier-stats CLI command."""
+    """Test tiers stats CLI command."""
 
     def test_tier_stats_output(self):
         with runner.isolated_filesystem():
@@ -273,7 +285,7 @@ class TestTierStatsCommand:
             recent_path = Path(".agent") / "RECENT.md"
             recent_path.write_text("# Recent\n\n## 2024-01-15T10:00:00Z Iteration 1\n- Entry\n")
 
-            result = runner.invoke(app, ["tier-stats"])
+            result = runner.invoke(app, ["tiers", "stats"])
 
             assert result.exit_code == 0
             assert "GUARDRAILS" in result.output

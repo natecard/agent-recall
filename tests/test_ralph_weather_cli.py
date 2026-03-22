@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-import agent_recall.cli.main as cli_main
+import agent_recall.cli.app_commands as cli_main
 import agent_recall.cli.ralph as ralph_cli
 from agent_recall.llm.base import LLMProvider, LLMResponse, Message
 

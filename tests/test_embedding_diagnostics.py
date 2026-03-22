@@ -5,7 +5,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from agent_recall.cli import main as cli_main
+from agent_recall.cli import app_commands as cli_main
 from agent_recall.core.embedding_diagnostics import EmbeddingDiagnostics
 from agent_recall.storage.models import Chunk, ChunkSource, SemanticLabel
 from agent_recall.storage.sqlite import SQLiteStorage
@@ -73,7 +73,7 @@ def test_cli_embedding_stats_command() -> None:
     with runner.isolated_filesystem():
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
         cli_main.get_storage.cache_clear()
-        result = runner.invoke(cli_main.app, ["embedding-stats"])
+        result = runner.invoke(cli_main.app, ["embedding", "stats"])
         assert result.exit_code == 0
         assert "Embedding Stats" in result.output
         assert "Coverage:" in result.output
@@ -89,6 +89,6 @@ def test_cli_embedding_stats_command() -> None:
             )
         )
 
-        result_after = runner.invoke(cli_main.app, ["embedding-stats", "--stale-days", "0"])
+        result_after = runner.invoke(cli_main.app, ["embedding", "stats", "--stale-days", "0"])
         assert result_after.exit_code == 0
         assert "Embedded chunks:" in result_after.output

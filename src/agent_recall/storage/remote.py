@@ -15,6 +15,8 @@ from agent_recall.storage.base import (
     PermissionDeniedError,
     SharedBackendUnavailableError,
     Storage,
+    StorageCapabilities,
+    UnsupportedStorageCapabilityError,
     validate_shared_namespace,
 )
 from agent_recall.storage.models import (
@@ -66,8 +68,19 @@ def resolve_shared_db_path(base_url: str | None) -> Path | str:
     return db_path
 
 
+def _capabilities_for(storage: Storage | None) -> StorageCapabilities:
+    if storage is None:
+        return StorageCapabilities()
+    capabilities = getattr(storage, "capabilities", StorageCapabilities())
+    if isinstance(capabilities, StorageCapabilities):
+        return capabilities
+    return StorageCapabilities()
+
+
 class _HTTPClient(Storage):
     """Internal client for the remote HTTP storage backend."""
+
+    _CAPABILITIES = StorageCapabilities()
 
     def __init__(self, config: SharedStorageConfig) -> None:
         if not config.base_url:
@@ -94,6 +107,10 @@ class _HTTPClient(Storage):
         self._allow_promote = config.allow_promote
         self._actor = config.audit_actor
         self._audit_enabled = config.audit_enabled
+
+    @property
+    def capabilities(self) -> StorageCapabilities:
+        return self._CAPABILITIES
 
     def _require_role(self, *allowed: str) -> None:
         if self._role not in allowed:
@@ -311,10 +328,7 @@ class _HTTPClient(Storage):
     def search_chunks_by_embedding(
         self, embedding: list[float], limit: int = 10
     ) -> list[ScoredChunk]:
-        raise NotImplementedError(
-            "Vector search is not yet implemented for HTTP storage backend. "
-            "Use SQLiteStorage for vector search capabilities."
-        )
+        raise UnsupportedStorageCapabilityError("vector_search")
 
     def index_chunk_embedding(self, chunk_id: UUID, embedding: list[float]) -> None:
         self._require_role("admin", "writer")
@@ -486,9 +500,7 @@ class _HTTPClient(Storage):
         source: str = "cli",
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        raise NotImplementedError(
-            "HTTP shared backend does not expose retrieval feedback endpoints yet."
-        )
+        raise UnsupportedStorageCapabilityError("retrieval_feedback")
 
     def list_retrieval_feedback(
         self,
@@ -497,9 +509,7 @@ class _HTTPClient(Storage):
         query: str | None = None,
         chunk_id: UUID | None = None,
     ) -> list[dict[str, Any]]:
-        raise NotImplementedError(
-            "HTTP shared backend does not expose retrieval feedback endpoints yet."
-        )
+        raise UnsupportedStorageCapabilityError("retrieval_feedback")
 
     def get_retrieval_feedback_scores(
         self,
@@ -507,15 +517,13 @@ class _HTTPClient(Storage):
         query: str,
         chunk_ids: list[UUID],
     ) -> dict[UUID, float]:
-        raise NotImplementedError(
-            "HTTP shared backend does not expose retrieval feedback endpoints yet."
-        )
+        raise UnsupportedStorageCapabilityError("retrieval_feedback")
 
     def replace_topic_threads(self, threads: list[dict[str, Any]]) -> int:
-        raise NotImplementedError("HTTP shared backend does not expose topic thread endpoints yet.")
+        raise UnsupportedStorageCapabilityError("topic_threads")
 
     def list_topic_threads(self, *, limit: int = 20) -> list[dict[str, Any]]:
-        raise NotImplementedError("HTTP shared backend does not expose topic thread endpoints yet.")
+        raise UnsupportedStorageCapabilityError("topic_threads")
 
     def get_topic_thread(
         self,
@@ -523,7 +531,7 @@ class _HTTPClient(Storage):
         *,
         limit_links: int = 50,
     ) -> dict[str, Any] | None:
-        raise NotImplementedError("HTTP shared backend does not expose topic thread endpoints yet.")
+        raise UnsupportedStorageCapabilityError("topic_threads")
 
     def sync_rule_confidence(
         self,
@@ -532,9 +540,7 @@ class _HTTPClient(Storage):
         default_confidence: float = 0.6,
         reinforcement_factor: float = 0.15,
     ) -> dict[str, int]:
-        raise NotImplementedError(
-            "HTTP shared backend does not expose rule confidence endpoints yet."
-        )
+        raise UnsupportedStorageCapabilityError("rule_confidence")
 
     def list_rule_confidence(
         self,
@@ -542,9 +548,7 @@ class _HTTPClient(Storage):
         limit: int = 200,
         stale_only: bool = False,
     ) -> list[dict[str, Any]]:
-        raise NotImplementedError(
-            "HTTP shared backend does not expose rule confidence endpoints yet."
-        )
+        raise UnsupportedStorageCapabilityError("rule_confidence")
 
     def decay_rule_confidence(
         self,
@@ -552,9 +556,7 @@ class _HTTPClient(Storage):
         half_life_days: float = 45.0,
         stale_after_days: float = 60.0,
     ) -> dict[str, int]:
-        raise NotImplementedError(
-            "HTTP shared backend does not expose rule confidence endpoints yet."
-        )
+        raise UnsupportedStorageCapabilityError("rule_confidence")
 
     def archive_and_prune_rule_confidence(
         self,
@@ -564,14 +566,10 @@ class _HTTPClient(Storage):
         dry_run: bool = True,
         limit: int = 500,
     ) -> list[dict[str, Any]]:
-        raise NotImplementedError(
-            "HTTP shared backend does not expose rule confidence endpoints yet."
-        )
+        raise UnsupportedStorageCapabilityError("rule_confidence")
 
     def get_rule_confidence_summary(self) -> dict[str, Any]:
-        raise NotImplementedError(
-            "HTTP shared backend does not expose rule confidence endpoints yet."
-        )
+        raise UnsupportedStorageCapabilityError("rule_confidence")
 
 
 class RemoteStorage(Storage):
@@ -607,6 +605,17 @@ class RemoteStorage(Storage):
             # HTTP backend - client handles namespace via headers
             self._delegate = _HTTPClient(config)
 
+    @property
+    def capabilities(self) -> StorageCapabilities:
+        delegate_caps = _capabilities_for(self._delegate)
+        local_caps = _capabilities_for(self._local)
+        return delegate_caps.merge(local_caps)
+
+    def _require_capability(self, capability: str) -> None:
+        supported = bool(getattr(self.capabilities, capability, False))
+        if not supported:
+            raise UnsupportedStorageCapabilityError(capability)
+
     def _execute(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
         attempts = max(1, self.config.retry_attempts or 1)
         last_error: Exception | None = None
@@ -621,7 +630,7 @@ class RemoteStorage(Storage):
                 sqlite3.OperationalError,
                 OSError,
                 SharedBackendUnavailableError,
-                NotImplementedError,
+                UnsupportedStorageCapabilityError,
             ) as e:
                 last_error = e
                 if i < attempts - 1:
@@ -637,7 +646,7 @@ class RemoteStorage(Storage):
                 pass
 
         if last_error:
-            if isinstance(last_error, NotImplementedError):
+            if isinstance(last_error, UnsupportedStorageCapabilityError):
                 raise last_error
             raise SharedBackendUnavailableError(
                 f"Shared storage operation '{method_name}' failed after {attempts} attempts"
@@ -794,6 +803,70 @@ class RemoteStorage(Storage):
             error_message,
         )
 
+    def list_external_compaction_states(self, limit: int | None = None) -> list[dict[str, str]]:
+        self._require_capability("external_compaction_state")
+        return self._execute("list_external_compaction_states", limit=limit)
+
+    def upsert_external_compaction_state(
+        self,
+        source_session_id: str,
+        *,
+        source_hash: str,
+        processed_at: str,
+    ) -> None:
+        self._require_capability("external_compaction_state")
+        self._execute(
+            "upsert_external_compaction_state",
+            source_session_id,
+            source_hash=source_hash,
+            processed_at=processed_at,
+        )
+
+    def delete_external_compaction_state(self, source_session_id: str) -> int:
+        self._require_capability("external_compaction_state")
+        return self._execute("delete_external_compaction_state", source_session_id)
+
+    def enqueue_external_compaction_queue(
+        self,
+        notes: list[dict[str, Any]],
+        *,
+        actor: str,
+    ) -> list[dict[str, Any]]:
+        self._require_capability("external_compaction_queue")
+        return self._execute("enqueue_external_compaction_queue", notes, actor=actor)
+
+    def list_external_compaction_queue(
+        self,
+        *,
+        states: list[str] | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        self._require_capability("external_compaction_queue")
+        return self._execute("list_external_compaction_queue", states=states, limit=limit)
+
+    def update_external_compaction_queue_state(
+        self,
+        *,
+        ids: list[int],
+        target_state: str,
+        actor: str,
+    ) -> dict[str, int]:
+        self._require_capability("external_compaction_queue")
+        return self._execute(
+            "update_external_compaction_queue_state",
+            ids=ids,
+            target_state=target_state,
+            actor=actor,
+        )
+
+    def record_external_compaction_evidence(self, notes: list[dict[str, Any]]) -> int:
+        self._require_capability("external_compaction_evidence")
+        return self._execute("record_external_compaction_evidence", notes)
+
+    def list_external_compaction_evidence(self, limit: int = 200) -> list[dict[str, Any]]:
+        self._require_capability("external_compaction_evidence")
+        return self._execute("list_external_compaction_evidence", limit=limit)
+
     def record_retrieval_feedback(
         self,
         *,
@@ -804,6 +877,7 @@ class RemoteStorage(Storage):
         source: str = "cli",
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        self._require_capability("retrieval_feedback")
         return self._execute(
             "record_retrieval_feedback",
             query=query,
@@ -821,6 +895,7 @@ class RemoteStorage(Storage):
         query: str | None = None,
         chunk_id: UUID | None = None,
     ) -> list[dict[str, Any]]:
+        self._require_capability("retrieval_feedback")
         return self._execute(
             "list_retrieval_feedback",
             limit=limit,
@@ -834,6 +909,7 @@ class RemoteStorage(Storage):
         query: str,
         chunk_ids: list[UUID],
     ) -> dict[UUID, float]:
+        self._require_capability("retrieval_feedback")
         return self._execute(
             "get_retrieval_feedback_scores",
             query=query,
@@ -841,9 +917,11 @@ class RemoteStorage(Storage):
         )
 
     def replace_topic_threads(self, threads: list[dict[str, Any]]) -> int:
+        self._require_capability("topic_threads")
         return self._execute("replace_topic_threads", threads)
 
     def list_topic_threads(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        self._require_capability("topic_threads")
         return self._execute("list_topic_threads", limit=limit)
 
     def get_topic_thread(
@@ -852,6 +930,7 @@ class RemoteStorage(Storage):
         *,
         limit_links: int = 50,
     ) -> dict[str, Any] | None:
+        self._require_capability("topic_threads")
         return self._execute("get_topic_thread", thread_id, limit_links=limit_links)
 
     def sync_rule_confidence(
@@ -861,6 +940,7 @@ class RemoteStorage(Storage):
         default_confidence: float = 0.6,
         reinforcement_factor: float = 0.15,
     ) -> dict[str, int]:
+        self._require_capability("rule_confidence")
         return self._execute(
             "sync_rule_confidence",
             rules,
@@ -874,6 +954,7 @@ class RemoteStorage(Storage):
         limit: int = 200,
         stale_only: bool = False,
     ) -> list[dict[str, Any]]:
+        self._require_capability("rule_confidence")
         return self._execute("list_rule_confidence", limit=limit, stale_only=stale_only)
 
     def decay_rule_confidence(
@@ -882,6 +963,7 @@ class RemoteStorage(Storage):
         half_life_days: float = 45.0,
         stale_after_days: float = 60.0,
     ) -> dict[str, int]:
+        self._require_capability("rule_confidence")
         return self._execute(
             "decay_rule_confidence",
             half_life_days=half_life_days,
@@ -896,6 +978,7 @@ class RemoteStorage(Storage):
         dry_run: bool = True,
         limit: int = 500,
     ) -> list[dict[str, Any]]:
+        self._require_capability("rule_confidence")
         return self._execute(
             "archive_and_prune_rule_confidence",
             max_confidence=max_confidence,
@@ -905,4 +988,5 @@ class RemoteStorage(Storage):
         )
 
     def get_rule_confidence_summary(self) -> dict[str, Any]:
+        self._require_capability("rule_confidence")
         return self._execute("get_rule_confidence_summary")

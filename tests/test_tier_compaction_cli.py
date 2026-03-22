@@ -3,13 +3,13 @@
 import pytest
 from typer.testing import CliRunner
 
-from agent_recall.cli.main import app, get_storage
+from agent_recall.cli.app_commands import app, get_storage
 
 runner = CliRunner()
 
 
 class TestCompactTiersCommand:
-    """Test compact-tiers CLI command."""
+    """Test tiers compact CLI command."""
 
     @pytest.fixture(autouse=True)
     def clear_storage_cache(self):
@@ -55,8 +55,8 @@ Rules and warnings learned during development.
             os.chdir(original_cwd)
 
     def test_compact_tiers_basic(self, temp_repo):
-        """Test basic compact-tiers command."""
-        result = runner.invoke(app, ["compact-tiers"])
+        """Test basic tiers compact command."""
+        result = runner.invoke(app, ["tiers", "compact"])
 
         assert result.exit_code == 0
         assert "Tier compaction complete" in result.output
@@ -65,15 +65,15 @@ Rules and warnings learned during development.
         assert "Duplicates removed: 1" in result.output
 
     def test_compact_tiers_dry_run(self, temp_repo):
-        """Test compact-tiers --dry-run."""
-        result = runner.invoke(app, ["compact-tiers", "--dry-run"])
+        """Test tiers compact --dry-run."""
+        result = runner.invoke(app, ["tiers", "compact", "--dry-run"])
 
         assert result.exit_code == 0
         assert "Dry run mode" in result.output
         assert "Tier compaction complete" in result.output
 
     def test_compact_tiers_with_max_entries(self, temp_repo):
-        """Test compact-tiers with custom max-entries."""
+        """Test tiers compact with custom max-entries."""
         # First add more entries
         agent_dir = temp_repo / ".agent"
         content = (agent_dir / "GUARDRAILS.md").read_text()
@@ -83,7 +83,7 @@ Rules and warnings learned during development.
             content += f"\n## {ts} Iteration {i + 10} ({item})\n- Entry {i}\n"
         (agent_dir / "GUARDRAILS.md").write_text(content)
 
-        result = runner.invoke(app, ["compact-tiers", "--max-entries", "10"])
+        result = runner.invoke(app, ["tiers", "compact", "--max-entries", "10"])
 
         assert result.exit_code == 0
         # Should have around 14 entries (original 4 + 10 new, minus 1 duplicate = 13)
@@ -91,21 +91,21 @@ Rules and warnings learned during development.
         assert "Entries:" in result.output
 
     def test_compact_tiers_strict_mode(self, temp_repo):
-        """Test compact-tiers with --strict."""
-        result = runner.invoke(app, ["compact-tiers", "--strict"])
+        """Test tiers compact with --strict."""
+        result = runner.invoke(app, ["tiers", "compact", "--strict"])
 
         assert result.exit_code == 0
         assert "Tier compaction complete" in result.output
 
     def test_compact_tiers_multiple_runs_idempotent(self, temp_repo):
-        """Test that running compact-tiers twice is idempotent."""
+        """Test that running tiers compact twice is idempotent."""
         # First run
-        result1 = runner.invoke(app, ["compact-tiers"])
+        result1 = runner.invoke(app, ["tiers", "compact"])
         assert result1.exit_code == 0
         assert "Duplicates removed: 1" in result1.output
 
         # Second run should have no duplicates to remove
-        result2 = runner.invoke(app, ["compact-tiers"])
+        result2 = runner.invoke(app, ["tiers", "compact"])
         assert result2.exit_code == 0
         # After first run, no more duplicates
         assert (
@@ -114,7 +114,7 @@ Rules and warnings learned during development.
 
     def test_compact_tiers_shows_all_tiers(self, temp_repo):
         """Test that all three tiers are shown in output."""
-        result = runner.invoke(app, ["compact-tiers"])
+        result = runner.invoke(app, ["tiers", "compact"])
 
         assert result.exit_code == 0
         assert "GUARDRAILS:" in result.output
@@ -123,9 +123,9 @@ Rules and warnings learned during development.
         assert "Total:" in result.output
 
     def test_compact_tiers_not_initialized(self):
-        """Test compact-tiers fails when not initialized."""
+        """Test tiers compact fails when not initialized."""
         with runner.isolated_filesystem():
-            result = runner.invoke(app, ["compact-tiers"])
+            result = runner.invoke(app, ["tiers", "compact"])
 
             assert result.exit_code == 1
             assert "Not initialized" in result.output or "init" in result.output.lower()

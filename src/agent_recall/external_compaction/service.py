@@ -24,7 +24,7 @@ from agent_recall.external_compaction.models import (
     validate_external_notes_payload,
 )
 from agent_recall.external_compaction.write_guard import ExternalWriteScopeGuard, WriteTarget
-from agent_recall.storage.base import Storage
+from agent_recall.storage.base import Storage, UnsupportedStorageCapabilityError
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.models import LogEntry, PipelineEventAction, PipelineStage
 
@@ -482,10 +482,8 @@ class ExternalCompactionService:
 
         removed = 0
         if self._uses_storage_state_backend():
-            delete_fn = getattr(self.storage, "delete_external_compaction_state", None)
-            if callable(delete_fn):
-                for source_id in [*stale_ids, *invalid_ids]:
-                    removed += int(delete_fn(source_id) or 0)
+            for source_id in [*stale_ids, *invalid_ids]:
+                removed += int(self.storage.delete_external_compaction_state(source_id) or 0)
         else:
             remaining: dict[str, Any] = {}
             for source_session_id, payload in sessions_raw.items():
@@ -511,8 +509,7 @@ class ExternalCompactionService:
         notes = self._parse_notes(payload)
         if not self._uses_storage_queue_backend():
             raise RuntimeError("Queue operations require a storage backend with queue support.")
-        enqueue_fn = getattr(self.storage, "enqueue_external_compaction_queue")
-        queued = enqueue_fn(
+        queued = self.storage.enqueue_external_compaction_queue(
             [
                 {
                     "tier": note["tier"].value,
@@ -536,8 +533,9 @@ class ExternalCompactionService:
         normalized_states = [str(item).strip().lower() for item in (states or []) if item]
         if any(state not in _QUEUE_STATES for state in normalized_states):
             raise ValueError("states must be one or more of pending, approved, rejected, applied")
-        list_fn = getattr(self.storage, "list_external_compaction_queue")
-        return list_fn(states=normalized_states or None, limit=limit)
+        return self.storage.list_external_compaction_queue(
+            states=normalized_states or None, limit=limit
+        )
 
     def approve_queue(self, *, ids: list[int], actor: str = "system") -> dict[str, int]:
         return self._transition_queue(ids=ids, target_state="approved", actor=actor)
@@ -701,8 +699,11 @@ class ExternalCompactionService:
     ) -> dict[str, int]:
         if not self._uses_storage_queue_backend():
             raise RuntimeError("Queue operations require a storage backend with queue support.")
-        update_fn = getattr(self.storage, "update_external_compaction_queue_state")
-        return update_fn(ids=ids, target_state=target_state, actor=actor)
+        return self.storage.update_external_compaction_queue_state(
+            ids=ids,
+            target_state=target_state,
+            actor=actor,
+        )
 
     def _parse_notes(self, payload: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
         validated = validate_external_notes_payload(payload)
@@ -850,12 +851,11 @@ class ExternalCompactionService:
         return "\n\n".join(rendered_parts).rstrip() + "\n"
 
     def _persist_evidence_backlinks(self, notes: list[dict[str, Any]]) -> int:
-        if not self._storage_supports("record_external_compaction_evidence"):
+        if not self.storage.capabilities.external_compaction_evidence:
             return 0
-        record_fn = getattr(self.storage, "record_external_compaction_evidence")
         try:
-            return int(record_fn(notes))
-        except NotImplementedError:
+            return int(self.storage.record_external_compaction_evidence(notes))
+        except UnsupportedStorageCapabilityError:
             return 0
 
     @staticmethod
@@ -924,23 +924,21 @@ class ExternalCompactionService:
 
     def _load_state(self) -> dict[str, Any]:
         if self._uses_storage_state_backend():
-            list_fn = getattr(self.storage, "list_external_compaction_states", None)
-            if callable(list_fn):
-                rows = list_fn()
-                sessions: dict[str, dict[str, str]] = {}
-                for row in rows:
-                    if not isinstance(row, dict):
-                        continue
-                    source_session_id = str(row.get("source_session_id", "")).strip()
-                    source_hash = str(row.get("source_hash", "")).strip()
-                    processed_at = str(row.get("processed_at", "")).strip()
-                    if not source_session_id:
-                        continue
-                    sessions[source_session_id] = {
-                        "source_hash": source_hash,
-                        "processed_at": processed_at,
-                    }
-                return {"sessions": sessions}
+            rows = self.storage.list_external_compaction_states()
+            sessions: dict[str, dict[str, str]] = {}
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                source_session_id = str(row.get("source_session_id", "")).strip()
+                source_hash = str(row.get("source_hash", "")).strip()
+                processed_at = str(row.get("processed_at", "")).strip()
+                if not source_session_id:
+                    continue
+                sessions[source_session_id] = {
+                    "source_hash": source_hash,
+                    "processed_at": processed_at,
+                }
+            return {"sessions": sessions}
 
         if not self.state_path.exists():
             return {"sessions": {}}
@@ -960,9 +958,6 @@ class ExternalCompactionService:
             sessions = state.get("sessions", {})
             if not isinstance(sessions, dict):
                 return
-            upsert_fn = getattr(self.storage, "upsert_external_compaction_state", None)
-            if not callable(upsert_fn):
-                return
             for source_session_id, payload in sessions.items():
                 if not isinstance(payload, dict):
                     continue
@@ -971,7 +966,11 @@ class ExternalCompactionService:
                 processed_at = str(payload.get("processed_at", "")).strip()
                 if not source_id or not source_hash or not processed_at:
                     continue
-                upsert_fn(source_id, source_hash=source_hash, processed_at=processed_at)
+                self.storage.upsert_external_compaction_state(
+                    source_id,
+                    source_hash=source_hash,
+                    processed_at=processed_at,
+                )
             return
 
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -998,34 +997,10 @@ class ExternalCompactionService:
         return marked
 
     def _uses_storage_state_backend(self) -> bool:
-        return all(
-            self._storage_supports(attr)
-            for attr in (
-                "list_external_compaction_states",
-                "upsert_external_compaction_state",
-                "delete_external_compaction_state",
-            )
-        )
+        return bool(self.storage.capabilities.external_compaction_state)
 
     def _uses_storage_queue_backend(self) -> bool:
-        return all(
-            self._storage_supports(attr)
-            for attr in (
-                "enqueue_external_compaction_queue",
-                "list_external_compaction_queue",
-                "update_external_compaction_queue_state",
-            )
-        )
-
-    def _storage_supports(self, attr: str) -> bool:
-        method = getattr(self.storage, attr, None)
-        if not callable(method):
-            return False
-        base_method = getattr(Storage, attr, None)
-        if base_method is None:
-            return True
-        method_func = getattr(method, "__func__", method)
-        return method_func is not base_method
+        return bool(self.storage.capabilities.external_compaction_queue)
 
     def _backfill_state_to_storage(self) -> None:
         if not self._uses_storage_state_backend() or not self.state_path.exists():
@@ -1040,14 +1015,9 @@ class ExternalCompactionService:
         if not isinstance(sessions, dict):
             return
 
-        list_fn = getattr(self.storage, "list_external_compaction_states", None)
-        upsert_fn = getattr(self.storage, "upsert_external_compaction_state", None)
-        if not callable(list_fn) or not callable(upsert_fn):
-            return
-
         existing = {
             str(item.get("source_session_id", "")).strip()
-            for item in list_fn()
+            for item in self.storage.list_external_compaction_states()
             if isinstance(item, dict)
         }
         for source_session_id, payload in sessions.items():
@@ -1062,7 +1032,11 @@ class ExternalCompactionService:
                 processed_at = datetime.now(UTC).isoformat()
             if source_id in existing:
                 continue
-            upsert_fn(source_id, source_hash=source_hash, processed_at=processed_at)
+            self.storage.upsert_external_compaction_state(
+                source_id,
+                source_hash=source_hash,
+                processed_at=processed_at,
+            )
 
     def _normalize_write_target(self, write_target: WriteTarget | str) -> WriteTarget:
         return self.write_guard.resolve_target(str(write_target))

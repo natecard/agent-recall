@@ -12,6 +12,7 @@ from agent_recall.core.tier_format import is_ralph_entry_start, parse_tier_conte
 from agent_recall.llm.base import LLMProvider, Message
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
+from agent_recall.storage.metadata import AttributionMetadata, EntryMetadata
 from agent_recall.storage.models import (
     Chunk,
     ChunkSource,
@@ -286,17 +287,14 @@ class CompactionEngine:
 
     @staticmethod
     def _attribution_tags(entry: LogEntry) -> list[str]:
-        metadata = entry.metadata if isinstance(entry.metadata, dict) else {}
-        attribution = metadata.get("attribution")
-        if not isinstance(attribution, dict):
-            return []
+        entry_metadata = EntryMetadata.from_value(entry.metadata)
+        attribution = entry_metadata.attribution or AttributionMetadata()
         tags: list[str] = []
-        for key, prefix in (
-            ("agent_source", "agent"),
-            ("provider", "provider"),
-            ("model", "model"),
+        for value, prefix in (
+            (attribution.agent_source, "agent"),
+            (attribution.provider, "provider"),
+            (attribution.model, "model"),
         ):
-            value = attribution.get(key)
             if isinstance(value, str) and value.strip():
                 tags.append(f"{prefix}:{value.strip().lower()}")
         return tags

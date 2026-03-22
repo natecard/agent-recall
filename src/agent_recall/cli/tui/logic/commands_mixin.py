@@ -37,7 +37,7 @@ class CommandsMixin:
         self.terminal_panel_visible = not self.terminal_panel_visible
         self._update_terminal_panel_visibility(initial=False)
         try:
-            from agent_recall.cli.main import _write_tui_config
+            from agent_recall.cli.app_commands import _write_tui_config
             from agent_recall.storage.files import FileStorage
 
             agent_dir = Path(".agent")
@@ -497,7 +497,7 @@ class CommandsMixin:
             result.get("all_cursor_workspaces", self.all_cursor_workspaces)
         )
         try:
-            from agent_recall.cli.main import _write_tui_config
+            from agent_recall.cli.app_commands import _write_tui_config
             from agent_recall.storage.files import FileStorage
 
             agent_dir = Path(".agent")
