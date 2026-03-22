@@ -6,7 +6,7 @@ from typing import Any
 
 from rich.text import Text
 from textual import events
-from textual.widgets import Input, Log, OptionList
+from textual.widgets import Input, Log, OptionList, TextArea
 from textual.widgets.option_list import Option
 
 from agent_recall.cli.tui.constants import _LOADING_FRAMES
@@ -307,7 +307,7 @@ class ActivityMixin:
         except Exception:  # noqa: BLE001
             focused_widget = None
         focused_widget_id = focused_widget.id if focused_widget is not None else ""
-        if focused_widget_id == "dashboard_timeline_interactive":
+        if focused_widget_id in {"dashboard_timeline_interactive", "activity_output"}:
             return
         activity_widget = self.query_one("#activity_log", Log)
         if focused_widget_id == "activity_result_list":
@@ -335,6 +335,8 @@ class ActivityMixin:
         )
 
     def on_mouse_scroll_up(self: Any, _event: events.MouseScrollUp) -> None:
+        if self._output_view_open:
+            return
         activity_widget = self.query_one("#activity_log", Log)
         if self._result_list_open:
             self._close_inline_result_list(announce=False)
@@ -366,6 +368,8 @@ class ActivityMixin:
         # endregion
 
     def on_mouse_scroll_down(self: Any, _event: events.MouseScrollDown) -> None:
+        if self._output_view_open:
+            return
         activity_widget = self.query_one("#activity_log", Log)
         if self._result_list_open:
             self._close_inline_result_list(announce=False)
@@ -426,8 +430,32 @@ class ActivityMixin:
         if focus:
             self.query_one("#activity_result_list", OptionList).focus()
 
+    def _show_command_output(self: Any, lines: list[str], *, focus: bool = True) -> None:
+        if not lines:
+            return
+        output_widget = self.query_one("#activity_output", TextArea)
+        self.query_one("#activity_log", Log).display = False
+        picker = self.query_one("#activity_result_list", OptionList)
+        picker.display = False
+        if self._result_list_open:
+            self._result_list_open = False
+        output_widget.load_text("\n".join(lines))
+        output_widget.border_title = "Command Output"
+        output_widget.border_subtitle = "Ctrl+A select all · Ctrl+C copy · Esc close"
+        output_widget.display = True
+        output_widget.move_cursor((0, 0))
+        output_widget.scroll_cursor_visible(animate=False)
+        self._output_view_open = True
+        self.status = "Command output"
+        if focus:
+            output_widget.focus()
+
     def _set_activity_result_options(self: Any, options: list[Option]) -> None:
         picker = self.query_one("#activity_result_list", OptionList)
+        if self._output_view_open:
+            output_widget = self.query_one("#activity_output", TextArea)
+            output_widget.display = False
+            self._output_view_open = False
         picker.set_options(options)
         for index, option in enumerate(options):
             if not option.disabled:
@@ -446,3 +474,14 @@ class ActivityMixin:
         self._result_list_open = False
         if announce:
             self._append_activity("Closed command output list.")
+
+    def _close_command_output(self: Any, announce: bool = True) -> None:
+        if not self._output_view_open:
+            return
+        output_widget = self.query_one("#activity_output", TextArea)
+        output_widget.display = False
+        output_widget.load_text("")
+        self.query_one("#activity_log", Log).display = True
+        self._output_view_open = False
+        if announce:
+            self._append_activity("Closed command output.")

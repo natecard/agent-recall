@@ -149,6 +149,8 @@ class CommandsMixin:
     def action_close_inline_picker(self: Any) -> None:
         if self._result_list_open:
             self._close_inline_result_list(announce=False)
+        if self._output_view_open:
+            self._close_command_output(announce=False)
         if self._activity_search_active:
             self._close_activity_search()
 
@@ -358,6 +360,8 @@ class CommandsMixin:
             return
         if self._result_list_open:
             self._close_inline_result_list(announce=False)
+        if self._output_view_open:
+            self._close_command_output(announce=False)
         self._append_activity(f"> {command}")
         self.status = f"Running: {command}"
         if _is_knowledge_run_command(command):

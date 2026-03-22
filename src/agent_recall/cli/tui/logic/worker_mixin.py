@@ -109,7 +109,7 @@ class WorkerMixin:
                 or "/sources" in command_header
                 or "/sessions" in command_header
             ):
-                self._show_inline_result_list(cleaned_lines)
+                self._show_command_output(cleaned_lines)
             self._append_sync_remediation_hint(cleaned_lines)
 
             self.status = "Last command executed"

@@ -8,7 +8,7 @@ from rich.theme import Theme
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Input, Log, OptionList, Static
+from textual.widgets import Footer, Input, Log, OptionList, Static, TextArea
 from textual.widgets.option_list import Option
 
 from agent_recall.cli.tui.commands.help_text import (
@@ -139,6 +139,7 @@ class AgentRecallTextualApp(
         self._theme_commit_inflight = False
         self._theme_preview_origin: str | None = None
         self._result_list_open = False
+        self._output_view_open = False
         self._resize_refresh_timer = None
         self._worker_context: dict[int, str] = {}
         self._knowledge_run_workers: set[int] = set()
@@ -177,6 +178,13 @@ class AgentRecallTextualApp(
                 with Vertical(id="activity"):
                     yield Static(id="terminal_panel")
                     yield Log(id="activity_log", highlight=False, auto_scroll=False)
+                    yield TextArea(
+                        "",
+                        id="activity_output",
+                        read_only=True,
+                        show_cursor=False,
+                        soft_wrap=False,
+                    )
                     yield OptionList(id="activity_result_list")
                     yield Input(id="activity_search_input", placeholder="Search activity log...")
         yield Footer()

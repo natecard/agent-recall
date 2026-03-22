@@ -2753,6 +2753,24 @@ def test_tui_slash_does_not_truncate_output_lines(monkeypatch) -> None:
     assert not any("... and " in line for line in lines)
 
 
+def test_tui_slash_preserves_terminal_spacing_and_separators(monkeypatch) -> None:
+    class FakeResult:
+        exit_code = 0
+        output = "Header\n  indented    body\n-----\n"
+
+    monkeypatch.setattr(
+        cli_main._slash_runner,
+        "invoke",
+        lambda *_args, **_kwargs: FakeResult(),
+    )
+
+    should_exit, lines = _run_tui_slash("/status")
+
+    assert should_exit is False
+    assert any("  indented    body" in line for line in lines)
+    assert any("-----" in line for line in lines)
+
+
 def test_tui_slash_disallows_nested_tui() -> None:
     should_exit, lines = _run_tui_slash("/tui")
     assert should_exit is False

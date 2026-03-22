@@ -550,6 +550,91 @@ def test_selecting_source_sync_option_runs_sync(monkeypatch) -> None:
     assert captured == ["cursor"]
 
 
+def test_show_command_output_uses_copyable_text_area(monkeypatch) -> None:
+    app = _build_test_app()
+
+    class _LogWidget:
+        def __init__(self) -> None:
+            self.display = True
+
+    class _TextAreaWidget:
+        def __init__(self) -> None:
+            self.display = False
+            self.loaded_text = ""
+            self.border_title = ""
+            self.border_subtitle = ""
+            self.focused = False
+            self.cursor = None
+
+        def load_text(self, text: str) -> None:
+            self.loaded_text = text
+
+        def move_cursor(self, location: tuple[int, int]) -> None:
+            self.cursor = location
+
+        def scroll_cursor_visible(self, animate: bool = False) -> None:
+            _ = animate
+
+        def focus(self) -> None:
+            self.focused = True
+
+    class _OptionListWidget:
+        def __init__(self) -> None:
+            self.display = False
+
+    activity_log = _LogWidget()
+    activity_output = _TextAreaWidget()
+    activity_result_list = _OptionListWidget()
+    mapping = {
+        "#activity_log": activity_log,
+        "#activity_output": activity_output,
+        "#activity_result_list": activity_result_list,
+    }
+    monkeypatch.setattr(app, "query_one", lambda selector, *_args: mapping[selector])
+
+    app._show_command_output(["one", "two"])
+
+    assert activity_log.display is False
+    assert activity_output.display is True
+    assert activity_output.loaded_text == "one\ntwo"
+    assert activity_output.border_title == "Command Output"
+    assert "Ctrl+C copy" in activity_output.border_subtitle
+    assert activity_output.focused is True
+    assert activity_output.cursor == (0, 0)
+    assert app._output_view_open is True
+
+
+def test_action_close_inline_picker_closes_command_output(monkeypatch) -> None:
+    app = _build_test_app()
+    closed: dict[str, bool] = {}
+    app._output_view_open = True
+    monkeypatch.setattr(
+        app, "_close_command_output", lambda announce=False: closed.setdefault("ok", True)
+    )
+    monkeypatch.setattr(app, "_refresh_activity_panel", lambda: None)
+
+    app.action_close_inline_picker()
+
+    assert closed == {"ok": True}
+
+
+def test_command_worker_uses_copyable_output_view_for_long_output(monkeypatch) -> None:
+    app = _build_test_app()
+    shown: list[str] = []
+    monkeypatch.setattr(app, "_show_command_output", lambda lines: shown.extend(lines))
+    monkeypatch.setattr(app, "_append_activity", lambda _line: None)
+    monkeypatch.setattr(app, "_append_sync_remediation_hint", lambda _lines: None)
+    monkeypatch.setattr(app, "_finalize_theme_commit", lambda success: None)
+    monkeypatch.setattr(app, "_refresh_dashboard_panel", lambda: None)
+
+    app._handle_worker_success(
+        "command",
+        (False, [f"line-{index}" for index in range(1, 15)]),
+    )
+
+    assert "line-14" in shown
+
+
 def test_layout_modal_updates_visibility_and_banner(monkeypatch) -> None:
     app = _build_test_app()
     app.tui_widget_visibility = {
@@ -2947,6 +3032,13 @@ def test_activity_search_keybinding_exists() -> None:
 
     binding_keys = [b.key for b in TUI_BINDINGS]
     assert "ctrl+f" in binding_keys
+
+
+def test_ctrl_c_is_not_reserved_for_quit() -> None:
+    from agent_recall.cli.tui.ui.bindings import TUI_BINDINGS
+
+    binding_map = {binding.key: binding.action for binding in TUI_BINDINGS}
+    assert "ctrl+c" not in binding_map
 
 
 def test_activity_search_state_flags_initialization() -> None:

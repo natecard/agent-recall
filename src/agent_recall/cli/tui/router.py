@@ -255,22 +255,11 @@ def execute_tui_slash_command(
     if output:
         raw_output_lines = output.splitlines()
         ansi_stripped_lines = [
-            strip_ansi_control_sequences(raw_line).rstrip()
+            strip_ansi_control_sequences(raw_line).rstrip("\r")
             for raw_line in raw_output_lines
             if raw_line.strip()
         ]
-        if looks_like_table_output(ansi_stripped_lines):
-            output_lines = ansi_stripped_lines
-        else:
-            meaningful_lines = []
-            for raw_line in ansi_stripped_lines:
-                normalized = normalize_tui_output_line(raw_line)
-                if not normalized:
-                    continue
-                if not any(char.isalnum() for char in normalized):
-                    continue
-                meaningful_lines.append(normalized)
-            output_lines = meaningful_lines if meaningful_lines else ansi_stripped_lines
+        output_lines = ansi_stripped_lines
         for line in output_lines:
             lines.append(f"[dim]{escape(line)}[/dim]")
 

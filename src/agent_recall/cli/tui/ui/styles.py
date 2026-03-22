@@ -149,6 +149,12 @@ APP_CSS = """
         background: $panel;
         padding: 0 2;
     }
+    #activity_output {
+        height: 1fr;
+        display: none;
+        border: round $accent;
+        background: $panel;
+    }
     #activity_result_list {
         height: 1fr;
         overflow: auto;

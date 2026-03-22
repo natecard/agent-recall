@@ -12,7 +12,6 @@ TUI_BINDINGS = [
     Binding("ctrl+l", "open_layout_modal", "Layout"),
     Binding("f", "switch_to_forecast", "Forecast", show=False),
     Binding("q", "switch_to_queue", "Queue", show=False),
-    Binding("ctrl+c", "request_quit", "Quit", show=False, priority=True),
     Binding("escape", "close_inline_picker", "Close picker", show=False),
     Binding("ctrl+q", "request_quit", "Quit", priority=True),
     Binding("ctrl+`", "toggle_terminal_panel", "Terminal", show=False),

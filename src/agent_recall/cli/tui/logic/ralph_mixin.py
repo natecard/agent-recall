@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from textual.widgets import Log, OptionList
+from textual.widgets import Log, OptionList, TextArea
 
 from agent_recall.cli.stream_pipeline import (
     run_streaming_command,
@@ -35,7 +35,10 @@ class RalphMixin:
                 data={},
             )
             # endregion
+        if self._output_view_open:
+            self._close_command_output(announce=False)
         self.query_one("#activity_log", Log).display = True
+        self.query_one("#activity_output", TextArea).display = False
         self.query_one("#activity_result_list", OptionList).display = False
         self.status = "Ralph loop starting"
         self._append_activity("Starting Ralph loop...")
