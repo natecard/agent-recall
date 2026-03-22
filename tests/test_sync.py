@@ -392,6 +392,25 @@ async def test_sync_and_compact_includes_compaction_results(storage, files, tmp_
 
 
 @pytest.mark.asyncio
+async def test_compact_after_sync_runs_as_standalone_phase(storage, files, tmp_path: Path) -> None:
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[FakeIngester("cursor", [session_path])],
+    )
+
+    sync_results = await sync.sync()
+    results = await sync.compact_after_sync(sync_results, force_compact=True)
+
+    assert "compaction" in results
+    assert results["compaction"]["chunks_indexed"] >= 0
+
+
+@pytest.mark.asyncio
 async def test_sync_and_compact_external_backend_reports_pending(
     storage,
     files,
@@ -458,6 +477,36 @@ async def test_sync_and_compact_defers_until_thresholds(storage, files, tmp_path
 
 
 @pytest.mark.asyncio
+async def test_compact_after_sync_skips_when_no_learnings_and_not_forced(
+    storage,
+    files,
+    tmp_path: Path,
+) -> None:
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[FakeIngester("cursor", [session_path])],
+    )
+
+    results = await sync.compact_after_sync(
+        {
+            "sessions_discovered": 1,
+            "sessions_processed": 0,
+            "sessions_skipped": 1,
+            "learnings_extracted": 0,
+            "by_source": {},
+            "errors": [],
+        }
+    )
+
+    assert "compaction" not in results
+
+
+@pytest.mark.asyncio
 async def test_sync_and_compact_backfills_missing_embeddings_when_enabled(
     storage, files, tmp_path: Path, monkeypatch
 ) -> None:
@@ -495,6 +544,47 @@ async def test_sync_and_compact_backfills_missing_embeddings_when_enabled(
 
 
 @pytest.mark.asyncio
+async def test_index_chunk_embeddings_runs_as_standalone_phase(storage, files, monkeypatch) -> None:
+    files.write_config({"retrieval": {"semantic_index_enabled": True, "embedding_dimensions": 384}})
+
+    preexisting = Chunk(
+        source=ChunkSource.MANUAL,
+        source_ids=[],
+        content="legacy chunk without embedding",
+        label=SemanticLabel.PATTERN,
+        embedding=None,
+    )
+    storage.store_chunk(preexisting)
+
+    monkeypatch.setattr(
+        "agent_recall.core.embedding_indexer.embed_batch_to_lists",
+        lambda texts: [[0.33] * 384 for _ in texts],
+    )
+
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[],
+    )
+
+    results = sync.index_chunk_embeddings(
+        {
+            "sessions_discovered": 0,
+            "sessions_processed": 0,
+            "sessions_skipped": 0,
+            "learnings_extracted": 0,
+            "by_source": {},
+            "errors": [],
+        }
+    )
+
+    assert results.get("embedding_indexing") == {"indexed": 1, "skipped": 0}
+    embedded_chunks = storage.list_chunks_with_embeddings()
+    assert any(chunk.id == preexisting.id for chunk in embedded_chunks)
+
+
+@pytest.mark.asyncio
 async def test_sync_and_compact_skip_embeddings_does_not_backfill(
     storage, files, tmp_path: Path
 ) -> None:
@@ -525,6 +615,60 @@ async def test_sync_and_compact_skip_embeddings_does_not_backfill(
     still_missing = [chunk for chunk in storage.list_chunks() if chunk.id == preexisting.id]
     assert len(still_missing) == 1
     assert still_missing[0].embedding is None
+
+
+@pytest.mark.asyncio
+async def test_sync_and_compact_orchestrates_sync_compact_and_embedding(
+    storage, files, monkeypatch
+) -> None:
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[],
+    )
+    calls: list[str] = []
+
+    async def _fake_sync(**kwargs: object) -> dict[str, object]:
+        _ = kwargs
+        calls.append("sync")
+        return {"learnings_extracted": 1, "by_source": {}, "errors": []}
+
+    async def _fake_compact_after_sync(
+        sync_results: dict[str, object],
+        *,
+        force_compact: bool = False,
+        telemetry: object | None = None,
+        telemetry_run_id: str | None = None,
+    ) -> dict[str, object]:
+        assert calls == ["sync"]
+        assert force_compact is True
+        assert telemetry is not None
+        assert telemetry_run_id is not None
+        calls.append("compact")
+        sync_results["compaction"] = {"recent_updated": True}
+        return sync_results
+
+    def _fake_index_chunk_embeddings(
+        sync_results: dict[str, object],
+        *,
+        skip_embeddings: bool = False,
+    ) -> dict[str, object]:
+        assert calls == ["sync", "compact"]
+        assert skip_embeddings is True
+        calls.append("embed")
+        sync_results["embedding_indexing"] = {"indexed": 0, "skipped": 0}
+        return sync_results
+
+    monkeypatch.setattr(sync, "sync", _fake_sync)
+    monkeypatch.setattr(sync, "compact_after_sync", _fake_compact_after_sync)
+    monkeypatch.setattr(sync, "index_chunk_embeddings", _fake_index_chunk_embeddings)
+
+    results = await sync.sync_and_compact(force_compact=True, skip_embeddings=True)
+
+    assert calls == ["sync", "compact", "embed"]
+    assert results["compaction"]["recent_updated"] is True
+    assert results["embedding_indexing"] == {"indexed": 0, "skipped": 0}
 
 
 @pytest.mark.asyncio

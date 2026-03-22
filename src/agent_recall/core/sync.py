@@ -820,8 +820,31 @@ class AutoSync:
             reset_full=reset_full,
             telemetry_run_id=run_id,
         )
+        sync_results = await self.compact_after_sync(
+            sync_results,
+            force_compact=force_compact,
+            telemetry=telemetry,
+            telemetry_run_id=run_id,
+        )
+        return self.index_chunk_embeddings(
+            sync_results,
+            skip_embeddings=skip_embeddings,
+        )
 
-        learnings_extracted = int(sync_results["learnings_extracted"])
+    async def compact_after_sync(
+        self,
+        sync_results: dict[str, Any],
+        *,
+        force_compact: bool = False,
+        telemetry: PipelineTelemetry | None = None,
+        telemetry_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        phase_telemetry = telemetry or PipelineTelemetry.from_config(
+            agent_dir=self.files.agent_dir,
+            config=self.files.read_config(),
+        )
+        run_id = telemetry_run_id or phase_telemetry.create_run_id("compact")
+        learnings_extracted = int(sync_results.get("learnings_extracted", 0))
         if learnings_extracted > 0 or force_compact:
             decision = self._resolve_compaction_decision(
                 sync_results=sync_results,
@@ -847,7 +870,7 @@ class AutoSync:
                     "llm_requests": 0,
                     "llm_responses": 0,
                 }
-                telemetry.record_event(
+                phase_telemetry.record_event(
                     run_id=run_id,
                     stage=PipelineStage.COMPACT,
                     action=PipelineEventAction.COMPLETE,
@@ -879,7 +902,7 @@ class AutoSync:
                     "llm_requests": 0,
                     "llm_responses": 0,
                 }
-                telemetry.record_event(
+                phase_telemetry.record_event(
                     run_id=run_id,
                     stage=PipelineStage.COMPACT,
                     action=PipelineEventAction.COMPLETE,
@@ -899,7 +922,7 @@ class AutoSync:
                 try:
                     sync_results["compaction"] = await compact_engine.compact(force=force_compact)
                 except Exception as exc:  # noqa: BLE001
-                    telemetry.record_event(
+                    phase_telemetry.record_event(
                         run_id=run_id,
                         stage=PipelineStage.COMPACT,
                         action=PipelineEventAction.ERROR,
@@ -908,7 +931,7 @@ class AutoSync:
                         metadata={"backend": backend, "error": str(exc)},
                     )
                     raise
-                telemetry.record_event(
+                phase_telemetry.record_event(
                     run_id=run_id,
                     stage=PipelineStage.COMPACT,
                     action=PipelineEventAction.COMPLETE,
@@ -924,10 +947,18 @@ class AutoSync:
                     },
                 )
 
-        if self._embedding_indexing_enabled() and not skip_embeddings:
-            indexer = EmbeddingIndexer(self.storage)
-            sync_results["embedding_indexing"] = indexer.index_missing_embeddings()
+        return sync_results
 
+    def index_chunk_embeddings(
+        self,
+        sync_results: dict[str, Any],
+        *,
+        skip_embeddings: bool = False,
+    ) -> dict[str, Any]:
+        if skip_embeddings or not self._embedding_indexing_enabled():
+            return sync_results
+        indexer = EmbeddingIndexer(self.storage)
+        sync_results["embedding_indexing"] = indexer.index_missing_embeddings()
         return sync_results
 
     def _resolve_compaction_decision(

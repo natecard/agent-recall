@@ -1891,6 +1891,55 @@ def test_cli_sync_no_compact(monkeypatch) -> None:
         assert called["sync_and_compact"] == 0
 
 
+def test_cli_sync_compact_uses_full_cycle_and_passes_skip_embeddings(monkeypatch) -> None:
+    captured: dict[str, object] = {"skip_embeddings": None, "force_compact": None}
+
+    class FakeAutoSync:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def sync(self, since=None, sources=None, session_ids=None, max_sessions=None):
+            _ = (since, sources, session_ids, max_sessions)
+            raise AssertionError("sync should not be called directly for --compact")
+
+        async def sync_and_compact(
+            self,
+            since=None,
+            sources=None,
+            session_ids=None,
+            max_sessions=None,
+            force_compact=False,
+            skip_embeddings=False,
+        ):
+            _ = (since, sources, session_ids, max_sessions)
+            captured["force_compact"] = force_compact
+            captured["skip_embeddings"] = skip_embeddings
+            return {
+                "sessions_discovered": 1,
+                "sessions_processed": 1,
+                "sessions_skipped": 0,
+                "learnings_extracted": 1,
+                "by_source": {},
+                "errors": [],
+                "compaction": {
+                    "guardrails_updated": False,
+                    "style_updated": True,
+                    "chunks_indexed": 1,
+                },
+            }
+
+    monkeypatch.setattr(cli_main, "AutoSync", FakeAutoSync)
+    monkeypatch.setattr(cli_main, "get_llm", lambda: DummyProvider())
+    monkeypatch.setattr(cli_main, "get_default_ingesters", lambda **_kwargs: [])
+
+    with runner.isolated_filesystem():
+        initialize_agent_repo(runner, cli_main.app)
+        result = runner.invoke(cli_main.app, ["sync", "--compact", "--force", "--skip-embeddings"])
+        assert result.exit_code == 0
+        assert captured["force_compact"] is True
+        assert captured["skip_embeddings"] is True
+
+
 def test_cli_sync_session_filters_wiring(monkeypatch) -> None:
     captured: dict[str, object] = {
         "session_ids": None,

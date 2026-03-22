@@ -56,17 +56,6 @@ def build_sync_request(
 
 def run_sync(auto_sync, request: SyncRequest) -> dict[str, Any]:
     if request.compact:
-        if request.skip_embeddings:
-            return asyncio.run(
-                auto_sync.sync_and_compact(
-                    since=request.since,
-                    sources=request.sources,
-                    session_ids=request.session_ids,
-                    max_sessions=request.max_sessions,
-                    force_compact=request.force_compact,
-                    skip_embeddings=True,
-                )
-            )
         return asyncio.run(
             auto_sync.sync_and_compact(
                 since=request.since,
@@ -74,6 +63,7 @@ def run_sync(auto_sync, request: SyncRequest) -> dict[str, Any]:
                 session_ids=request.session_ids,
                 max_sessions=request.max_sessions,
                 force_compact=request.force_compact,
+                skip_embeddings=request.skip_embeddings,
             )
         )
 
