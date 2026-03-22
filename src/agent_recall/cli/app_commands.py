@@ -1311,9 +1311,9 @@ def compact(force: bool = typer.Option(False, "--force", "-f", help="Force compa
 def sync(
     ctx: typer.Context,
     compact: bool = typer.Option(
-        True,
+        False,
         "--compact/--no-compact",
-        help="Run compaction after sync",
+        help="Run compaction after sync (default: disabled)",
     ),
     source: str | None = typer.Option(
         None,
@@ -2140,10 +2140,10 @@ def sync_background(
         min=1,
         help="Limit sync to the most recent N discovered sessions",
     ),
-    no_compact: bool = typer.Option(
+    compact: bool = typer.Option(
         False,
-        "--no-compact",
-        help="Skip compaction after sync",
+        "--compact/--no-compact",
+        help="Run compaction after sync (default: disabled)",
     ),
 ):
     """Run sync in background with safe locking (prevents duplicate syncs)."""
@@ -2185,7 +2185,7 @@ def sync_background(
         bg_manager.run_sync(
             sources=sources,
             max_sessions=max_sessions,
-            compact=not no_compact,
+            compact=compact,
         )
     )
 

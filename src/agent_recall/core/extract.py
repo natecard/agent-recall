@@ -68,9 +68,15 @@ JSON array:"""
 class TranscriptExtractor:
     """Extract semantic learnings from normalized session transcripts."""
 
-    def __init__(self, llm: LLMProvider, messages_per_batch: int = 50):
+    def __init__(
+        self,
+        llm: LLMProvider,
+        messages_per_batch: int = 50,
+        extracted_entry_curation_status: CurationStatus = CurationStatus.APPROVED,
+    ):
         self.llm = llm
         self.messages_per_batch = max(1, int(messages_per_batch))
+        self.extracted_entry_curation_status = extracted_entry_curation_status
 
     def _format_transcript(self, session: RawSession, max_chars: int = 5_000) -> str:
         lines: list[str] = []
@@ -264,7 +270,7 @@ class TranscriptExtractor:
             label=label,
             tags=tags,
             confidence=confidence,
-            curation_status=CurationStatus.PENDING,
+            curation_status=self.extracted_entry_curation_status,
             metadata=build_entry_metadata(
                 attribution=attribution,
                 evidence=evidence,

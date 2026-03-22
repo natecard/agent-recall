@@ -14,6 +14,7 @@ from agent_recall.ingest.codex import CodexIngester
 from agent_recall.ingest.cursor import CursorIngester
 from agent_recall.ingest.opencode import OpenCodeIngester
 from agent_recall.llm.base import LLMProvider, LLMResponse, Message
+from agent_recall.storage.models import CurationStatus
 
 
 class TestCursorIngester:
@@ -1053,6 +1054,43 @@ class TestTranscriptExtractor:
         assert len(entries) == 1
         assert entries[0].content == "Test pattern"
         assert entries[0].label.value == "pattern"
+        assert entries[0].curation_status == CurationStatus.APPROVED
+
+    @pytest.mark.asyncio
+    async def test_extract_can_mark_entries_pending_when_requested(self) -> None:
+        from agent_recall.core.extract import TranscriptExtractor
+
+        extractor = TranscriptExtractor(
+            MockLLM(),
+            extracted_entry_curation_status=CurationStatus.PENDING,
+        )
+
+        session = RawSession(
+            source="test",
+            session_id="test-pending",
+            started_at=datetime.now(UTC),
+            messages=[
+                RawMessage(
+                    role="user",
+                    content=(
+                        "Do something useful with schema migration ordering and transaction "
+                        "safety checks before deploy."
+                    ),
+                ),
+                RawMessage(
+                    role="assistant",
+                    content=(
+                        "Done and verified. I added transaction boundaries, rollback checks, "
+                        "and documented the migration sequence."
+                    ),
+                ),
+            ],
+        )
+
+        entries = await extractor.extract(session)
+
+        assert len(entries) == 1
+        assert entries[0].curation_status == CurationStatus.PENDING
 
     @pytest.mark.asyncio
     async def test_extract_filters_non_functional_workflow_learning(self) -> None:

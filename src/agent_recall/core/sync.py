@@ -20,7 +20,12 @@ from agent_recall.ingest.sources import normalize_source_name
 from agent_recall.llm.base import LLMProvider, LLMRateLimitError
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import TIER_FILES, FileStorage, KnowledgeTier
-from agent_recall.storage.models import PipelineEventAction, PipelineStage, SessionCheckpoint
+from agent_recall.storage.models import (
+    CurationStatus,
+    PipelineEventAction,
+    PipelineStage,
+    SessionCheckpoint,
+)
 
 
 @dataclass(frozen=True)
@@ -100,7 +105,24 @@ class AutoSync:
         self.storage = storage
         self.files = files
         self.llm = llm
-        self.extractor = TranscriptExtractor(llm) if llm else None
+        config = self.files.read_config()
+        storage_cfg = config.get("storage") if isinstance(config, dict) else {}
+        curation_mode = (
+            bool(storage_cfg.get("curation_mode", False))
+            if isinstance(storage_cfg, dict)
+            else False
+        )
+        extracted_entry_curation_status = (
+            CurationStatus.PENDING if curation_mode else CurationStatus.APPROVED
+        )
+        self.extractor = (
+            TranscriptExtractor(
+                llm,
+                extracted_entry_curation_status=extracted_entry_curation_status,
+            )
+            if llm
+            else None
+        )
         self.ingesters = ingesters or get_default_ingesters(project_path)
         self.progress_callback = progress_callback
         self.extract_timeout_seconds = 45

@@ -11,7 +11,7 @@ from agent_recall.core.sync import AutoSync, SyncDiscoverStage, SyncFilterStage
 from agent_recall.core.telemetry import PipelineTelemetry
 from agent_recall.ingest.base import RawMessage, RawSession, SessionIngester
 from agent_recall.llm.base import LLMProvider, LLMRateLimitError, LLMResponse, Message
-from agent_recall.storage.models import Chunk, ChunkSource, SemanticLabel
+from agent_recall.storage.models import Chunk, ChunkSource, CurationStatus, SemanticLabel
 
 
 class AdaptiveLLM(LLMProvider):
@@ -233,6 +233,56 @@ async def test_auto_sync_processes_then_skips_duplicates(storage, files, tmp_pat
     assert second["sessions_skipped"] == 1
     assert second["sessions_already_processed"] == 1
     assert second["session_diagnostics"][0]["status"] == "skipped_already_processed"
+
+
+@pytest.mark.asyncio
+async def test_auto_sync_auto_approves_extracted_entries_when_curation_mode_disabled(
+    storage,
+    files,
+    tmp_path: Path,
+) -> None:
+    files.write_config({"storage": {"curation_mode": False}})
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[FakeIngester("cursor", [session_path])],
+    )
+
+    results = await sync.sync()
+    assert results["sessions_processed"] == 1
+    assert results["learnings_extracted"] == 1
+    assert storage.list_entries_by_curation_status(CurationStatus.PENDING) == []
+    approved = storage.list_entries_by_curation_status(CurationStatus.APPROVED)
+    assert len(approved) == 1
+
+
+@pytest.mark.asyncio
+async def test_auto_sync_keeps_extracted_entries_pending_when_curation_mode_enabled(
+    storage,
+    files,
+    tmp_path: Path,
+) -> None:
+    files.write_config({"storage": {"curation_mode": True}})
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[FakeIngester("cursor", [session_path])],
+    )
+
+    results = await sync.sync()
+    assert results["sessions_processed"] == 1
+    assert results["learnings_extracted"] == 1
+    pending = storage.list_entries_by_curation_status(CurationStatus.PENDING)
+    assert len(pending) == 1
+    assert storage.list_entries_by_curation_status(CurationStatus.APPROVED) == []
 
 
 @pytest.mark.asyncio
