@@ -1006,6 +1006,42 @@ def test_cli_memory_mode_and_vector_migration() -> None:
         assert prune.exit_code == 0
 
 
+def test_cli_memory_migrate_vectors_uses_service(monkeypatch) -> None:
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        captured: dict[str, object] = {}
+
+        class FakeMigrationService:
+            def __init__(self, **kwargs):  # noqa: ANN003
+                captured["init_kwargs"] = kwargs
+
+            def migrate(self, request):  # noqa: ANN001
+                captured["request"] = request
+                return {
+                    "rows_discovered": 4,
+                    "rows_normalized": 3,
+                    "rows_migrated": 2,
+                    "rows_written": 0,
+                    "redacted_rows": 1,
+                    "embedding_provider": "local",
+                    "vector_backend": "local",
+                    "estimated_tokens": 10,
+                    "estimated_cost_usd": 0.0,
+                    "dry_run": True,
+                }
+
+        monkeypatch.setattr(cli_main, "VectorMigrationService", FakeMigrationService)
+
+        result = runner.invoke(
+            cli_main.app,
+            ["memory", "migrate-vectors", "--dry-run", "--format", "json"],
+        )
+        assert result.exit_code == 0
+        assert "request" in captured
+        payload = json.loads(result.output)
+        assert payload["rows_discovered"] == 4
+
+
 def test_cli_curation_list_renders_pending_entries() -> None:
     with runner.isolated_filesystem():
         assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
@@ -1198,21 +1234,50 @@ def test_cli_refresh_context_adapter_payload_not_duplicated() -> None:
         assert payload["context"].count("## Guardrails") == 1
 
 
+def test_cli_refresh_context_uses_bundle_helper(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_assemble_standard_context(**_kwargs):  # noqa: ANN003
+        return "## Guardrails\nFrom helper"
+
+    def fake_write_context_bundle(request):  # noqa: ANN001
+        captured["request"] = request
+        output_dir = Path(".agent") / "context"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        markdown_path = output_dir / "context.md"
+        json_path = output_dir / "context.json"
+        markdown_path.write_text(request.context)
+        json_path.write_text("{}")
+        return SimpleNamespace(
+            markdown_path=markdown_path,
+            json_path=json_path,
+            refreshed_at=datetime.now(UTC),
+            adapters_written={},
+        )
+
+    monkeypatch.setattr(cli_main, "assemble_standard_context", fake_assemble_standard_context)
+    monkeypatch.setattr(cli_main, "write_context_bundle", fake_write_context_bundle)
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        result = runner.invoke(cli_main.app, ["context", "refresh", "--task", "helper test"])
+        assert result.exit_code == 0
+        assert "request" in captured
+        request = captured["request"]
+        assert getattr(request, "task", None) == "helper test"
+
+
 def test_cli_refresh_context_retries_transient_failure(monkeypatch) -> None:
     attempts = {"count": 0}
 
-    class FlakyContextAssembler:
-        def __init__(self, *_args, **_kwargs):
-            pass
+    def flaky_assemble_standard_context(*, task=None, **_kwargs):  # noqa: ANN001
+        _ = task
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise RuntimeError("temporary context failure")
+        return "## Guardrails\nRecovered context"
 
-        def assemble(self, task: str | None = None) -> str:
-            _ = task
-            attempts["count"] += 1
-            if attempts["count"] < 3:
-                raise RuntimeError("temporary context failure")
-            return "## Guardrails\nRecovered context"
-
-    monkeypatch.setattr(cli_main, "ContextAssembler", FlakyContextAssembler)
+    monkeypatch.setattr(cli_main, "assemble_standard_context", flaky_assemble_standard_context)
     monkeypatch.setattr(cli_main.time, "sleep", lambda _seconds: None)
 
     with runner.isolated_filesystem():
@@ -1226,16 +1291,12 @@ def test_cli_refresh_context_retries_transient_failure(monkeypatch) -> None:
 def test_cli_refresh_context_reports_retry_diagnostics_on_failure(monkeypatch) -> None:
     attempts = {"count": 0}
 
-    class BrokenContextAssembler:
-        def __init__(self, *_args, **_kwargs):
-            pass
+    def broken_assemble_standard_context(*, task=None, **_kwargs):  # noqa: ANN001
+        _ = task
+        attempts["count"] += 1
+        raise ValueError("assemble exploded")
 
-        def assemble(self, task: str | None = None) -> str:
-            _ = task
-            attempts["count"] += 1
-            raise ValueError("assemble exploded")
-
-    monkeypatch.setattr(cli_main, "ContextAssembler", BrokenContextAssembler)
+    monkeypatch.setattr(cli_main, "assemble_standard_context", broken_assemble_standard_context)
     monkeypatch.setattr(cli_main.time, "sleep", lambda _seconds: None)
 
     with runner.isolated_filesystem():

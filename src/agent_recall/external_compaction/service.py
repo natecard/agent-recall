@@ -3,13 +3,13 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
-import re
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_recall.core import tier_notes
 from agent_recall.core.guardrail_enforcement import (
     GuardrailSuppressionStore,
     evaluate_guardrail_text,
@@ -35,100 +35,30 @@ _SUPPORTED_TIERS = (
 )
 _QUEUE_STATES = {"pending", "approved", "rejected", "applied"}
 _CONFLICT_POLICIES = {"prefer_newest", "queue_for_review"}
-_NEGATIVE_POLARITY_TOKENS = {
-    "avoid",
-    "ban",
-    "deny",
-    "disable",
-    "dont",
-    "never",
-    "no",
-    "not",
-    "without",
-}
-_POSITIVE_POLARITY_TOKENS = {
-    "always",
-    "enable",
-    "ensure",
-    "must",
-    "prefer",
-    "require",
-    "should",
-    "use",
-}
-_STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "as",
-    "at",
-    "be",
-    "for",
-    "from",
-    "in",
-    "is",
-    "it",
-    "of",
-    "on",
-    "or",
-    "that",
-    "the",
-    "this",
-    "to",
-    "with",
-}
-_BULLET_PREFIX_RE = re.compile(r"^\s*-\s*\[[A-Z_]+\]\s*", re.IGNORECASE)
-_RECENT_PREFIX_RE = re.compile(r"^\s*\*\*\d{4}-\d{2}-\d{2}\*\*:\s*")
-_TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
 def _semantic_tokens(text: str) -> list[str]:
-    cleaned = _BULLET_PREFIX_RE.sub("", text.strip().lower())
-    cleaned = _RECENT_PREFIX_RE.sub("", cleaned)
-    return _TOKEN_RE.findall(cleaned)
+    return tier_notes.semantic_tokens(text)
 
 
 def _semantic_key(text: str) -> str:
-    return " ".join(_semantic_tokens(text))
+    return tier_notes.semantic_key(text)
 
 
 def _topic_key(text: str) -> str:
-    tokens = _semantic_tokens(text)
-    reduced = [
-        token
-        for token in tokens
-        if token not in _STOPWORDS
-        and token not in _NEGATIVE_POLARITY_TOKENS
-        and token not in _POSITIVE_POLARITY_TOKENS
-    ]
-    if not reduced:
-        reduced = [token for token in tokens if token not in _STOPWORDS]
-    return " ".join(reduced[:10])
+    return tier_notes.topic_key(text)
 
 
 def _polarity(text: str) -> str:
-    tokens = set(_semantic_tokens(text))
-    has_negative = bool(tokens.intersection(_NEGATIVE_POLARITY_TOKENS))
-    has_positive = bool(tokens.intersection(_POSITIVE_POLARITY_TOKENS))
-    if has_negative and not has_positive:
-        return "negative"
-    if has_positive and not has_negative:
-        return "positive"
-    return "neutral"
+    return tier_notes.polarity(text)
 
 
 def _token_set(text: str) -> set[str]:
-    return {token for token in _semantic_tokens(text) if token not in _STOPWORDS}
+    return tier_notes.semantic_token_set(text)
 
 
 def _jaccard_similarity(left: set[str], right: set[str]) -> float:
-    if not left or not right:
-        return 0.0
-    union = left | right
-    if not union:
-        return 0.0
-    return len(left & right) / len(union)
+    return tier_notes.jaccard_similarity(left, right)
 
 
 def _is_candidate_line(line: str) -> bool:

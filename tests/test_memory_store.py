@@ -17,6 +17,11 @@ def test_markdown_memory_store_preserves_markdown_behavior(storage, files) -> No
         note_line="- Keep tests deterministic",
     )
     assert duplicate is False
+    spacing_duplicate = store.write_tier_note(
+        tier=KnowledgeTier.GUARDRAILS,
+        note_line="-   KEEP   tests     deterministic",
+    )
+    assert spacing_duplicate is False
     assert "Keep tests deterministic" in store.read_tier(KnowledgeTier.GUARDRAILS)
 
 

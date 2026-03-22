@@ -35,10 +35,13 @@ from agent_recall.cli import ralph as ralph_cli
 from agent_recall.cli.banner import print_banner
 from agent_recall.cli.command_contract import command_parity_report, get_command_contract
 from agent_recall.cli.commands.context_flow import (
+    ContextBundleWriteRequest,
     ContextRequest,
+    assemble_standard_context,
     context_result_json_payload,
     execute_context_request,
     render_context_result_markdown,
+    write_context_bundle,
 )
 from agent_recall.cli.commands.external_compaction_queue_flow import (
     ExternalCompactionQueueAdapter,
@@ -63,7 +66,7 @@ from agent_recall.cli.tui import get_palette_actions
 from agent_recall.cli.tui import router as tui_router
 from agent_recall.cli.tui.commands.help_text import build_tui_help_lines
 from agent_recall.cli.tui.views import DashboardRenderContext, build_tui_dashboard
-from agent_recall.core.adapters import get_default_adapters, write_adapter_payloads
+from agent_recall.core.adapters import get_default_adapters
 from agent_recall.core.background_sync import BackgroundSyncManager
 from agent_recall.core.compact import CompactionEngine
 from agent_recall.core.config import load_config
@@ -135,13 +138,10 @@ from agent_recall.llm import (
 )
 from agent_recall.llm.coding_cli import CodingCLIProvider
 from agent_recall.memory import (
-    ExternalEmbeddingProvider,
-    LocalEmbeddingProvider,
     LocalVectorStore,
-    MarkdownMemoryStore,
-    TurboPufferVectorStore,
-    VectorRecord,
+    MemoryPolicy,
 )
+from agent_recall.memory.migration import VectorMigrationRequest, VectorMigrationService
 from agent_recall.ralph.costs import format_usd, summarize_costs
 from agent_recall.ralph.iteration_store import IterationOutcome, IterationReportStore
 from agent_recall.storage import create_storage_backend
@@ -954,75 +954,8 @@ def _read_memory_config(files: FileStorage) -> dict[str, Any]:
     return memory_cfg if isinstance(memory_cfg, dict) else {}
 
 
-def _compile_redaction_patterns(patterns: object) -> list[re.Pattern[str]]:
-    if not isinstance(patterns, list):
-        return []
-    compiled: list[re.Pattern[str]] = []
-    for raw in patterns:
-        if not isinstance(raw, str):
-            continue
-        text = raw.strip()
-        if not text:
-            continue
-        try:
-            compiled.append(re.compile(text, flags=re.IGNORECASE))
-        except re.error:
-            continue
-    return compiled
-
-
-def _redact_text(text: str, patterns: list[re.Pattern[str]]) -> tuple[str, bool]:
-    redacted = text
-    changed = False
-    for pattern in patterns:
-        redacted_next = pattern.sub("[REDACTED]", redacted)
-        if redacted_next != redacted:
-            changed = True
-            redacted = redacted_next
-    return redacted, changed
-
-
-def _collect_memory_rows(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    tiers = snapshot.get("tiers")
-    if isinstance(tiers, dict):
-        for tier_name, content in tiers.items():
-            if not isinstance(content, str):
-                continue
-            for line in content.splitlines():
-                stripped = line.strip()
-                if not stripped.startswith("- "):
-                    continue
-                text = stripped[2:].strip()
-                if not text:
-                    continue
-                row_id = str(abs(hash(f"{tier_name}:{text}")))
-                rows.append(
-                    {
-                        "id": f"tier-{row_id}",
-                        "text": text,
-                        "label": str(tier_name).lower(),
-                        "tags": [str(tier_name).lower()],
-                    }
-                )
-
-    chunks = snapshot.get("chunks")
-    if isinstance(chunks, list):
-        for chunk in chunks:
-            if not isinstance(chunk, dict):
-                continue
-            text = str(chunk.get("content", "")).strip()
-            if not text:
-                continue
-            rows.append(
-                {
-                    "id": str(chunk.get("id", "")) or f"chunk-{abs(hash(text))}",
-                    "text": text,
-                    "label": str(chunk.get("label", "unknown")),
-                    "tags": [str(tag) for tag in chunk.get("tags", []) if str(tag).strip()],
-                }
-            )
-    return rows
+def _memory_policy(files: FileStorage) -> MemoryPolicy:
+    return MemoryPolicy.from_memory_config(_read_memory_config(files))
 
 
 def _normalize_tui_output_line(line: str) -> str:
@@ -1538,12 +1471,6 @@ def refresh_context(
     except ValueError as exc:
         console.print(f"[error]{exc}[/error]")
         raise typer.Exit(1) from None
-    context_asm = ContextAssembler(
-        storage,
-        files,
-        retriever=retriever,
-        retrieval_top_k=retrieval_cfg.top_k,
-    )
     config = load_config(AGENT_DIR)
     adapter_cfg = config.adapters
     llm_cfg = config.llm
@@ -1556,31 +1483,27 @@ def refresh_context(
     retry_backoff_seconds = 1.0
     diagnostics: list[str] = []
     output = ""
+    adapters_written: dict[str, Path] = {}
 
     for attempt in range(1, retry_attempts + 1):
         try:
-            output = context_asm.assemble(task=resolved_task)
-
-            output_dir.mkdir(parents=True, exist_ok=True)
-            markdown_path.write_text(output)
-            refreshed_at = datetime.now(UTC)
-            repo_path = Path.cwd().resolve()
-            payload = {
-                "task": resolved_task,
-                "active_session_id": str(active.id) if active else None,
-                "repo_path": str(repo_path),
-                "refreshed_at": refreshed_at.isoformat(),
-                "context": output,
-            }
-            json_path.write_text(json.dumps(payload, indent=2))
-            if adapter_payloads:
-                write_adapter_payloads(
+            output = assemble_standard_context(
+                storage=storage,
+                files=files,
+                retriever=retriever,
+                retrieval_top_k=retrieval_cfg.top_k,
+                task=resolved_task,
+            )
+            bundle = write_context_bundle(
+                ContextBundleWriteRequest(
                     context=output,
                     task=resolved_task,
                     active_session_id=str(active.id) if active else None,
-                    repo_path=repo_path,
-                    refreshed_at=refreshed_at,
-                    output_dir=Path(adapter_cfg.output_dir),
+                    repo_path=Path.cwd().resolve(),
+                    output_dir=output_dir,
+                    refreshed_at=datetime.now(UTC),
+                    adapter_payloads=bool(adapter_payloads),
+                    adapter_output_dir=Path(adapter_cfg.output_dir),
                     adapters=get_default_adapters(),
                     token_budget=adapter_cfg.token_budget,
                     per_adapter_budgets=adapter_cfg.per_adapter_token_budget,
@@ -1589,6 +1512,10 @@ def refresh_context(
                     provider=llm_cfg.provider,
                     model=llm_cfg.model,
                 )
+            )
+            markdown_path = bundle.markdown_path
+            json_path = bundle.json_path
+            adapters_written = bundle.adapters_written
             break
         except Exception as exc:  # noqa: BLE001
             diagnostics.append(
@@ -1611,7 +1538,7 @@ def refresh_context(
         f"  JSON:     {json_path}",
     ]
     if adapter_payloads:
-        adapter_names = ", ".join(adapter.name for adapter in get_default_adapters())
+        adapter_names = ", ".join(adapters_written) if adapters_written else "-"
         adapter_dir = Path(adapter_cfg.output_dir)
         lines.append(f"  Adapters: {adapter_names}")
         lines.append(f"  Adapter dir: {adapter_dir}")
@@ -5802,13 +5729,15 @@ def memory_pack_export(
     _get_theme_manager()
     storage = get_storage()
     files = get_files()
-    pack = build_memory_pack(storage, files)
+    pack = build_memory_pack(storage, files, policy=_memory_policy(files))
     write_memory_pack(output, pack)
+    policy_report = pack.metadata.get("policy", {}) if isinstance(pack.metadata, dict) else {}
     payload = {
         "path": str(output),
         "format": PACK_FORMAT,
         "version": PACK_VERSION,
         "chunk_count": len(pack.chunks),
+        "policy": policy_report,
     }
 
     output_format = format.strip().lower()
@@ -5818,12 +5747,21 @@ def memory_pack_export(
     if output_format != "table":
         console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
         raise typer.Exit(1)
+    warnings_count = 0
+    if isinstance(policy_report, dict):
+        warnings_value = policy_report.get("warnings", [])
+        if isinstance(warnings_value, list):
+            warnings_count = len(warnings_value)
+    lines = [
+        f"Path: {payload['path']}",
+        f"Format: {payload['format']}",
+        f"Version: {payload['version']}",
+        f"Chunks: {payload['chunk_count']}",
+        f"Policy warnings: {warnings_count}",
+    ]
     console.print(
         Panel.fit(
-            f"Path: {payload['path']}\n"
-            f"Format: {payload['format']}\n"
-            f"Version: {payload['version']}\n"
-            f"Chunks: {payload['chunk_count']}",
+            "\n".join(lines),
             title="memory-pack export",
         )
     )
@@ -5912,6 +5850,7 @@ def memory_pack_import_cmd(
             files,
             pack,
             strategy=merge_strategy,
+            policy=_memory_policy(files),
         )
     except ValueError as exc:
         console.print(f"[error]{exc}[/error]")
@@ -6001,135 +5940,30 @@ def memory_migrate_vectors(
     files = get_files()
     memory_cfg = _read_memory_config(files)
     config = load_config(AGENT_DIR)
-    tenant_id = config.storage.shared.tenant_id
-    project_id = config.storage.shared.project_id
-    markdown_store = MarkdownMemoryStore(storage, files)
-    snapshot = markdown_store.export_snapshot()
-    rows = _collect_memory_rows(snapshot)
-
-    privacy_cfg = memory_cfg.get("privacy", {}) if isinstance(memory_cfg, dict) else {}
-    cost_cfg = memory_cfg.get("cost", {}) if isinstance(memory_cfg, dict) else {}
-    redaction_patterns = _compile_redaction_patterns(
-        privacy_cfg.get("redaction_patterns", []) if isinstance(privacy_cfg, dict) else []
+    service = VectorMigrationService(
+        storage=storage,
+        files=files,
+        memory_cfg=memory_cfg,
+        policy=_memory_policy(files),
+        tenant_id=config.storage.shared.tenant_id,
+        project_id=config.storage.shared.project_id,
+        embedding_dimensions=config.retrieval.embedding_dimensions,
+        vector_db_path=AGENT_DIR / "vector.db",
     )
-    redacted_rows = 0
-    normalized_rows: list[dict[str, Any]] = []
-    seen_text: set[str] = set()
-    for row in rows:
-        text = str(row.get("text", "")).strip()
-        if not text:
-            continue
-        redacted_text, changed = _redact_text(text, redaction_patterns)
-        if changed:
-            redacted_rows += 1
-        dedupe_key = redacted_text.lower()
-        if dedupe_key in seen_text:
-            continue
-        seen_text.add(dedupe_key)
-        row["text"] = redacted_text
-        normalized_rows.append(row)
-
-    configured_limit = (
-        int(cost_cfg.get("max_vector_records", 20_000)) if isinstance(cost_cfg, dict) else 20_000
-    )
-    effective_limit = max_records if max_records is not None else configured_limit
-    effective_rows = normalized_rows[: max(1, int(effective_limit))]
-
-    retrieval_cfg = config.retrieval
-    embedding_provider_name = str(memory_cfg.get("embedding_provider", "local")).strip().lower()
-    if embedding_provider_name == "external":
-        base_url = str(memory_cfg.get("external_embedding_base_url") or "").strip()
-        if not base_url:
-            console.print(
-                "[error]memory.external_embedding_base_url is required "
-                "for external provider.[/error]"
+    try:
+        payload = service.migrate(
+            VectorMigrationRequest(
+                dry_run=dry_run,
+                max_records=max_records,
+                batch_size=batch_size,
             )
-            raise typer.Exit(1)
-        provider = ExternalEmbeddingProvider(
-            base_url=base_url,
-            api_key_env=str(memory_cfg.get("external_embedding_api_key_env", "OPENAI_API_KEY")),
-            model=str(memory_cfg.get("external_embedding_model", "text-embedding-3-small")),
-            timeout_seconds=float(memory_cfg.get("external_embedding_timeout_seconds", 10.0)),
-            max_cost_usd=float(cost_cfg.get("max_external_embedding_usd", 1.0))
-            if isinstance(cost_cfg, dict)
-            else 1.0,
         )
-    else:
-        provider = LocalEmbeddingProvider(
-            model_path=(
-                str(memory_cfg.get("local_model_path"))
-                if memory_cfg.get("local_model_path")
-                else None
-            ),
-            dimensions=retrieval_cfg.embedding_dimensions,
-        )
-
-    migration_batch = batch_size or int(memory_cfg.get("migration_batch_size", 100))
-    migration_batch = max(1, int(migration_batch))
-    vectors: list[VectorRecord] = []
-    total_tokens = 0
-    total_cost = 0.0
-    for start in range(0, len(effective_rows), migration_batch):
-        chunk = effective_rows[start : start + migration_batch]
-        texts = [str(item["text"]) for item in chunk]
-        response = provider.embed_texts(texts)
-        total_tokens += response.estimated_tokens
-        total_cost += response.estimated_cost_usd
-        for row, embedding in zip(chunk, response.vectors, strict=False):
-            vectors.append(
-                VectorRecord(
-                    id=str(row["id"]),
-                    tenant_id=tenant_id,
-                    project_id=project_id,
-                    text=str(row["text"]),
-                    label=str(row.get("label", "unknown")),
-                    tags=[str(tag) for tag in row.get("tags", []) if str(tag).strip()],
-                    embedding=embedding,
-                    metadata={"source": "migration"},
-                    updated_at=datetime.now(UTC).isoformat(),
-                )
-            )
-
-    backend = str(memory_cfg.get("vector_backend", "local")).strip().lower()
-    written = 0
-    if not dry_run:
-        if backend == "turbopuffer":
-            turbo_cfg = memory_cfg.get("turbopuffer", {})
-            if not isinstance(turbo_cfg, dict):
-                turbo_cfg = {}
-            base_url = str(turbo_cfg.get("base_url") or "").strip()
-            if not base_url:
-                console.print("[error]memory.turbopuffer.base_url is required.[/error]")
-                raise typer.Exit(1)
-            vector_store = TurboPufferVectorStore(
-                base_url=base_url,
-                api_key_env=str(turbo_cfg.get("api_key_env", "TURBOPUFFER_API_KEY")),
-                tenant_id=tenant_id,
-                project_id=project_id,
-                timeout_seconds=float(turbo_cfg.get("timeout_seconds", 10.0)),
-                retry_attempts=int(turbo_cfg.get("retry_attempts", 2)),
-            )
-            written = vector_store.upsert_records(vectors)
-        else:
-            vector_store = LocalVectorStore(
-                AGENT_DIR / "vector.db",
-                tenant_id=tenant_id,
-                project_id=project_id,
-            )
-            written = vector_store.upsert_records(vectors)
-
-    payload = {
-        "rows_discovered": len(rows),
-        "rows_normalized": len(normalized_rows),
-        "rows_migrated": len(vectors),
-        "rows_written": written,
-        "redacted_rows": redacted_rows,
-        "embedding_provider": embedding_provider_name,
-        "vector_backend": backend,
-        "estimated_tokens": total_tokens,
-        "estimated_cost_usd": total_cost,
-        "dry_run": dry_run,
-    }
+    except ValueError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise typer.Exit(1) from None
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[error]memory migrate-vectors failed: {exc}[/error]")
+        raise typer.Exit(1) from None
     output_format = format.strip().lower()
     if output_format == "json":
         typer.echo(json.dumps(payload, indent=2))
@@ -6144,7 +5978,7 @@ def memory_migrate_vectors(
             f"Rows migrated: {payload['rows_migrated']}\n"
             f"Rows written: {payload['rows_written']}\n"
             f"Redacted rows: {payload['redacted_rows']}\n"
-            f"Provider/backend: {embedding_provider_name}/{backend}\n"
+            f"Provider/backend: {payload['embedding_provider']}/{payload['vector_backend']}\n"
             f"Estimated tokens: {payload['estimated_tokens']}\n"
             f"Estimated cost USD: {payload['estimated_cost_usd']:.4f}\n"
             f"Dry run: {payload['dry_run']}",
@@ -6171,11 +6005,8 @@ def memory_prune_vectors(
     if backend != "local":
         console.print("[error]prune-vectors currently supports local vector backend only.[/error]")
         raise typer.Exit(1)
-    privacy_cfg = memory_cfg.get("privacy", {}) if isinstance(memory_cfg, dict) else {}
-    configured_days = (
-        int(privacy_cfg.get("retention_days", 90)) if isinstance(privacy_cfg, dict) else 90
-    )
-    effective_days = retention_days if retention_days is not None else configured_days
+    policy = _memory_policy(files)
+    effective_days = policy.resolve_retention_days(retention_days)
     vector_store = LocalVectorStore(
         AGENT_DIR / "vector.db",
         tenant_id=config.storage.shared.tenant_id,

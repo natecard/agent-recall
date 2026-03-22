@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_recall.core.sync import AutoSync
+from agent_recall.core.sync import AutoSync, SyncDiscoverStage, SyncFilterStage
+from agent_recall.core.telemetry import PipelineTelemetry
 from agent_recall.ingest.base import RawMessage, RawSession, SessionIngester
 from agent_recall.llm.base import LLMProvider, LLMRateLimitError, LLMResponse, Message
 from agent_recall.storage.models import Chunk, ChunkSource, SemanticLabel
@@ -856,3 +857,143 @@ async def test_reset_full_clears_everything(storage, files, tmp_path: Path) -> N
     # Check that we have fresh checkpoint
     checkpoint = storage.get_session_checkpoint("cursor-cursor-session")
     assert checkpoint is not None
+
+
+class BrokenParseIngester(FakeIngester):
+    def parse_session(self, path: Path) -> RawSession:
+        _ = path
+        raise ValueError("broken parse")
+
+
+class SingleMessageIngester(FakeIngester):
+    def parse_session(self, path: Path) -> RawSession:
+        return RawSession(
+            source=self.source_name,
+            session_id=self.get_session_id(path),
+            project_path=path.parent,
+            started_at=datetime.now(UTC),
+            ended_at=datetime.now(UTC),
+            messages=[RawMessage(role="user", content="only one message")],
+        )
+
+
+def test_sync_stage_discover_and_filter_contract(storage, files, tmp_path: Path) -> None:
+    cursor_session = tmp_path / "cursor-session"
+    claude_session = tmp_path / "claude-session"
+    cursor_session.write_text("cursor")
+    claude_session.write_text("claude")
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[
+            FakeIngester("cursor", [cursor_session]),
+            FakeIngester("claude-code", [claude_session]),
+        ],
+    )
+
+    discover_stage = sync._run_discover_stage(since=None, sources=["cursor"])
+    assert isinstance(discover_stage, SyncDiscoverStage)
+    assert [ingester.source_name for ingester in discover_stage.active_ingesters] == ["cursor"]
+    assert len(discover_stage.candidates) == 1
+
+    filter_stage = sync._run_filter_stage(
+        discover_stage=discover_stage,
+        session_ids=None,
+        max_sessions=1,
+    )
+    assert isinstance(filter_stage, SyncFilterStage)
+    assert len(filter_stage.candidates) == 1
+    assert not filter_stage.missing_session_ids
+
+
+def test_sync_session_filter_stage_failed_parse(storage, files, tmp_path: Path) -> None:
+    broken_session = tmp_path / "broken-session"
+    broken_session.write_text("broken")
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[BrokenParseIngester("cursor", [broken_session])],
+    )
+    discover_stage = sync._run_discover_stage(since=None, sources=["cursor"])
+    candidate = discover_stage.candidates[0]
+    stage = sync._run_session_filter_stage(candidate, reset_checkpoints=False)
+    assert stage.status == "failed_parse"
+    assert stage.error == "broken parse"
+
+
+def test_sync_session_filter_stage_checkpoint_branches(storage, files, tmp_path: Path) -> None:
+    single = tmp_path / "single-session"
+    single.write_text("single")
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=AdaptiveLLM(),
+        ingesters=[SingleMessageIngester("cursor", [single])],
+    )
+    discover_stage = sync._run_discover_stage(since=None, sources=["cursor"])
+    candidate = discover_stage.candidates[0]
+
+    first = sync._run_session_filter_stage(candidate, reset_checkpoints=False)
+    assert first.status == "skip_empty"
+    assert first.raw_session is not None
+    assert first.content_hash is not None
+    sync._persist_empty_session(
+        candidate.session_id,
+        raw_session=first.raw_session,
+        content_hash=first.content_hash,
+        is_fully_processed=first.is_fully_processed,
+    )
+
+    second = sync._run_session_filter_stage(candidate, reset_checkpoints=False)
+    assert second.status == "skip_already_processed"
+    assert second.message_count == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_extract_and_persist_stage_contracts(
+    storage,
+    files,
+    tmp_path: Path,
+) -> None:
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+    llm = FlakyRateLimitedLLM(fail_attempts=1)
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=llm,
+        ingesters=[FakeIngester("cursor", [session_path])],
+    )
+    sync.extract_retry_backoff_seconds = 0
+    discover_stage = sync._run_discover_stage(since=None, sources=["cursor"])
+    candidate = discover_stage.candidates[0]
+    filter_stage = sync._run_session_filter_stage(candidate, reset_checkpoints=False)
+    assert filter_stage.status == "process"
+    assert filter_stage.raw_session is not None
+    assert filter_stage.content_hash is not None
+
+    telemetry = PipelineTelemetry.from_config(
+        agent_dir=files.agent_dir,
+        config=files.read_config(),
+    )
+    extract_stage = await sync._run_extract_stage(
+        candidate,
+        raw_session=filter_stage.raw_session,
+        telemetry=telemetry,
+        run_id="sync-stage-test",
+    )
+    assert extract_stage.success is True
+    assert len(extract_stage.entries) >= 1
+
+    persist_stage = sync._run_persist_stage(
+        candidate,
+        raw_session=filter_stage.raw_session,
+        content_hash=filter_stage.content_hash,
+        is_fully_processed=filter_stage.is_fully_processed,
+        entries=extract_stage.entries,
+    )
+    assert persist_stage.entries_written == len(extract_stage.entries)
+    assert storage.get_session_checkpoint(candidate.session_id) is not None
+    assert storage.is_session_processed(candidate.session_id) is True

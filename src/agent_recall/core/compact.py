@@ -9,6 +9,7 @@ from typing import Any
 from agent_recall.core.embeddings import generate_embedding
 from agent_recall.core.semantic_embedder import embed_single, get_embedding_dimension
 from agent_recall.core.tier_format import is_ralph_entry_start, parse_tier_content
+from agent_recall.core.tier_notes import normalize_tier_content, normalize_tier_line
 from agent_recall.llm.base import LLMProvider, Message
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
@@ -301,11 +302,11 @@ class CompactionEngine:
 
     @staticmethod
     def _normalize_line(line: str) -> str:
-        return " ".join(line.strip().lower().split())
+        return normalize_tier_line(line)
 
     @staticmethod
     def _normalize_content(content: str) -> str:
-        return " ".join(content.strip().lower().split())
+        return normalize_tier_content(content)
 
     def _promoted_style_entries(
         self,

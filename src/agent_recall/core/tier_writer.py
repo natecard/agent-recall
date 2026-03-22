@@ -18,6 +18,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from agent_recall.core.tier_notes import normalize_tier_content
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 
 
@@ -123,7 +124,7 @@ _DUPLICATE_RE = re.compile(r"\s+")
 
 def _normalize_for_dedup(text: str) -> str:
     """Normalize text for duplicate detection."""
-    return _DUPLICATE_RE.sub(" ", text.strip().lower())
+    return normalize_tier_content(_DUPLICATE_RE.sub(" ", text))
 
 
 def _compute_content_hash(text: str) -> str:

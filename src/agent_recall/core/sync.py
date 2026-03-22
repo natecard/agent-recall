@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from agent_recall.core.compact import CompactionEngine
 from agent_recall.core.embedding_indexer import EmbeddingIndexer
@@ -29,6 +29,47 @@ class _SessionCandidate:
     session_path: Path
     session_id: str
     sort_timestamp: float
+
+
+@dataclass(frozen=True)
+class SyncDiscoverStage:
+    active_ingesters: list[SessionIngester]
+    candidates: list[_SessionCandidate]
+    errors: list[str]
+
+
+@dataclass(frozen=True)
+class SyncFilterStage:
+    candidates: list[_SessionCandidate]
+    missing_session_ids: list[str]
+
+
+@dataclass(frozen=True)
+class SessionFilterStage:
+    status: Literal["process", "skip_already_processed", "skip_empty", "failed_parse"]
+    checkpoint: SessionCheckpoint | None
+    is_fully_processed: bool
+    raw_session: RawSession | None
+    original_message_count: int | None
+    message_count: int | None
+    messages_filtered: bool
+    content_hash: str | None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class SessionExtractStage:
+    success: bool
+    entries: list[Any]
+    batch_events: list[dict[str, Any]]
+    error: str | None
+    duration_ms: float
+
+
+@dataclass(frozen=True)
+class SessionPersistStage:
+    entries_written: int
+    duration_ms: float
 
 
 class AutoSync:
@@ -68,14 +109,144 @@ class AutoSync:
             msg = "LLM provider is required for sync"
             raise RuntimeError(msg)
 
-        extractor = self.extractor
         telemetry = PipelineTelemetry.from_config(
             agent_dir=self.files.agent_dir,
             config=self.files.read_config(),
         )
         run_id = telemetry_run_id or telemetry.create_run_id("sync")
+        results = self._initial_sync_results()
 
-        results: dict[str, Any] = {
+        self._apply_reset_stage(
+            reset_full=reset_full,
+            reset_checkpoints=reset_checkpoints,
+            sources=sources,
+            session_ids=session_ids,
+        )
+        discover_stage = self._run_discover_stage(since=since, sources=sources)
+        filter_stage = self._run_filter_stage(
+            discover_stage=discover_stage,
+            session_ids=session_ids,
+            max_sessions=max_sessions,
+        )
+        self._report_discover_stage(
+            results=results,
+            discover_stage=discover_stage,
+            filter_stage=filter_stage,
+        )
+
+        for candidate in filter_stage.candidates:
+            source_results = results["by_source"][candidate.source_name]
+            filter_result = self._run_session_filter_stage(
+                candidate,
+                reset_checkpoints=reset_checkpoints,
+            )
+
+            if filter_result.status == "skip_already_processed":
+                self._report_skip_already_processed(
+                    results=results,
+                    source_results=source_results,
+                    candidate=candidate,
+                    message_count=filter_result.original_message_count,
+                )
+                continue
+
+            if filter_result.status == "skip_empty":
+                raw_session = filter_result.raw_session
+                content_hash = filter_result.content_hash
+                if raw_session is None or content_hash is None:
+                    msg = "Empty-session stage requires parsed session and content hash."
+                    raise RuntimeError(msg)
+                self._persist_empty_session(
+                    candidate.session_id,
+                    raw_session=raw_session,
+                    content_hash=content_hash,
+                    is_fully_processed=filter_result.is_fully_processed,
+                )
+                self._report_skip_empty(
+                    results=results,
+                    source_results=source_results,
+                    candidate=candidate,
+                    message_count=int(filter_result.message_count or 0),
+                    messages_filtered=filter_result.messages_filtered,
+                )
+                continue
+
+            if filter_result.status == "failed_parse":
+                error_message = filter_result.error or "parse failure"
+                self._report_failed_parse(
+                    results=results,
+                    candidate=candidate,
+                    telemetry=telemetry,
+                    run_id=run_id,
+                    error=error_message,
+                )
+                continue
+
+            raw_session = filter_result.raw_session
+            content_hash = filter_result.content_hash
+            if raw_session is None or content_hash is None:
+                msg = "Process stage requires parsed session and content hash."
+                raise RuntimeError(msg)
+
+            extract_stage = await self._run_extract_stage(
+                candidate,
+                raw_session=raw_session,
+                telemetry=telemetry,
+                run_id=run_id,
+            )
+            if not extract_stage.success:
+                self._report_failed_extraction(
+                    results=results,
+                    source_results=source_results,
+                    candidate=candidate,
+                    message_count=int(filter_result.message_count or 0),
+                    error=extract_stage.error,
+                )
+                continue
+
+            try:
+                persist_stage = self._run_persist_stage(
+                    candidate,
+                    raw_session=raw_session,
+                    content_hash=content_hash,
+                    is_fully_processed=filter_result.is_fully_processed,
+                    entries=extract_stage.entries,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._report_failed_parse(
+                    results=results,
+                    candidate=candidate,
+                    telemetry=telemetry,
+                    run_id=run_id,
+                    error=str(exc),
+                )
+                continue
+
+            telemetry.record_event(
+                run_id=run_id,
+                stage=PipelineStage.INGEST,
+                action=PipelineEventAction.COMPLETE,
+                success=True,
+                duration_ms=persist_stage.duration_ms,
+                metadata={
+                    "source": candidate.source_name,
+                    "session_id": candidate.session_id,
+                    "entries_written": persist_stage.entries_written,
+                },
+            )
+            self._report_processed(
+                results=results,
+                source_results=source_results,
+                candidate=candidate,
+                filter_stage=filter_result,
+                extract_stage=extract_stage,
+            )
+
+        return results
+
+    @staticmethod
+    def _initial_sync_results() -> dict[str, Any]:
+        return {
             "sessions_discovered": 0,
             "sessions_processed": 0,
             "sessions_skipped": 0,
@@ -89,287 +260,436 @@ class AutoSync:
             "errors": [],
         }
 
-        # Handle reset options
+    def _apply_reset_stage(
+        self,
+        *,
+        reset_full: bool,
+        reset_checkpoints: bool,
+        sources: list[str] | None,
+        session_ids: list[str] | None,
+    ) -> None:
         if reset_full:
             self.storage.clear_processed_sessions()
             self.storage.clear_session_checkpoints()
-        elif reset_checkpoints:
-            if session_ids:
-                for session_id in session_ids:
-                    self.storage.clear_session_checkpoints(source_session_id=session_id)
-            elif sources:
-                for source in sources:
-                    self.storage.clear_session_checkpoints(source=source)
-            else:
-                self.storage.clear_session_checkpoints()
+            return
+        if not reset_checkpoints:
+            return
+        if session_ids:
+            for session_id in session_ids:
+                self.storage.clear_session_checkpoints(source_session_id=session_id)
+            return
+        if sources:
+            for source in sources:
+                self.storage.clear_session_checkpoints(source=source)
+            return
+        self.storage.clear_session_checkpoints()
 
-        active_ingesters, candidates, discovery_errors = self._discover_candidates(
+    def _run_discover_stage(
+        self,
+        *,
+        since: datetime | None,
+        sources: list[str] | None,
+    ) -> SyncDiscoverStage:
+        active_ingesters, candidates, errors = self._discover_candidates(
             since=since,
             sources=sources,
         )
-        results["errors"].extend(discovery_errors)
-        self._seed_sync_source_results(results, active_ingesters)
-
-        selected_candidates, missing_ids = self._apply_candidate_filters(
+        return SyncDiscoverStage(
+            active_ingesters=active_ingesters,
             candidates=candidates,
+            errors=errors,
+        )
+
+    def _run_filter_stage(
+        self,
+        *,
+        discover_stage: SyncDiscoverStage,
+        session_ids: list[str] | None,
+        max_sessions: int | None,
+    ) -> SyncFilterStage:
+        candidates, missing_session_ids = self._apply_candidate_filters(
+            candidates=discover_stage.candidates,
             session_ids=session_ids,
             max_sessions=max_sessions,
         )
-        if missing_ids:
-            results["errors"].append(f"Requested session IDs not found: {', '.join(missing_ids)}")
+        return SyncFilterStage(candidates=candidates, missing_session_ids=missing_session_ids)
 
-        results["sessions_discovered"] = len(selected_candidates)
-        self._populate_source_discovery_counts(results, selected_candidates)
+    def _report_discover_stage(
+        self,
+        *,
+        results: dict[str, Any],
+        discover_stage: SyncDiscoverStage,
+        filter_stage: SyncFilterStage,
+    ) -> None:
+        results["errors"].extend(discover_stage.errors)
+        self._seed_sync_source_results(results, discover_stage.active_ingesters)
+        if filter_stage.missing_session_ids:
+            missing = ", ".join(filter_stage.missing_session_ids)
+            results["errors"].append(f"Requested session IDs not found: {missing}")
+        results["sessions_discovered"] = len(filter_stage.candidates)
+        self._populate_source_discovery_counts(results, filter_stage.candidates)
 
-        for candidate in selected_candidates:
-            source_results = results["by_source"][candidate.source_name]
+    def _run_session_filter_stage(
+        self,
+        candidate: _SessionCandidate,
+        *,
+        reset_checkpoints: bool,
+    ) -> SessionFilterStage:
+        checkpoint = self.storage.get_session_checkpoint(candidate.session_id)
+        is_fully_processed = self.storage.is_session_processed(candidate.session_id)
 
-            # Check for existing checkpoint to enable incremental sync
-            checkpoint = self.storage.get_session_checkpoint(candidate.session_id)
-            is_fully_processed = self.storage.is_session_processed(candidate.session_id)
+        if is_fully_processed and checkpoint is None and not reset_checkpoints:
+            return SessionFilterStage(
+                status="skip_already_processed",
+                checkpoint=checkpoint,
+                is_fully_processed=is_fully_processed,
+                raw_session=None,
+                original_message_count=None,
+                message_count=None,
+                messages_filtered=False,
+                content_hash=None,
+            )
 
-            # Skip only if fully processed AND no checkpoint (legacy) or content unchanged
-            # Don't skip if we're resetting checkpoints
-            if is_fully_processed and checkpoint is None and not reset_checkpoints:
-                source_results["skipped"] += 1
-                source_results["already_processed"] += 1
-                results["sessions_skipped"] += 1
-                results["sessions_already_processed"] += 1
-                results["session_diagnostics"].append(
-                    {
-                        "source": candidate.source_name,
-                        "session_id": candidate.session_id,
-                        "status": "skipped_already_processed",
-                        "message_count": None,
-                        "learnings_extracted": 0,
-                    }
-                )
-                continue
+        try:
+            raw_session = candidate.ingester.parse_session(candidate.session_path)
+        except Exception as exc:  # noqa: BLE001
+            return SessionFilterStage(
+                status="failed_parse",
+                checkpoint=checkpoint,
+                is_fully_processed=is_fully_processed,
+                raw_session=None,
+                original_message_count=None,
+                message_count=None,
+                messages_filtered=False,
+                content_hash=None,
+                error=str(exc),
+            )
 
+        original_message_count = len(raw_session.messages)
+        content_hash = self._compute_session_hash(raw_session)
+        if checkpoint and checkpoint.content_hash == content_hash:
+            return SessionFilterStage(
+                status="skip_already_processed",
+                checkpoint=checkpoint,
+                is_fully_processed=is_fully_processed,
+                raw_session=raw_session,
+                original_message_count=original_message_count,
+                message_count=original_message_count,
+                messages_filtered=False,
+                content_hash=content_hash,
+            )
+
+        filtered_session, messages_filtered = self._filter_messages_from_checkpoint(
+            raw_session,
+            checkpoint,
+        )
+        message_count = len(filtered_session.messages)
+        if message_count < 2:
+            return SessionFilterStage(
+                status="skip_empty",
+                checkpoint=checkpoint,
+                is_fully_processed=is_fully_processed,
+                raw_session=filtered_session,
+                original_message_count=original_message_count,
+                message_count=message_count,
+                messages_filtered=messages_filtered,
+                content_hash=content_hash,
+            )
+
+        return SessionFilterStage(
+            status="process",
+            checkpoint=checkpoint,
+            is_fully_processed=is_fully_processed,
+            raw_session=filtered_session,
+            original_message_count=original_message_count,
+            message_count=message_count,
+            messages_filtered=messages_filtered,
+            content_hash=content_hash,
+        )
+
+    def _persist_empty_session(
+        self,
+        session_id: str,
+        *,
+        raw_session: RawSession,
+        content_hash: str,
+        is_fully_processed: bool,
+    ) -> None:
+        self._update_checkpoint(session_id, raw_session, content_hash)
+        if not is_fully_processed:
+            self.storage.mark_session_processed(session_id)
+
+    async def _run_extract_stage(
+        self,
+        candidate: _SessionCandidate,
+        *,
+        raw_session: RawSession,
+        telemetry: PipelineTelemetry,
+        run_id: str,
+    ) -> SessionExtractStage:
+        extractor = self.extractor
+        if extractor is None:
+            msg = "LLM provider is required for sync extraction stage"
+            raise RuntimeError(msg)
+
+        batch_events: list[dict[str, Any]] = []
+        entries: list[Any] = []
+        extraction_error: str | None = None
+        extraction_started = time.perf_counter()
+        message_count = len(raw_session.messages)
+        self._emit_progress(
+            {
+                "event": "extraction_session_started",
+                "source": candidate.source_name,
+                "session_id": candidate.session_id,
+                "messages_total": message_count,
+            }
+        )
+
+        def _on_extract_progress(event: dict[str, Any]) -> None:
+            if event.get("event") == "extraction_batch_complete":
+                batch_events.append(event)
+            self._emit_progress(event)
+
+        for attempt in range(1, self.extract_retry_attempts + 1):
             try:
-                raw_session = candidate.ingester.parse_session(candidate.session_path)
-                original_message_count = len(raw_session.messages)
-
-                # Check for content changes using hash
-                content_hash = self._compute_session_hash(raw_session)
-                if checkpoint and checkpoint.content_hash == content_hash:
-                    # Content unchanged, skip - report as already_processed for compatibility
-                    source_results["skipped"] += 1
-                    source_results["already_processed"] += 1
-                    results["sessions_skipped"] += 1
-                    results["sessions_already_processed"] += 1
-                    results["session_diagnostics"].append(
-                        {
-                            "source": candidate.source_name,
-                            "session_id": candidate.session_id,
-                            "status": "skipped_already_processed",
-                            "message_count": original_message_count,
-                            "learnings_extracted": 0,
-                        }
-                    )
-                    continue
-
-                # Filter messages based on checkpoint for incremental sync
-                raw_session, messages_filtered = self._filter_messages_from_checkpoint(
-                    raw_session, checkpoint
+                batch_events.clear()
+                entries = await asyncio.wait_for(
+                    extractor.extract(
+                        raw_session,
+                        progress_callback=_on_extract_progress,
+                    ),
+                    timeout=self.extract_timeout_seconds,
                 )
-                message_count = len(raw_session.messages)
-
-                if message_count < 2:
-                    # Update checkpoint even for empty sessions
-                    self._update_checkpoint(candidate.session_id, raw_session, content_hash)
-                    if not is_fully_processed:
-                        self.storage.mark_session_processed(candidate.session_id)
-                    source_results["skipped"] += 1
-                    source_results["empty"] += 1
-                    results["sessions_skipped"] += 1
-                    results["empty_sessions"] += 1
-                    results["session_diagnostics"].append(
-                        {
-                            "source": candidate.source_name,
-                            "session_id": candidate.session_id,
-                            "status": "skipped_empty",
-                            "message_count": message_count,
-                            "learnings_extracted": 0,
-                            "incremental": messages_filtered,
-                        }
-                    )
-                    continue
-
-                entries: list[Any] = []
-                batch_events: list[dict[str, Any]] = []
-                extraction_error: str | None = None
-                extraction_started = time.perf_counter()
-                self._emit_progress(
-                    {
-                        "event": "extraction_session_started",
-                        "source": candidate.source_name,
-                        "session_id": candidate.session_id,
-                        "messages_total": message_count,
-                    }
+                extraction_error = None
+                break
+            except TimeoutError:
+                extraction_error = (
+                    f"{candidate.source_name}:{candidate.session_path.name}: "
+                    f"extraction timed out after {self.extract_timeout_seconds}s "
+                    f"(attempt {attempt}/{self.extract_retry_attempts})"
                 )
-
-                def _on_extract_progress(event: dict[str, Any]) -> None:
-                    if event.get("event") == "extraction_batch_complete":
-                        batch_events.append(event)
-                    self._emit_progress(event)
-
-                for attempt in range(1, self.extract_retry_attempts + 1):
-                    try:
-                        batch_events.clear()
-                        entries = await asyncio.wait_for(
-                            extractor.extract(
-                                raw_session,
-                                progress_callback=_on_extract_progress,
-                            ),
-                            timeout=self.extract_timeout_seconds,
-                        )
-                        extraction_error = None
-                        break
-                    except TimeoutError:
-                        extraction_error = (
-                            f"{candidate.source_name}:{candidate.session_path.name}: "
-                            f"extraction timed out after {self.extract_timeout_seconds}s "
-                            f"(attempt {attempt}/{self.extract_retry_attempts})"
-                        )
-                        if attempt < self.extract_retry_attempts:
-                            await asyncio.sleep(self.extract_retry_backoff_seconds * attempt)
-                    except LLMRateLimitError as exc:
-                        extraction_error = (
-                            f"{candidate.source_name}:{candidate.session_path.name}: "
-                            f"extraction rate-limited: {exc} "
-                            f"(attempt {attempt}/{self.extract_retry_attempts})"
-                        )
-                        if attempt < self.extract_retry_attempts:
-                            await asyncio.sleep(self.extract_retry_backoff_seconds * attempt)
-                    except Exception as exc:  # noqa: BLE001
-                        extraction_error = (
-                            f"{candidate.source_name}:{candidate.session_path.name}: "
-                            f"extraction failed: {exc}"
-                        )
-                        break
-
-                if extraction_error:
-                    extraction_duration_ms = (time.perf_counter() - extraction_started) * 1000.0
-                    telemetry.record_event(
-                        run_id=run_id,
-                        stage=PipelineStage.EXTRACT,
-                        action=PipelineEventAction.ERROR,
-                        success=False,
-                        duration_ms=extraction_duration_ms,
-                        metadata={
-                            "source": candidate.source_name,
-                            "session_id": candidate.session_id,
-                            "error": extraction_error,
-                        },
-                    )
-                    results["errors"].append(extraction_error)
-                    source_results["skipped"] += 1
-                    source_results["extraction_failed"] += 1
-                    results["sessions_skipped"] += 1
-                    results["session_diagnostics"].append(
-                        {
-                            "source": candidate.source_name,
-                            "session_id": candidate.session_id,
-                            "status": "failed_extraction",
-                            "message_count": message_count,
-                            "learnings_extracted": 0,
-                            "error": extraction_error,
-                        }
-                    )
-                    continue
-
-                extraction_duration_ms = (time.perf_counter() - extraction_started) * 1000.0
-                telemetry.record_event(
-                    run_id=run_id,
-                    stage=PipelineStage.EXTRACT,
-                    action=PipelineEventAction.COMPLETE,
-                    success=True,
-                    duration_ms=extraction_duration_ms,
-                    metadata={
-                        "source": candidate.source_name,
-                        "session_id": candidate.session_id,
-                        "entries_extracted": len(entries),
-                        "llm_batches": len(batch_events),
-                    },
+                if attempt < self.extract_retry_attempts:
+                    await asyncio.sleep(self.extract_retry_backoff_seconds * attempt)
+            except LLMRateLimitError as exc:
+                extraction_error = (
+                    f"{candidate.source_name}:{candidate.session_path.name}: "
+                    f"extraction rate-limited: {exc} "
+                    f"(attempt {attempt}/{self.extract_retry_attempts})"
                 )
+                if attempt < self.extract_retry_attempts:
+                    await asyncio.sleep(self.extract_retry_backoff_seconds * attempt)
+            except Exception as exc:  # noqa: BLE001
+                extraction_error = (
+                    f"{candidate.source_name}:{candidate.session_path.name}: "
+                    f"extraction failed: {exc}"
+                )
+                break
 
-                ingest_started = time.perf_counter()
-                for entry in entries:
-                    self.storage.append_entry(entry)
-
-                # Update checkpoint for incremental sync
-                self._update_checkpoint(candidate.session_id, raw_session, content_hash)
-                if not is_fully_processed:
-                    self.storage.mark_session_processed(candidate.session_id)
-
-                source_results["processed"] += 1
-                source_results["learnings"] += len(entries)
-                source_results["llm_batches"] += len(batch_events)
-                results["sessions_processed"] += 1
-                if messages_filtered:
-                    results["sessions_incremental"] += 1
-                results["learnings_extracted"] += len(entries)
-                results["llm_requests"] += len(batch_events)
-                diagnostic: dict[str, Any] = {
+        extraction_duration_ms = (time.perf_counter() - extraction_started) * 1000.0
+        if extraction_error:
+            telemetry.record_event(
+                run_id=run_id,
+                stage=PipelineStage.EXTRACT,
+                action=PipelineEventAction.ERROR,
+                success=False,
+                duration_ms=extraction_duration_ms,
+                metadata={
                     "source": candidate.source_name,
                     "session_id": candidate.session_id,
-                    "status": "processed",
-                    "message_count": message_count,
-                    "original_message_count": original_message_count,
-                    "learnings_extracted": len(entries),
-                    "incremental": messages_filtered,
-                }
-                if batch_events:
-                    diagnostic["llm_batches"] = len(batch_events)
-                if message_count >= self.zero_learning_warning_min_messages and len(entries) == 0:
-                    warning = (
-                        f"{candidate.source_name}:{candidate.session_id} has "
-                        f"{message_count} messages but yielded 0 learnings"
-                    )
-                    results["errors"].append(warning)
-                    diagnostic["warning"] = warning
-                results["session_diagnostics"].append(diagnostic)
-                ingest_duration_ms = (time.perf_counter() - ingest_started) * 1000.0
-                telemetry.record_event(
-                    run_id=run_id,
-                    stage=PipelineStage.INGEST,
-                    action=PipelineEventAction.COMPLETE,
-                    success=True,
-                    duration_ms=ingest_duration_ms,
-                    metadata={
-                        "source": candidate.source_name,
-                        "session_id": candidate.session_id,
-                        "entries_written": len(entries),
-                    },
-                )
-            except Exception as exc:  # noqa: BLE001
-                results["errors"].append(
-                    f"{candidate.source_name}:{candidate.session_path.name}: {exc}"
-                )
-                telemetry.record_event(
-                    run_id=run_id,
-                    stage=PipelineStage.INGEST,
-                    action=PipelineEventAction.ERROR,
-                    success=False,
-                    metadata={
-                        "source": candidate.source_name,
-                        "session_id": candidate.session_id,
-                        "error": str(exc),
-                    },
-                )
-                results["session_diagnostics"].append(
-                    {
-                        "source": candidate.source_name,
-                        "session_id": candidate.session_id,
-                        "status": "failed_parse",
-                        "message_count": None,
-                        "learnings_extracted": 0,
-                        "error": str(exc),
-                    }
-                )
+                    "error": extraction_error,
+                },
+            )
+            return SessionExtractStage(
+                success=False,
+                entries=[],
+                batch_events=[],
+                error=extraction_error,
+                duration_ms=extraction_duration_ms,
+            )
 
-        return results
+        telemetry.record_event(
+            run_id=run_id,
+            stage=PipelineStage.EXTRACT,
+            action=PipelineEventAction.COMPLETE,
+            success=True,
+            duration_ms=extraction_duration_ms,
+            metadata={
+                "source": candidate.source_name,
+                "session_id": candidate.session_id,
+                "entries_extracted": len(entries),
+                "llm_batches": len(batch_events),
+            },
+        )
+        return SessionExtractStage(
+            success=True,
+            entries=entries,
+            batch_events=batch_events,
+            error=None,
+            duration_ms=extraction_duration_ms,
+        )
+
+    def _run_persist_stage(
+        self,
+        candidate: _SessionCandidate,
+        *,
+        raw_session: RawSession,
+        content_hash: str,
+        is_fully_processed: bool,
+        entries: list[Any],
+    ) -> SessionPersistStage:
+        started = time.perf_counter()
+        for entry in entries:
+            self.storage.append_entry(entry)
+        self._update_checkpoint(candidate.session_id, raw_session, content_hash)
+        if not is_fully_processed:
+            self.storage.mark_session_processed(candidate.session_id)
+        return SessionPersistStage(
+            entries_written=len(entries),
+            duration_ms=(time.perf_counter() - started) * 1000.0,
+        )
+
+    @staticmethod
+    def _report_skip_already_processed(
+        *,
+        results: dict[str, Any],
+        source_results: dict[str, int],
+        candidate: _SessionCandidate,
+        message_count: int | None,
+    ) -> None:
+        source_results["skipped"] += 1
+        source_results["already_processed"] += 1
+        results["sessions_skipped"] += 1
+        results["sessions_already_processed"] += 1
+        results["session_diagnostics"].append(
+            {
+                "source": candidate.source_name,
+                "session_id": candidate.session_id,
+                "status": "skipped_already_processed",
+                "message_count": message_count,
+                "learnings_extracted": 0,
+            }
+        )
+
+    @staticmethod
+    def _report_skip_empty(
+        *,
+        results: dict[str, Any],
+        source_results: dict[str, int],
+        candidate: _SessionCandidate,
+        message_count: int,
+        messages_filtered: bool,
+    ) -> None:
+        source_results["skipped"] += 1
+        source_results["empty"] += 1
+        results["sessions_skipped"] += 1
+        results["empty_sessions"] += 1
+        results["session_diagnostics"].append(
+            {
+                "source": candidate.source_name,
+                "session_id": candidate.session_id,
+                "status": "skipped_empty",
+                "message_count": message_count,
+                "learnings_extracted": 0,
+                "incremental": messages_filtered,
+            }
+        )
+
+    @staticmethod
+    def _report_failed_parse(
+        *,
+        results: dict[str, Any],
+        candidate: _SessionCandidate,
+        telemetry: PipelineTelemetry,
+        run_id: str,
+        error: str,
+    ) -> None:
+        results["errors"].append(f"{candidate.source_name}:{candidate.session_path.name}: {error}")
+        telemetry.record_event(
+            run_id=run_id,
+            stage=PipelineStage.INGEST,
+            action=PipelineEventAction.ERROR,
+            success=False,
+            metadata={
+                "source": candidate.source_name,
+                "session_id": candidate.session_id,
+                "error": error,
+            },
+        )
+        results["session_diagnostics"].append(
+            {
+                "source": candidate.source_name,
+                "session_id": candidate.session_id,
+                "status": "failed_parse",
+                "message_count": None,
+                "learnings_extracted": 0,
+                "error": error,
+            }
+        )
+
+    @staticmethod
+    def _report_failed_extraction(
+        *,
+        results: dict[str, Any],
+        source_results: dict[str, int],
+        candidate: _SessionCandidate,
+        message_count: int,
+        error: str | None,
+    ) -> None:
+        error_text = error or "extraction failed"
+        results["errors"].append(error_text)
+        source_results["skipped"] += 1
+        source_results["extraction_failed"] += 1
+        results["sessions_skipped"] += 1
+        results["session_diagnostics"].append(
+            {
+                "source": candidate.source_name,
+                "session_id": candidate.session_id,
+                "status": "failed_extraction",
+                "message_count": message_count,
+                "learnings_extracted": 0,
+                "error": error_text,
+            }
+        )
+
+    def _report_processed(
+        self,
+        *,
+        results: dict[str, Any],
+        source_results: dict[str, int],
+        candidate: _SessionCandidate,
+        filter_stage: SessionFilterStage,
+        extract_stage: SessionExtractStage,
+    ) -> None:
+        source_results["processed"] += 1
+        source_results["learnings"] += len(extract_stage.entries)
+        source_results["llm_batches"] += len(extract_stage.batch_events)
+        results["sessions_processed"] += 1
+        if filter_stage.messages_filtered:
+            results["sessions_incremental"] += 1
+        results["learnings_extracted"] += len(extract_stage.entries)
+        results["llm_requests"] += len(extract_stage.batch_events)
+
+        message_count = int(filter_stage.message_count or 0)
+        diagnostic: dict[str, Any] = {
+            "source": candidate.source_name,
+            "session_id": candidate.session_id,
+            "status": "processed",
+            "message_count": message_count,
+            "original_message_count": filter_stage.original_message_count,
+            "learnings_extracted": len(extract_stage.entries),
+            "incremental": filter_stage.messages_filtered,
+        }
+        if extract_stage.batch_events:
+            diagnostic["llm_batches"] = len(extract_stage.batch_events)
+        if message_count >= self.zero_learning_warning_min_messages and not extract_stage.entries:
+            warning = (
+                f"{candidate.source_name}:{candidate.session_id} has "
+                f"{message_count} messages but yielded 0 learnings"
+            )
+            results["errors"].append(warning)
+            diagnostic["warning"] = warning
+        results["session_diagnostics"].append(diagnostic)
 
     async def sync_and_compact(
         self,
@@ -519,28 +839,26 @@ class AutoSync:
             "errors": [],
         }
 
-        active_ingesters, candidates, discovery_errors = self._discover_candidates(
-            since=since,
-            sources=sources,
-        )
-        results["errors"].extend(discovery_errors)
+        discover_stage = self._run_discover_stage(since=since, sources=sources)
+        results["errors"].extend(discover_stage.errors)
 
-        for ingester in active_ingesters:
+        for ingester in discover_stage.active_ingesters:
             results["by_source"][ingester.source_name] = {
                 "discovered": 0,
                 "listed": 0,
             }
 
-        selected_candidates, missing_ids = self._apply_candidate_filters(
-            candidates=candidates,
+        filter_stage = self._run_filter_stage(
+            discover_stage=discover_stage,
             session_ids=session_ids,
             max_sessions=max_sessions,
         )
-        if missing_ids:
-            results["errors"].append(f"Requested session IDs not found: {', '.join(missing_ids)}")
+        if filter_stage.missing_session_ids:
+            missing = ", ".join(filter_stage.missing_session_ids)
+            results["errors"].append(f"Requested session IDs not found: {missing}")
 
-        results["sessions_discovered"] = len(selected_candidates)
-        for candidate in selected_candidates:
+        results["sessions_discovered"] = len(filter_stage.candidates)
+        for candidate in filter_stage.candidates:
             source_stats = results["by_source"].setdefault(
                 candidate.source_name,
                 {"discovered": 0, "listed": 0},

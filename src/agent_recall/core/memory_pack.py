@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from agent_recall.memory.policy import MemoryPolicy
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.models import Chunk, ChunkSource, SemanticLabel
@@ -39,7 +40,77 @@ class MemoryPack(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-def build_memory_pack(storage: Storage, files: FileStorage) -> MemoryPack:
+def _apply_policy_to_pack(
+    pack: MemoryPack,
+    *,
+    policy: MemoryPolicy,
+) -> tuple[MemoryPack, dict[str, Any]]:
+    tier_updates: dict[str, str] = {}
+    redacted_tiers = 0
+    for tier_name, content in pack.tiers.items():
+        redacted_content, changed = policy.redact_text(content)
+        tier_updates[tier_name] = redacted_content
+        if changed:
+            redacted_tiers += 1
+
+    redacted_chunks = 0
+    deduplicated_chunks = 0
+    limited_chunks = 0
+    seen_content: set[str] = set()
+    updated_chunks: list[MemoryPackChunk] = []
+    for chunk in pack.chunks:
+        redacted_text, changed = policy.redact_text(str(chunk.content))
+        if changed:
+            redacted_chunks += 1
+        dedupe_key = policy.dedupe_key(redacted_text)
+        if dedupe_key in seen_content:
+            deduplicated_chunks += 1
+            continue
+        seen_content.add(dedupe_key)
+        updated_chunks.append(chunk.model_copy(update={"content": redacted_text}))
+
+    limit = policy.resolve_record_limit()
+    if len(updated_chunks) > limit:
+        limited_chunks = len(updated_chunks) - limit
+        updated_chunks = updated_chunks[:limit]
+
+    report = {
+        "redacted_tiers": redacted_tiers,
+        "redacted_chunks": redacted_chunks,
+        "deduplicated_chunks": deduplicated_chunks,
+        "limited_chunks": limited_chunks,
+        "warnings": [
+            message
+            for message in [
+                f"Policy redacted {redacted_tiers} tier section(s)." if redacted_tiers else "",
+                f"Policy redacted {redacted_chunks} chunk(s)." if redacted_chunks else "",
+                (
+                    f"Policy deduplicated {deduplicated_chunks} chunk(s)."
+                    if deduplicated_chunks
+                    else ""
+                ),
+                f"Policy limited chunks by {limited_chunks} row(s)." if limited_chunks else "",
+            ]
+            if message
+        ],
+    }
+    return (
+        pack.model_copy(
+            update={
+                "tiers": tier_updates,
+                "chunks": updated_chunks,
+            }
+        ),
+        report,
+    )
+
+
+def build_memory_pack(
+    storage: Storage,
+    files: FileStorage,
+    *,
+    policy: MemoryPolicy | None = None,
+) -> MemoryPack:
     tiers = {
         KnowledgeTier.GUARDRAILS.value: files.read_tier(KnowledgeTier.GUARDRAILS),
         KnowledgeTier.STYLE.value: files.read_tier(KnowledgeTier.STYLE),
@@ -65,12 +136,18 @@ def build_memory_pack(storage: Storage, files: FileStorage) -> MemoryPack:
         "chunk_count": len(chunks),
         "tier_chars": {name: len(content) for name, content in tiers.items()},
     }
-    return MemoryPack(
+    pack = MemoryPack(
         created_at=datetime.now(UTC).isoformat(),
         tiers=tiers,
         chunks=chunks,
         metadata=metadata,
     )
+    if policy is None:
+        return pack
+    updated_pack, policy_report = _apply_policy_to_pack(pack, policy=policy)
+    metadata_with_policy = dict(updated_pack.metadata)
+    metadata_with_policy["policy"] = policy_report
+    return updated_pack.model_copy(update={"metadata": metadata_with_policy})
 
 
 def write_memory_pack(path: Path, pack: MemoryPack) -> None:
@@ -109,10 +186,16 @@ def import_memory_pack(
     pack: MemoryPack,
     *,
     strategy: MergeStrategy = "append",
+    policy: MemoryPolicy | None = None,
 ) -> dict[str, Any]:
     validation = validate_memory_pack(pack)
     if not validation["valid"]:
         raise ValueError("Invalid memory pack: " + "; ".join(validation["errors"]))
+
+    working_pack = pack
+    policy_report: dict[str, Any] | None = None
+    if policy is not None:
+        working_pack, policy_report = _apply_policy_to_pack(pack, policy=policy)
 
     tier_updates = 0
     written_chunks = 0
@@ -123,7 +206,7 @@ def import_memory_pack(
         KnowledgeTier.RECENT.value: KnowledgeTier.RECENT,
     }
 
-    for tier_name, incoming_content in pack.tiers.items():
+    for tier_name, incoming_content in working_pack.tiers.items():
         tier = tier_map.get(tier_name)
         if tier is None:
             continue
@@ -145,7 +228,7 @@ def import_memory_pack(
             files.write_tier(tier, merged)
             tier_updates += 1
 
-    for chunk_row in pack.chunks:
+    for chunk_row in working_pack.chunks:
         try:
             label = SemanticLabel(str(chunk_row.label).strip().lower())
         except ValueError:
@@ -191,9 +274,18 @@ def import_memory_pack(
             storage.store_chunk(chunk)
         written_chunks += 1
 
-    return {
+    warnings = [*validation["warnings"]]
+    if policy_report:
+        policy_warnings = policy_report.get("warnings")
+        if isinstance(policy_warnings, list):
+            warnings.extend(str(item) for item in policy_warnings if str(item).strip())
+
+    report: dict[str, Any] = {
         "tier_updates": tier_updates,
         "chunks_written": written_chunks,
         "chunks_skipped": skipped_chunks,
-        "warnings": validation["warnings"],
+        "warnings": warnings,
     }
+    if policy_report:
+        report["policy"] = policy_report
+    return report

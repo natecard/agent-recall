@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from agent_recall.core.tier_notes import normalize_tier_line
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage, KnowledgeTier
 from agent_recall.storage.models import Chunk, SemanticLabel
@@ -44,12 +45,13 @@ class MarkdownMemoryStore(MemoryStore):
         if not line:
             return False
         content = self.files.read_tier(tier)
-        normalized = line if line.startswith("- ") else f"- {line}"
-        existing = {item.strip() for item in content.splitlines() if item.strip()}
-        if normalized in existing:
+        normalized_line = line if line.startswith("- ") else f"- {line}"
+        incoming_key = normalize_tier_line(normalized_line)
+        existing_keys = {normalize_tier_line(item) for item in content.splitlines() if item.strip()}
+        if incoming_key in existing_keys:
             return False
         separator = "\n" if content.endswith("\n") or not content else "\n\n"
-        updated = f"{content}{separator}{normalized}\n"
+        updated = f"{content}{separator}{normalized_line}\n"
         self.files.write_tier(tier, updated)
         return True
 
