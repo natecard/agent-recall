@@ -15,6 +15,10 @@ from agent_recall.core.pr_context import (
     extract_git_diff_scope,
     filter_chunks_for_scope,
 )
+from agent_recall.memory.agent_memory import (
+    build_agent_memory_bundle,
+    write_agent_memory_bundle,
+)
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage
 
@@ -45,6 +49,8 @@ class ContextBundleWriteRequest:
     repo_path: Path
     output_dir: Path
     refreshed_at: datetime
+    storage: Storage
+    files: FileStorage
     adapter_payloads: bool = False
     adapter_output_dir: Path | None = None
     adapters: list[ContextAdapter] | None = None
@@ -60,6 +66,7 @@ class ContextBundleWriteRequest:
 class ContextBundleWriteResult:
     markdown_path: Path
     json_path: Path
+    agent_memory_path: Path
     refreshed_at: datetime
     adapters_written: dict[str, Path]
 
@@ -100,6 +107,15 @@ def write_context_bundle(request: ContextBundleWriteRequest) -> ContextBundleWri
         "context": request.context,
     }
     json_path.write_text(json.dumps(payload, indent=2))
+    agent_memory_bundle = build_agent_memory_bundle(
+        storage=request.storage,
+        files=request.files,
+        task=request.task,
+        active_session_id=request.active_session_id,
+        repo_path=request.repo_path,
+        refreshed_at=refreshed_at,
+    )
+    agent_memory_path = write_agent_memory_bundle(request.output_dir, agent_memory_bundle)
 
     adapters_written: dict[str, Path] = {}
     if request.adapter_payloads:
@@ -118,11 +134,14 @@ def write_context_bundle(request: ContextBundleWriteRequest) -> ContextBundleWri
             per_model_budgets=request.per_model_budgets,
             provider=request.provider,
             model=request.model,
+            agent_memory=agent_memory_bundle,
+            agent_memory_path=agent_memory_path,
         )
 
     return ContextBundleWriteResult(
         markdown_path=markdown_path,
         json_path=json_path,
+        agent_memory_path=agent_memory_path,
         refreshed_at=refreshed_at,
         adapters_written=adapters_written,
     )

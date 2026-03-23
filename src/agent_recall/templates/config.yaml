@@ -39,6 +39,7 @@ retrieval:
   embedding_dimensions: 64
 
 memory:
+  vector_enabled: false
   mode: markdown
   vector_backend: local
   embedding_provider: local
@@ -46,6 +47,10 @@ memory:
   fusion_semantic_weight: 0.6
   feedback_weight: 0.2
   migration_batch_size: 100
+  local_model_name: all-MiniLM-L6-v2
+  local_model_cache_dir: null
+  local_model_auto_download: true
+  auto_sync_local_vectors: true
   local_model_path: null
   external_embedding_base_url: null
   external_embedding_api_key_env: OPENAI_API_KEY

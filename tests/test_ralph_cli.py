@@ -543,6 +543,106 @@ def test_ralph_run_loop_uses_codex_exec_without_model(monkeypatch) -> None:
         ]
 
 
+def test_ralph_run_loop_resolves_agent_memory_request(monkeypatch) -> None:
+    import asyncio
+
+    from agent_recall.ralph.loop import RalphLoop
+    from agent_recall.storage.files import FileStorage
+    from agent_recall.storage.sqlite import SQLiteStorage
+
+    class _FakeStdout:
+        def __init__(self, lines: list[bytes]) -> None:
+            self._lines = list(lines)
+
+        async def readline(self) -> bytes:
+            return self._lines.pop(0) if self._lines else b""
+
+    class _FakeProc:
+        def __init__(self, lines: list[bytes]) -> None:
+            self.stdout = _FakeStdout(lines)
+
+        async def wait(self) -> int:
+            return 0
+
+    with runner.isolated_filesystem():
+        assert runner.invoke(cli_main.app, ["init"]).exit_code == 0
+        agent_dir = Path(".agent")
+        storage = SQLiteStorage(agent_dir / "state.db")
+        files = FileStorage(agent_dir)
+        bundle_path = agent_dir / "agent-memory.json"
+        bundle_path.write_text(
+            json.dumps(
+                {
+                    "format_version": 1,
+                    "task": "Ralph memory request test",
+                    "active_session_id": None,
+                    "repo_path": str(Path.cwd()),
+                    "refreshed_at": "2026-03-22T00:00:00+00:00",
+                    "memory_status": {"status": "ready", "enabled": True, "backend": "local"},
+                    "long_term_memory": [],
+                    "working_set": [
+                        {
+                            "id": "m1",
+                            "text": "Remember the working set.",
+                            "label": "decision",
+                            "tags": ["memory"],
+                            "metadata": {"source": "extracted"},
+                        }
+                    ],
+                    "memory_protocol": {
+                        "request_key": "agent_recall_memory_request",
+                        "response_key": "agent_recall_memory_response",
+                    },
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        loop = RalphLoop(agent_dir, storage, files)
+
+        recorded_cmds: list[list[str]] = []
+        events: list[dict] = []
+        outputs = [
+            [
+                b'{"agent_recall_memory_request":{"action":"list_working_set"}}\n',
+                b"",
+            ],
+            [b"done\n", b""],
+        ]
+
+        async def _fake_create_subprocess_exec(*cmd, **_kwargs):  # noqa: ANN002, ANN003
+            recorded_cmds.append([str(part) for part in cmd])
+            return _FakeProc(outputs.pop(0))
+
+        monkeypatch.setattr("agent_recall.ralph.loop.shutil.which", lambda _bin: "/usr/bin/codex")
+        monkeypatch.setattr(
+            "agent_recall.ralph.loop.asyncio.create_subprocess_exec",
+            _fake_create_subprocess_exec,
+        )
+
+        exit_code = asyncio.run(
+            loop._run_agent_subprocess(  # noqa: SLF001
+                coding_cli="codex",
+                cli_model="gpt-5.3-codex",
+                item_title="Memory broker",
+                iteration=1,
+                item_id="T-5",
+                agent_memory_bundle_path=bundle_path,
+                progress_callback=events.append,
+            )
+        )
+
+        assert exit_code == 0
+        assert len(recorded_cmds) == 2
+        output_lines = [
+            str(event.get("line") or "") for event in events if event.get("event") == "output_line"
+        ]
+        assert any(
+            "Resolved agent memory request (list_working_set)" in line for line in output_lines
+        )
+        assert any("done" == line for line in output_lines)
+
+
 def test_ralph_run_shell_mode_streams_via_shared_pipeline(monkeypatch) -> None:
     with runner.isolated_filesystem():
         script_path = Path("ralph-agent-recall-loop.sh")

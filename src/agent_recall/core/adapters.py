@@ -50,8 +50,10 @@ def build_adapter_payload(
     active_session_id: str | None,
     repo_path: Path,
     refreshed_at: datetime,
+    agent_memory: dict[str, object] | None = None,
+    agent_memory_path: Path | None = None,
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "format_version": 1,
         "adapter": adapter.name,
         "task": task,
@@ -60,6 +62,11 @@ def build_adapter_payload(
         "refreshed_at": _normalize_timestamp(refreshed_at).isoformat(),
         "context": context,
     }
+    if agent_memory is not None:
+        payload["agent_memory"] = agent_memory
+    if agent_memory_path is not None:
+        payload["agent_memory_path"] = str(agent_memory_path)
+    return payload
 
 
 def write_adapter_payloads(
@@ -77,6 +84,8 @@ def write_adapter_payloads(
     per_model_budgets: dict[str, int] | None = None,
     provider: str | None = None,
     model: str | None = None,
+    agent_memory: dict[str, object] | None = None,
+    agent_memory_path: Path | None = None,
 ) -> dict[str, Path]:
     written: dict[str, Path] = {}
     adapter_list = list(adapters) if adapters is not None else get_default_adapters()
@@ -102,6 +111,8 @@ def write_adapter_payloads(
             active_session_id=active_session_id,
             repo_path=repo_path,
             refreshed_at=refreshed_at,
+            agent_memory=agent_memory,
+            agent_memory_path=agent_memory_path,
         )
         payload_path = adapter.payload_path(output_dir)
         payload_path.parent.mkdir(parents=True, exist_ok=True)

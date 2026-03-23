@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import sys
 import threading
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -126,3 +128,45 @@ def test_get_model_is_thread_safe(monkeypatch) -> None:
 
 def test_embedding_dimension_constant() -> None:
     assert semantic_embedder.get_embedding_dimension() == 384
+
+
+def test_configure_from_memory_config_uses_local_files_for_enabled_local_vectors() -> None:
+    semantic_embedder.reset_model()
+
+    config = semantic_embedder.configure_from_memory_config(
+        {
+            "vector_enabled": True,
+            "embedding_provider": "local",
+            "local_model_name": "all-MiniLM-L6-v2",
+        }
+    )
+
+    assert config.local_files_only is True
+
+
+def test_load_model_suppresses_noisy_transformer_output(monkeypatch, capsys) -> None:
+    semantic_embedder.reset_model()
+    semantic_embedder.configure_model(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        cache_dir="/tmp/agent-recall-model-cache",
+        local_files_only=True,
+    )
+
+    class FakeSentenceTransformer:
+        def __init__(self, model_source: str, **kwargs: object) -> None:
+            _ = (model_source, kwargs)
+            print("Loading weights: 100%")
+            print("BertModel LOAD REPORT", file=sys.stderr)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        SimpleNamespace(SentenceTransformer=FakeSentenceTransformer),
+    )
+
+    model = semantic_embedder._load_model()
+    captured = capsys.readouterr()
+
+    assert isinstance(model, FakeSentenceTransformer)
+    assert captured.out == ""
+    assert captured.err == ""

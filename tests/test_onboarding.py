@@ -407,6 +407,67 @@ def test_apply_repo_setup_persists_coding_agent_settings(monkeypatch, tmp_path: 
     assert config["ralph"]["enabled"] is True
 
 
+def test_apply_repo_setup_provisions_vector_memory(monkeypatch, tmp_path: Path) -> None:
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    (repo_path / ".git").mkdir()
+    monkeypatch.chdir(repo_path)
+
+    agent_dir = _make_agent_dir(repo_path / ".agent")
+    files = FileStorage(agent_dir)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        onboarding,
+        "ensure_provider_dependency",
+        lambda *_args, **_kwargs: (True, None),
+    )
+    monkeypatch.setattr(
+        onboarding,
+        "_discover_source_counts",
+        lambda selected: {source: 0 for source in selected},
+    )
+    monkeypatch.setattr(onboarding, "create_storage_backend", lambda *_args, **_kwargs: object())
+
+    class FakeVectorMemoryService:
+        def __init__(self, **kwargs):  # noqa: ANN003
+            captured["service_kwargs"] = kwargs
+
+        def provision(self, request):  # noqa: ANN001
+            captured["request"] = request
+            return {
+                "status": "ready",
+                "enabled": True,
+                "backend": "local",
+                "model_status": {"state": "ready", "model_name": "all-MiniLM-L6-v2"},
+            }
+
+    monkeypatch.setattr(onboarding, "VectorMemoryService", FakeVectorMemoryService)
+
+    changed = apply_repo_setup(
+        files,
+        Console(record=True),
+        force=True,
+        repository_verified=True,
+        selected_sources=["cursor"],
+        provider="ollama",
+        model="qwen3:4b",
+        base_url="http://localhost:11434/v1",
+        temperature=0.4,
+        max_tokens=8192,
+        validate=False,
+        vector_enabled=True,
+        vector_backend="local",
+        local_model_name="all-MiniLM-L6-v2",
+        local_model_auto_download=True,
+    )
+
+    assert changed is True
+    request = captured["request"]
+    assert getattr(request, "enabled") is True
+    assert getattr(request, "backend") == "local"
+
+
 def test_apply_repo_setup_requires_repository_verification(tmp_path: Path) -> None:
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
@@ -460,3 +521,5 @@ def test_get_onboarding_defaults_uses_settings_fallback(tmp_path: Path) -> None:
     assert defaults["max_tokens"] == 5000
     assert defaults["selected_sources"] == ["cursor"]
     assert defaults["base_url"] == "http://localhost:11434/v1"
+    assert defaults["vector_enabled"] is True
+    assert defaults["vector_backend"] == "local"

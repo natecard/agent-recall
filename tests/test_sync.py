@@ -660,15 +660,28 @@ async def test_sync_and_compact_orchestrates_sync_compact_and_embedding(
         sync_results["embedding_indexing"] = {"indexed": 0, "skipped": 0}
         return sync_results
 
+    def _fake_sync_vector_memory(
+        sync_results: dict[str, object],
+        *,
+        trigger: str,
+    ) -> dict[str, object]:
+        assert calls == ["sync", "compact", "embed"]
+        assert trigger == "sync_and_compact"
+        calls.append("vectors")
+        sync_results["vector_memory_sync"] = {"status": "ready"}
+        return sync_results
+
     monkeypatch.setattr(sync, "sync", _fake_sync)
     monkeypatch.setattr(sync, "compact_after_sync", _fake_compact_after_sync)
     monkeypatch.setattr(sync, "index_chunk_embeddings", _fake_index_chunk_embeddings)
+    monkeypatch.setattr(sync, "sync_vector_memory", _fake_sync_vector_memory)
 
     results = await sync.sync_and_compact(force_compact=True, skip_embeddings=True)
 
-    assert calls == ["sync", "compact", "embed"]
+    assert calls == ["sync", "compact", "embed", "vectors"]
     assert results["compaction"]["recent_updated"] is True
     assert results["embedding_indexing"] == {"indexed": 0, "skipped": 0}
+    assert results["vector_memory_sync"] == {"status": "ready"}
 
 
 @pytest.mark.asyncio
@@ -916,6 +929,109 @@ async def test_auto_sync_warns_when_long_session_yields_no_learnings(
     assert diagnostics[0]["learnings_extracted"] == 0
     assert diagnostics[0]["status"] == "processed"
     assert "warning" in diagnostics[0]
+
+
+@pytest.mark.asyncio
+async def test_auto_sync_recovery_pass_extracts_learning_and_counts_request(
+    storage,
+    files,
+    tmp_path: Path,
+) -> None:
+    session_path = tmp_path / "cursor-session"
+    session_path.write_text("session")
+
+    class RecoveryIngester(FakeIngester):
+        def parse_session(self, path: Path) -> RawSession:
+            messages = [
+                RawMessage(
+                    role="user" if index % 2 == 0 else "assistant",
+                    content=(
+                        "Progress update on the browser engine migration and traversal "
+                        f"work. Message {index + 1}."
+                    ),
+                )
+                for index in range(58)
+            ]
+            messages.extend(
+                [
+                    RawMessage(
+                        role="assistant",
+                        content=(
+                            "Implemented the decision to keep Playwright as the default "
+                            "browser engine while preserving agent-browser as the explicit "
+                            "fallback path."
+                        ),
+                    ),
+                    RawMessage(
+                        role="assistant",
+                        content=(
+                            "Final result: Playwright is the default, agent-browser remains "
+                            "available as a compatibility fallback, and click traversal uses "
+                            "explicit wait-before-click guards."
+                        ),
+                    ),
+                ]
+            )
+            return RawSession(
+                source=self.source_name,
+                session_id=self.get_session_id(path),
+                project_path=path.parent,
+                started_at=datetime.now(UTC),
+                ended_at=datetime.now(UTC),
+                messages=messages,
+            )
+
+    class RecoveryLLM(LLMProvider):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        @property
+        def provider_name(self) -> str:
+            return "recovery"
+
+        @property
+        def model_name(self) -> str:
+            return "recovery-model"
+
+        async def generate(
+            self,
+            messages: list[Message],
+            temperature: float = 0.3,
+            max_tokens: int = 4096,
+        ) -> LLMResponse:
+            _ = (temperature, max_tokens)
+            self.calls += 1
+            prompt = messages[-1].content
+            if "HIGH-SIGNAL SNIPPETS START" in prompt:
+                return LLMResponse(
+                    content=(
+                        '[{"label":"decision","content":"Keep Playwright as the default '
+                        'browser engine and retain agent-browser as the explicit fallback",'
+                        '"tags":["playwright","fallback"],"confidence":0.9}]'
+                    ),
+                    model="recovery-model",
+                )
+            return LLMResponse(content="[]", model="recovery-model")
+
+        def validate(self) -> tuple[bool, str]:
+            return True, "ok"
+
+    llm = RecoveryLLM()
+    sync = AutoSync(
+        storage=storage,
+        files=files,
+        llm=llm,
+        ingesters=[RecoveryIngester("cursor", [session_path])],
+    )
+
+    results = await sync.sync()
+
+    assert results["sessions_processed"] == 1
+    assert results["learnings_extracted"] == 1
+    assert results["llm_requests"] == 3
+    assert results["by_source"]["cursor"]["llm_batches"] == 3
+    assert not any("yielded 0 learnings" in error for error in results["errors"])
+    assert llm.calls == 3
 
 
 @pytest.mark.asyncio

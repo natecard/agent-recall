@@ -13,11 +13,14 @@ from agent_recall.core.compact import CompactionEngine
 from agent_recall.core.embedding_indexer import EmbeddingIndexer
 from agent_recall.core.extract import TranscriptExtractor
 from agent_recall.core.ordering import key_timestamp_desc_id
+from agent_recall.core.semantic_embedder import configure_from_memory_config
 from agent_recall.core.telemetry import PipelineTelemetry
 from agent_recall.ingest import SessionIngester, get_default_ingesters
 from agent_recall.ingest.base import RawSession
 from agent_recall.ingest.sources import normalize_source_name
 from agent_recall.llm.base import LLMProvider, LLMRateLimitError
+from agent_recall.memory.migration import VectorMigrationRequest
+from agent_recall.memory.provisioning import VectorMemoryService
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import TIER_FILES, FileStorage, KnowledgeTier
 from agent_recall.storage.models import (
@@ -491,7 +494,11 @@ class AutoSync:
             if current_attempt > 0:
                 event_payload.setdefault("attempt", current_attempt)
                 event_payload.setdefault("max_attempts", self.extract_retry_attempts)
-            if event_payload.get("event") == "extraction_batch_complete":
+            if event_payload.get("event") in {
+                "extraction_batch_complete",
+                "extraction_repair_complete",
+                "extraction_recovery_complete",
+            }:
                 batch_events.append(event_payload)
             self._emit_progress(event_payload)
 
@@ -826,10 +833,11 @@ class AutoSync:
             telemetry=telemetry,
             telemetry_run_id=run_id,
         )
-        return self.index_chunk_embeddings(
+        sync_results = self.index_chunk_embeddings(
             sync_results,
             skip_embeddings=skip_embeddings,
         )
+        return self.sync_vector_memory(sync_results, trigger="sync_and_compact")
 
     async def compact_after_sync(
         self,
@@ -918,6 +926,7 @@ class AutoSync:
                 if self.llm is None:
                     msg = "LLM provider is required for compaction"
                     raise RuntimeError(msg)
+                self._configure_semantic_embedder()
                 compact_engine = CompactionEngine(self.storage, self.files, self.llm)
                 try:
                     sync_results["compaction"] = await compact_engine.compact(force=force_compact)
@@ -957,8 +966,32 @@ class AutoSync:
     ) -> dict[str, Any]:
         if skip_embeddings or not self._embedding_indexing_enabled():
             return sync_results
+        self._configure_semantic_embedder()
         indexer = EmbeddingIndexer(self.storage)
         sync_results["embedding_indexing"] = indexer.index_missing_embeddings()
+        return sync_results
+
+    def sync_vector_memory(
+        self,
+        sync_results: dict[str, Any],
+        *,
+        trigger: str,
+    ) -> dict[str, Any]:
+        if not self._should_sync_vector_memory(sync_results):
+            return sync_results
+        service = VectorMemoryService(storage=self.storage, files=self.files)
+        try:
+            sync_results["vector_memory_sync"] = service.sync_vectors(
+                VectorMigrationRequest(dry_run=False),
+                trigger=trigger,
+                honor_feature_flag=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            sync_results["vector_memory_sync"] = {
+                "status": "degraded",
+                "trigger": trigger,
+                "error": str(exc),
+            }
         return sync_results
 
     def _resolve_compaction_decision(
@@ -1088,6 +1121,38 @@ class AutoSync:
             return False
 
         return bool(retrieval_cfg.get("semantic_index_enabled", False))
+
+    def _configure_semantic_embedder(self) -> None:
+        config = self.files.read_config()
+        if not isinstance(config, dict):
+            return
+        memory_cfg = config.get("memory")
+        if not isinstance(memory_cfg, dict):
+            return
+        configure_from_memory_config(memory_cfg)
+
+    def _should_sync_vector_memory(self, sync_results: dict[str, Any]) -> bool:
+        config = self.files.read_config()
+        if not isinstance(config, dict):
+            return False
+        memory_cfg = config.get("memory")
+        if not isinstance(memory_cfg, dict):
+            return False
+        if not bool(memory_cfg.get("vector_enabled", False)):
+            return False
+        if not bool(memory_cfg.get("auto_sync_local_vectors", True)):
+            return False
+        compaction = sync_results.get("compaction")
+        if not isinstance(compaction, dict):
+            return False
+        if bool(compaction.get("deferred")) or bool(compaction.get("external_required")):
+            return False
+        return bool(
+            compaction.get("guardrails_updated")
+            or compaction.get("style_updated")
+            or compaction.get("recent_updated")
+            or int(compaction.get("chunks_indexed", 0)) > 0
+        )
 
     def _resolve_compaction_backend(self) -> str:
         config = self.files.read_config()

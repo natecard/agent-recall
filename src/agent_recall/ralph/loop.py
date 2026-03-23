@@ -17,6 +17,12 @@ from agent_recall.core.guardrail_enforcement import (
     is_guardrail_enforcement_enabled,
     parse_guardrail_rules,
 )
+from agent_recall.memory.agent_memory import (
+    AgentMemoryBroker,
+    load_agent_memory_bundle,
+    render_agent_memory_prompt,
+)
+from agent_recall.ralph.context_refresh import ContextRefreshHook
 from agent_recall.ralph.costs import budget_exceeded, summarize_costs
 from agent_recall.ralph.iteration_store import IterationReportStore
 from agent_recall.storage.base import Storage
@@ -29,6 +35,7 @@ _CODING_CLI_BINARIES: dict[str, str] = {
     "codex": "codex",
     "opencode": "opencode",
 }
+_MAX_AGENT_MEMORY_ROUNDS = 4
 
 
 class RalphStatus(StrEnum):
@@ -194,6 +201,7 @@ class RalphLoop:
         item_title: str,
         iteration: int,
         item_id: str,
+        agent_memory_bundle_path: Path | None = None,
         progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> int:
         """Spawn the coding CLI and stream output lines via progress_callback."""
@@ -223,7 +231,106 @@ class RalphLoop:
             )
             return 1
 
-        prompt = f"Work on PRD item {item_id}: {item_title}"
+        base_prompt = f"Work on PRD item {item_id}: {item_title}"
+        broker: AgentMemoryBroker | None = None
+        prompt_segments = [base_prompt]
+        if agent_memory_bundle_path is not None and agent_memory_bundle_path.exists():
+            bundle = load_agent_memory_bundle(agent_memory_bundle_path)
+            if bundle:
+                broker = AgentMemoryBroker(storage=self.storage, files=self.files, bundle=bundle)
+                prompt_segments.extend(
+                    [
+                        "",
+                        render_agent_memory_prompt(bundle),
+                    ]
+                )
+
+        for round_index in range(1, _MAX_AGENT_MEMORY_ROUNDS + 1):
+            prompt = "\n".join(prompt_segments)
+            cmd = self._build_agent_command(
+                resolved=resolved,
+                coding_cli=coding_cli,
+                cli_model=cli_model,
+                prompt=prompt,
+            )
+            exit_code, output_lines, combined_output = await self._run_agent_command(
+                cmd=cmd,
+                binary=binary,
+                iteration=iteration,
+                item_id=item_id,
+                progress_callback=progress_callback,
+            )
+            if exit_code != 0:
+                self._emit_output_lines(
+                    output_lines,
+                    iteration=iteration,
+                    item_id=item_id,
+                    progress_callback=progress_callback,
+                )
+                return exit_code
+
+            if broker is None:
+                self._emit_output_lines(
+                    output_lines,
+                    iteration=iteration,
+                    item_id=item_id,
+                    progress_callback=progress_callback,
+                )
+                return exit_code
+
+            request, response = broker.handle_raw_request(combined_output)
+            if request is None or response is None:
+                self._emit_output_lines(
+                    output_lines,
+                    iteration=iteration,
+                    item_id=item_id,
+                    progress_callback=progress_callback,
+                )
+                return exit_code
+
+            self._emit_progress(
+                progress_callback,
+                {
+                    "event": "output_line",
+                    "line": (
+                        f"Resolved agent memory request ({request.action}) in round "
+                        f"{round_index}/{_MAX_AGENT_MEMORY_ROUNDS}."
+                    ),
+                    "iteration": iteration,
+                    "item_id": item_id,
+                },
+            )
+            prompt_segments.extend(
+                [
+                    "",
+                    "Agent Recall memory response:",
+                    broker.response_json(response),
+                    (
+                        "Continue the task. If you still need more memory, reply with only another "
+                        "strict JSON memory request. Otherwise continue normally."
+                    ),
+                ]
+            )
+
+        self._emit_progress(
+            progress_callback,
+            {
+                "event": "output_line",
+                "line": "Agent memory broker exhausted maximum request rounds.",
+                "iteration": iteration,
+                "item_id": item_id,
+            },
+        )
+        return 1
+
+    @staticmethod
+    def _build_agent_command(
+        *,
+        resolved: str,
+        coding_cli: str,
+        cli_model: str | None,
+        prompt: str,
+    ) -> list[str]:
         if coding_cli == "codex":
             cmd = [
                 resolved,
@@ -236,11 +343,22 @@ class RalphLoop:
             if cli_model:
                 cmd.extend(["--model", cli_model])
             cmd.append(prompt)
-        else:
-            cmd = [resolved, "--print", prompt]
-            if cli_model:
-                cmd.extend(["--model", cli_model])
+            return cmd
 
+        cmd = [resolved, "--print", prompt]
+        if cli_model:
+            cmd.extend(["--model", cli_model])
+        return cmd
+
+    async def _run_agent_command(
+        self,
+        *,
+        cmd: list[str],
+        binary: str,
+        iteration: int,
+        item_id: str,
+        progress_callback: Callable[[dict[str, Any]], None] | None,
+    ) -> tuple[int, list[str], str]:
         self._emit_progress(
             progress_callback,
             {
@@ -267,14 +385,28 @@ class RalphLoop:
                     "item_id": item_id,
                 },
             )
-            return 1
+            return 1, [], ""
 
+        lines: list[str] = []
         assert proc.stdout is not None  # noqa: S101
         while True:
             raw = await proc.stdout.readline()
             if not raw:
                 break
-            line = raw.decode("utf-8", errors="replace").rstrip("\n")
+            lines.append(raw.decode("utf-8", errors="replace").rstrip("\n"))
+
+        exit_code = await proc.wait()
+        return exit_code, lines, "\n".join(lines).strip()
+
+    def _emit_output_lines(
+        self,
+        lines: list[str],
+        *,
+        iteration: int,
+        item_id: str,
+        progress_callback: Callable[[dict[str, Any]], None] | None,
+    ) -> None:
+        for line in lines:
             self._emit_progress(
                 progress_callback,
                 {
@@ -284,9 +416,6 @@ class RalphLoop:
                     "item_id": item_id,
                 },
             )
-
-        exit_code = await proc.wait()
-        return exit_code
 
     def _read_state_payload(self) -> dict[str, Any]:
         if not self.state.state_path.exists():
@@ -446,12 +575,30 @@ class RalphLoop:
                 )
                 exit_code = 2
             elif coding_cli:
+                agent_memory_bundle_path: Path | None = None
+                try:
+                    hook = ContextRefreshHook(self.agent_dir, self.storage, self.files)
+                    summary = hook.refresh_for_prd_item(item, iteration=index)
+                    bundle_path_value = summary.get("agent_memory_path")
+                    if isinstance(bundle_path_value, str) and bundle_path_value.strip():
+                        agent_memory_bundle_path = Path(bundle_path_value)
+                except Exception as exc:  # noqa: BLE001
+                    self._emit_progress(
+                        progress_callback,
+                        {
+                            "event": "output_line",
+                            "line": f"Context refresh failed before agent run: {exc}",
+                            "iteration": index,
+                            "item_id": item_id_value,
+                        },
+                    )
                 exit_code = await self._run_agent_subprocess(
                     coding_cli=coding_cli,
                     cli_model=cli_model,
                     item_title=title,
                     iteration=index,
                     item_id=item_id_value,
+                    agent_memory_bundle_path=agent_memory_bundle_path,
                     progress_callback=progress_callback,
                 )
             else:

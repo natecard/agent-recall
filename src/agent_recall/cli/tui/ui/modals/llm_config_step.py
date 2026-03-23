@@ -48,7 +48,7 @@ class LLMConfigStepModal(ModalScreen[dict[str, Any] | None]):
         with Container(id="modal_overlay"):
             with Vertical(id="modal_card", classes="modal_compact"):
                 yield Static("LLM Configuration", classes="modal_title")
-                yield Static("Step 2 of 3 · Compaction model", classes="modal_subtitle")
+                yield Static("Step 2 of 4 · Compaction model", classes="modal_subtitle")
                 with Horizontal(classes="field_row field_row_compact"):
                     yield Static("Provider", classes="field_label")
                     yield Select(

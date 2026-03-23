@@ -3,7 +3,10 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 import shutil
+import subprocess
+import sys
 import textwrap
 import time
 from collections.abc import Callable
@@ -97,6 +100,7 @@ from agent_recall.core.onboarding import (
 from agent_recall.core.retrieval_feedback import evaluate_feedback_impact
 from agent_recall.core.retrieve import Retriever
 from agent_recall.core.rule_confidence import snapshot_rules
+from agent_recall.core.semantic_embedder import configure_from_memory_config
 from agent_recall.core.session import SessionManager
 from agent_recall.core.sync import AutoSync
 from agent_recall.core.telemetry import PipelineTelemetry
@@ -136,10 +140,16 @@ from agent_recall.llm import (
 )
 from agent_recall.llm.coding_cli import CodingCLIProvider
 from agent_recall.memory import (
+    AgentMemoryBroker,
     LocalVectorStore,
     MemoryPolicy,
+    MemoryRequestEnvelope,
+    VectorMemoryService,
+    VectorMemorySetupRequest,
+    load_agent_memory_bundle,
+    resolve_local_vector_db_path,
 )
-from agent_recall.memory.migration import VectorMigrationRequest, VectorMigrationService
+from agent_recall.memory.migration import VectorMigrationRequest
 from agent_recall.ralph.costs import format_usd, summarize_costs
 from agent_recall.ralph.iteration_store import IterationOutcome, IterationReportStore
 from agent_recall.storage import create_storage_backend
@@ -280,6 +290,7 @@ retrieval:
   embedding_dimensions: 64
 
 memory:
+  vector_enabled: false
   mode: markdown
   vector_backend: local
   embedding_provider: local
@@ -287,6 +298,10 @@ memory:
   fusion_semantic_weight: 0.6
   feedback_weight: 0.2
   migration_batch_size: 100
+  local_model_name: all-MiniLM-L6-v2
+  local_model_cache_dir: null
+  local_model_auto_download: true
+  auto_sync_local_vectors: true
   local_model_path: null
   external_embedding_base_url: null
   external_embedding_api_key_env: OPENAI_API_KEY
@@ -496,6 +511,8 @@ def _build_retriever(
     default_backend = retrieval_cfg.backend
     if retrieval_cfg.backend == "fts5":
         default_backend = mode_backend.get(configured_mode, retrieval_cfg.backend)
+    if int(retrieval_cfg.embedding_dimensions) == 384:
+        configure_from_memory_config(memory_cfg)
     selected_backend = (
         _normalize_retrieval_backend(backend) if backend is not None else default_backend
     )
@@ -942,8 +959,40 @@ def start(task: str = typer.Argument(..., help="Description of what this session
 
     session = session_mgr.start(task)
     context = context_asm.assemble(task=task)
+    bundle_lines: list[str] = []
+    try:
+        config = load_config(AGENT_DIR)
+        adapter_cfg = config.adapters
+        llm_cfg = config.llm
+        bundle = write_context_bundle(
+            ContextBundleWriteRequest(
+                context=context,
+                task=task,
+                active_session_id=str(session.id),
+                repo_path=Path.cwd().resolve(),
+                output_dir=AGENT_DIR / "context",
+                refreshed_at=datetime.now(UTC),
+                storage=storage,
+                files=files,
+                adapter_payloads=bool(adapter_cfg.enabled),
+                adapter_output_dir=Path(adapter_cfg.output_dir),
+                adapters=get_default_adapters(),
+                token_budget=adapter_cfg.default_token_budget,
+                per_adapter_budgets=adapter_cfg.per_adapter_token_budget,
+                per_provider_budgets=adapter_cfg.per_provider_token_budget,
+                per_model_budgets=adapter_cfg.per_model_token_budget,
+                provider=llm_cfg.provider,
+                model=llm_cfg.model,
+            )
+        )
+        bundle_lines = [
+            f"[dim]Context bundle: {bundle.markdown_path}[/dim]",
+            f"[dim]Agent memory: {bundle.agent_memory_path}[/dim]",
+        ]
+    except Exception as exc:  # noqa: BLE001
+        bundle_lines = [f"[warning]Context bundle refresh failed: {exc}[/warning]"]
 
-    console.print(f"[dim]Session started: {session.id}[/dim]\n")
+    console.print("\n".join([f"[dim]Session started: {session.id}[/dim]", *bundle_lines]) + "\n")
     console.print(context)
 
 
@@ -1147,6 +1196,7 @@ def refresh_context(
         adapter_payloads = bool(adapter_cfg.enabled)
     markdown_path = output_dir / "context.md"
     json_path = output_dir / "context.json"
+    agent_memory_path = output_dir / "agent-memory.json"
 
     retry_attempts = 3
     retry_backoff_seconds = 1.0
@@ -1171,6 +1221,8 @@ def refresh_context(
                     repo_path=Path.cwd().resolve(),
                     output_dir=output_dir,
                     refreshed_at=datetime.now(UTC),
+                    storage=storage,
+                    files=files,
                     adapter_payloads=bool(adapter_payloads),
                     adapter_output_dir=Path(adapter_cfg.output_dir),
                     adapters=get_default_adapters(),
@@ -1184,6 +1236,7 @@ def refresh_context(
             )
             markdown_path = bundle.markdown_path
             json_path = bundle.json_path
+            agent_memory_path = bundle.agent_memory_path
             adapters_written = bundle.adapters_written
             break
         except Exception as exc:  # noqa: BLE001
@@ -1205,6 +1258,7 @@ def refresh_context(
         "[success]✓ Context bundle refreshed[/success]",
         f"  Markdown: {markdown_path}",
         f"  JSON:     {json_path}",
+        f"  Memory:   {agent_memory_path}",
     ]
     if adapter_payloads:
         adapter_names = ", ".join(adapters_written) if adapters_written else "-"
@@ -1287,24 +1341,54 @@ def compact(force: bool = typer.Option(False, "--force", "-f", help="Force compa
             raise typer.Exit(1) from None
 
     engine = CompactionEngine(storage, files, llm)
+    memory_cfg = _read_memory_config(files)
+    if int(config_dict.get("retrieval", {}).get("embedding_dimensions", 64)) == 384:
+        configure_from_memory_config(memory_cfg)
     results = run_with_spinner(
         "Running compaction...",
         lambda: asyncio.run(engine.compact(force=force)),
     )
-
-    console.print(
-        Panel.fit(
-            f"[success]✓ Compaction complete[/success]\n\n"
-            f"Backend: {backend}\n"
-            f"Guardrails updated: {results['guardrails_updated']}\n"
-            f"Style updated: {results['style_updated']}\n"
-            f"Recent updated: {results['recent_updated']}\n"
-            f"LLM requests: {results.get('llm_requests', 0)} "
-            f"(responses: {results.get('llm_responses', 0)})\n"
-            f"Chunks indexed: {results['chunks_indexed']}",
-            title="Results",
+    vector_sync: dict[str, Any] | None = None
+    if (
+        bool(memory_cfg.get("vector_enabled", False))
+        and bool(memory_cfg.get("auto_sync_local_vectors", True))
+        and (
+            bool(results.get("guardrails_updated"))
+            or bool(results.get("style_updated"))
+            or bool(results.get("recent_updated"))
+            or int(results.get("chunks_indexed", 0)) > 0
         )
-    )
+    ):
+        try:
+            vector_sync = VectorMemoryService(storage=storage, files=files).sync_vectors(
+                VectorMigrationRequest(dry_run=False),
+                trigger="compact",
+                honor_feature_flag=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            vector_sync = {"status": "degraded", "error": str(exc), "trigger": "compact"}
+
+    lines = [
+        "[success]✓ Compaction complete[/success]",
+        "",
+        f"Backend: {backend}",
+        f"Guardrails updated: {results['guardrails_updated']}",
+        f"Style updated: {results['style_updated']}",
+        f"Recent updated: {results['recent_updated']}",
+        f"LLM requests: {results.get('llm_requests', 0)} "
+        f"(responses: {results.get('llm_responses', 0)})",
+        f"Chunks indexed: {results['chunks_indexed']}",
+    ]
+    if vector_sync is not None:
+        lines.append(
+            "Vector sync: "
+            f"{vector_sync.get('status', 'unknown')} "
+            f"(rows written: {vector_sync.get('rows_written', 0)})"
+        )
+        if vector_sync.get("error"):
+            lines.append(f"Vector sync error: {vector_sync['error']}")
+
+    console.print(Panel.fit("\n".join(lines), title="Results"))
 
 
 @sync_app.callback(invoke_without_command=True)
@@ -1485,6 +1569,29 @@ def sync(
                 f"[warning]{source_name}:{source_session_id} {reason}; retrying in "
                 f"{delay_seconds:.1f}s (attempt {next_attempt}/{max_attempts}{retry_after_text})."
                 "[/warning]"
+            )
+            return
+
+        if event_name == "extraction_recovery_complete":
+            source_name = str(event.get("source", "?"))
+            source_session_id = str(event.get("session_id", "?"))
+            considered = _as_int(event.get("messages_considered"), 0)
+            total = _as_int(event.get("messages_total"), 0)
+            learnings = _as_int(event.get("batch_learnings"), 0)
+            console.print(
+                f"[dim]{source_name}:{source_session_id} ran recovery extraction on "
+                f"{considered}/{total} high-signal messages (learnings={learnings}).[/dim]"
+            )
+            return
+
+        if event_name == "extraction_repair_complete":
+            source_name = str(event.get("source", "?"))
+            source_session_id = str(event.get("session_id", "?"))
+            segment = str(event.get("segment", "segment"))
+            learnings = _as_int(event.get("batch_learnings"), 0)
+            console.print(
+                f"[dim]{source_name}:{source_session_id} repaired malformed extraction output "
+                f"for {segment} (learnings={learnings}).[/dim]"
             )
             return
 
@@ -2839,6 +2946,12 @@ def _run_onboarding_setup(force: bool, quick: bool) -> None:
 
 
 def _run_setup_from_payload(payload: dict[str, object]) -> tuple[bool, list[str]]:
+    if bool(payload.get("vector_enabled", False)):
+        return _run_setup_from_payload_subprocess(payload)
+    return _run_setup_from_payload_in_process(payload)
+
+
+def _run_setup_from_payload_in_process(payload: dict[str, object]) -> tuple[bool, list[str]]:
     _get_theme_manager()
     ensure_initialized()
     files = get_files()
@@ -2889,6 +3002,57 @@ def _run_setup_from_payload(payload: dict[str, object]) -> tuple[bool, list[str]
     ralph_enabled = bool(ralph_enabled_raw) if isinstance(ralph_enabled_raw, bool) else None
     if configure_coding_agent and ralph_enabled is None:
         ralph_enabled = bool(coding_cli)
+    vector_enabled = bool(payload.get("vector_enabled", False))
+    vector_backend = str(payload.get("vector_backend", "local")).strip() or "local"
+    local_model_name = (
+        str(payload.get("local_model_name")).strip()
+        if isinstance(payload.get("local_model_name"), str)
+        and str(payload.get("local_model_name")).strip()
+        else None
+    )
+    local_model_path = (
+        str(payload.get("local_model_path")).strip()
+        if isinstance(payload.get("local_model_path"), str)
+        and str(payload.get("local_model_path")).strip()
+        else None
+    )
+    local_model_cache_dir = (
+        str(payload.get("local_model_cache_dir")).strip()
+        if isinstance(payload.get("local_model_cache_dir"), str)
+        and str(payload.get("local_model_cache_dir")).strip()
+        else None
+    )
+    local_model_auto_download = bool(payload.get("local_model_auto_download", True))
+    turbopuffer_base_url = (
+        str(payload.get("turbopuffer_base_url")).strip()
+        if isinstance(payload.get("turbopuffer_base_url"), str)
+        and str(payload.get("turbopuffer_base_url")).strip()
+        else None
+    )
+    turbopuffer_api_key_env = (
+        str(payload.get("turbopuffer_api_key_env")).strip()
+        if isinstance(payload.get("turbopuffer_api_key_env"), str)
+        and str(payload.get("turbopuffer_api_key_env")).strip()
+        else None
+    )
+    external_embedding_base_url = (
+        str(payload.get("external_embedding_base_url")).strip()
+        if isinstance(payload.get("external_embedding_base_url"), str)
+        and str(payload.get("external_embedding_base_url")).strip()
+        else None
+    )
+    external_embedding_api_key_env = (
+        str(payload.get("external_embedding_api_key_env")).strip()
+        if isinstance(payload.get("external_embedding_api_key_env"), str)
+        and str(payload.get("external_embedding_api_key_env")).strip()
+        else None
+    )
+    external_embedding_model = (
+        str(payload.get("external_embedding_model")).strip()
+        if isinstance(payload.get("external_embedding_model"), str)
+        and str(payload.get("external_embedding_model")).strip()
+        else None
+    )
 
     changed = apply_repo_setup(
         files,
@@ -2915,10 +3079,88 @@ def _run_setup_from_payload(payload: dict[str, object]) -> tuple[bool, list[str]
         coding_cli=coding_cli,
         cli_model=cli_model,
         ralph_enabled=ralph_enabled,
+        vector_enabled=vector_enabled,
+        vector_backend=vector_backend,
+        local_model_name=local_model_name,
+        local_model_path=local_model_path,
+        local_model_cache_dir=local_model_cache_dir,
+        local_model_auto_download=local_model_auto_download,
+        turbopuffer_base_url=turbopuffer_base_url,
+        turbopuffer_api_key_env=turbopuffer_api_key_env,
+        external_embedding_base_url=external_embedding_base_url,
+        external_embedding_api_key_env=external_embedding_api_key_env,
+        external_embedding_model=external_embedding_model,
     )
 
     lines = [line.strip() for line in temp_output.getvalue().splitlines() if line.strip()]
     return changed, lines[-12:]
+
+
+def _run_setup_from_payload_subprocess(payload: dict[str, object]) -> tuple[bool, list[str]]:
+    marker = "__agent_recall_setup_result__="
+    child_code = textwrap.dedent(
+        f"""
+        import json
+        import sys
+        import traceback
+
+        from agent_recall.cli.app_commands import _run_setup_from_payload_in_process
+
+        marker = {marker!r}
+        payload = json.load(sys.stdin)
+
+        try:
+            changed, lines = _run_setup_from_payload_in_process(payload)
+        except Exception as exc:  # noqa: BLE001
+            traceback.print_exc()
+            print(marker + json.dumps({{"ok": False, "error": str(exc)}}))
+            raise SystemExit(1) from None
+
+        print(marker + json.dumps({{"ok": True, "changed": changed, "lines": lines}}))
+        """
+    ).strip()
+    env = os.environ.copy()
+    env.setdefault("HF_HUB_DISABLE_XET", "1")
+    env.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
+    env.setdefault("TOKENIZERS_PARALLELISM", "false")
+    completed = subprocess.run(
+        [sys.executable, "-c", child_code],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(Path.cwd()),
+    )
+
+    parsed: dict[str, Any] | None = None
+    stdout_lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    for line in reversed(stdout_lines):
+        if not line.startswith(marker):
+            continue
+        try:
+            candidate = json.loads(line.removeprefix(marker))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict):
+            parsed = candidate
+            break
+
+    if isinstance(parsed, dict) and bool(parsed.get("ok")):
+        changed = bool(parsed.get("changed", False))
+        lines = parsed.get("lines")
+        normalized_lines = (
+            [line for line in lines if isinstance(line, str)] if isinstance(lines, list) else []
+        )
+        return changed, normalized_lines
+
+    message = ""
+    if isinstance(parsed, dict) and parsed.get("error"):
+        message = str(parsed["error"]).strip()
+    if not message:
+        message = completed.stderr.strip() or completed.stdout.strip()
+    if not message:
+        message = f"setup subprocess exited {completed.returncode}"
+    raise RuntimeError(message)
 
 
 def _run_model_config(
@@ -5586,6 +5828,262 @@ def memory_pack_import_cmd(
     console.print(Panel.fit("\n".join(lines), title="memory-pack import"))
 
 
+def _render_vector_setup_payload(payload: dict[str, Any]) -> list[str]:
+    lines = [
+        f"Status: {payload.get('status', 'unknown')}",
+        f"Enabled: {payload.get('enabled', False)}",
+        f"Backend: {payload.get('backend', 'local')}",
+    ]
+    model_status = payload.get("model_status")
+    if isinstance(model_status, dict):
+        lines.append(f"Local model: {model_status.get('state', 'unknown')}")
+        if model_status.get("model_path"):
+            lines.append(f"Model path: {model_status['model_path']}")
+        else:
+            lines.append(f"Model name: {model_status.get('model_name', '-')}")
+    cloud_status = payload.get("cloud_status")
+    if isinstance(cloud_status, dict):
+        lines.append(f"Cloud status: {cloud_status.get('state', 'unknown')}")
+    embedding_indexing = payload.get("embedding_indexing")
+    if isinstance(embedding_indexing, dict):
+        lines.append(f"Chunk embeddings indexed: {embedding_indexing.get('indexed', 0)}")
+    vector_sync = payload.get("vector_sync")
+    if isinstance(vector_sync, dict):
+        lines.append(f"Vector rows written: {vector_sync.get('rows_written', 0)}")
+    if payload.get("error"):
+        lines.append(f"Error: {payload['error']}")
+    return lines
+
+
+def _render_vector_status_payload(payload: dict[str, Any]) -> list[str]:
+    lines = [
+        f"Enabled: {payload.get('enabled', False)}",
+        f"Backend: {payload.get('backend', 'local')}",
+        f"Embedding provider: {payload.get('embedding_provider', 'local')}",
+        f"Mode: {payload.get('mode', 'markdown')}",
+        f"Degraded: {payload.get('degraded', False)}",
+    ]
+    chunk_embeddings = payload.get("chunk_embeddings")
+    if isinstance(chunk_embeddings, dict):
+        lines.append(
+            "Chunk embeddings: "
+            f"{chunk_embeddings.get('embedded_chunks', 0)}/"
+            f"{chunk_embeddings.get('total_chunks', 0)} "
+            f"(pending: {chunk_embeddings.get('pending', 0)})"
+        )
+    model_status = payload.get("model_status")
+    if isinstance(model_status, dict):
+        lines.append(f"Local model: {model_status.get('state', 'unknown')}")
+        if model_status.get("model_path"):
+            lines.append(f"Model path: {model_status['model_path']}")
+        elif model_status.get("model_name"):
+            lines.append(f"Model name: {model_status['model_name']}")
+    vector_store = payload.get("vector_store")
+    if isinstance(vector_store, dict):
+        if vector_store.get("backend") == "local":
+            lines.append(f"Local vector records: {vector_store.get('record_count', 0)}")
+            lines.append(f"Vector DB: {vector_store.get('path', '-')}")
+        else:
+            lines.append(f"Cloud namespace: {vector_store.get('namespace', '-')}")
+    cloud_status = payload.get("cloud_status")
+    if isinstance(cloud_status, dict):
+        lines.append(f"Cloud status: {cloud_status.get('state', 'unknown')}")
+        missing = cloud_status.get("missing")
+        if isinstance(missing, list) and missing:
+            lines.append(f"Missing cloud config: {', '.join(str(item) for item in missing)}")
+    last_sync = payload.get("last_sync")
+    if isinstance(last_sync, dict):
+        lines.append(
+            f"Last sync: {last_sync.get('status', 'unknown')} "
+            f"({last_sync.get('trigger', 'unknown')})"
+        )
+    return lines
+
+
+@memory_app.command("setup")
+def memory_setup(
+    backend: str = typer.Option(
+        "local",
+        "--backend",
+        help="Vector backend to provision: local or turbopuffer",
+    ),
+    enabled: bool = typer.Option(
+        True,
+        "--enabled/--disabled",
+        help="Enable or disable vector memory",
+    ),
+    local_model_name: str | None = typer.Option(
+        None,
+        "--local-model-name",
+        help="Override managed local embedding model name",
+    ),
+    local_model_path: str | None = typer.Option(
+        None,
+        "--local-model-path",
+        help="Optional explicit local embedding model path",
+    ),
+    local_model_cache_dir: str | None = typer.Option(
+        None,
+        "--local-model-cache-dir",
+        help="Optional cache directory for managed local model downloads",
+    ),
+    local_model_auto_download: bool = typer.Option(
+        True,
+        "--local-model-auto-download/--no-local-model-auto-download",
+        help="Download the managed local model during setup if it is missing",
+    ),
+    turbopuffer_base_url: str | None = typer.Option(
+        None,
+        "--turbopuffer-base-url",
+        help="TurboPuffer API base URL",
+    ),
+    turbopuffer_api_key_env: str = typer.Option(
+        "TURBOPUFFER_API_KEY",
+        "--turbopuffer-api-key-env",
+        help="Environment variable holding the TurboPuffer API key",
+    ),
+    external_embedding_base_url: str | None = typer.Option(
+        None,
+        "--external-embedding-base-url",
+        help="External embedding API base URL",
+    ),
+    external_embedding_api_key_env: str = typer.Option(
+        "OPENAI_API_KEY",
+        "--external-embedding-api-key-env",
+        help="Environment variable holding the external embedding API key",
+    ),
+    external_embedding_model: str = typer.Option(
+        "text-embedding-3-small",
+        "--external-embedding-model",
+        help="External embedding model name",
+    ),
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Provision plug-and-play vector memory for this repository."""
+    _get_theme_manager()
+    normalized_backend = backend.strip().lower()
+    if normalized_backend not in {"local", "turbopuffer"}:
+        console.print("[error]Invalid backend. Use local or turbopuffer.[/error]")
+        raise typer.Exit(1)
+
+    payload = VectorMemorySetupRequest(
+        enabled=enabled,
+        backend=cast(Any, normalized_backend),
+        local_model_name=local_model_name,
+        local_model_path=local_model_path,
+        local_model_cache_dir=local_model_cache_dir,
+        local_model_auto_download=local_model_auto_download,
+        turbopuffer_base_url=turbopuffer_base_url,
+        turbopuffer_api_key_env=turbopuffer_api_key_env,
+        external_embedding_base_url=external_embedding_base_url,
+        external_embedding_api_key_env=external_embedding_api_key_env,
+        external_embedding_model=external_embedding_model,
+    )
+    service = VectorMemoryService(storage=get_storage(), files=get_files())
+    try:
+        result = service.provision(payload)
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[error]memory setup failed: {exc}[/error]")
+        raise typer.Exit(1) from None
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(result, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    console.print(Panel.fit("\n".join(_render_vector_setup_payload(result)), title="memory setup"))
+
+
+@memory_app.command("status")
+def memory_status(
+    format: str = typer.Option("table", "--format", help="Output format: table or json"),
+):
+    """Show vector-memory provisioning and sync status."""
+    _get_theme_manager()
+    service = VectorMemoryService(storage=get_storage(), files=get_files())
+    try:
+        payload = service.status()
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[error]memory status failed: {exc}[/error]")
+        raise typer.Exit(1) from None
+
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+    console.print(
+        Panel.fit(
+            "\n".join(_render_vector_status_payload(payload)),
+            title="memory status",
+        )
+    )
+
+
+@memory_app.command("request")
+def memory_request(
+    request_json: str = typer.Option(
+        ...,
+        "--request-json",
+        help="Strict JSON memory request using the agent_recall_memory_request envelope",
+    ),
+    bundle_path: Path = typer.Option(
+        AGENT_DIR / "context" / "agent-memory.json",
+        "--bundle-path",
+        help="Path to the agent-memory.json bundle to seed the working set",
+    ),
+    format: str = typer.Option("json", "--format", help="Output format: json or table"),
+):
+    """Resolve a strict JSON agent memory request against the current repository."""
+    _get_theme_manager()
+    bundle = load_agent_memory_bundle(bundle_path)
+    broker = AgentMemoryBroker(storage=get_storage(), files=get_files(), bundle=bundle)
+    try:
+        envelope = MemoryRequestEnvelope.model_validate(json.loads(request_json))
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[error]Invalid memory request JSON: {exc}[/error]")
+        raise typer.Exit(1) from None
+
+    payload = broker.handle_request(envelope.agent_recall_memory_request)
+    output_format = format.strip().lower()
+    if output_format == "json":
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    if output_format != "table":
+        console.print("[error]Invalid format. Use 'table' or 'json'.[/error]")
+        raise typer.Exit(1)
+
+    response = payload.get("agent_recall_memory_response")
+    response_dict = response if isinstance(response, dict) else {}
+    results_count = (
+        len(response_dict.get("results", []))
+        if isinstance(response_dict.get("results"), list)
+        else 0
+    )
+    working_set_count = (
+        len(response_dict.get("working_set", []))
+        if isinstance(response_dict.get("working_set"), list)
+        else 0
+    )
+    lines = [
+        f"Action: {response_dict.get('action', '-')}",
+        f"Status: {response_dict.get('status', '-')}",
+        f"Results: {results_count}",
+        f"Working set: {working_set_count}",
+    ]
+    if response_dict.get("missing_ids"):
+        lines.append(
+            f"Missing IDs: {', '.join(str(value) for value in response_dict['missing_ids'])}"
+        )
+    if response_dict.get("error"):
+        lines.append(f"Error: {response_dict['error']}")
+    console.print(Panel.fit("\n".join(lines), title="memory request"))
+
+
 @memory_app.command("mode")
 def memory_mode(
     set_mode: str | None = typer.Option(
@@ -5634,29 +6132,18 @@ def memory_migrate_vectors(
     ),
     format: str = typer.Option("table", "--format", help="Output format: table or json"),
 ):
-    """Migrate tier markdown + chunks into vector records."""
+    """Migrate approved learnings into the semantic memory index."""
     _get_theme_manager()
-    storage = get_storage()
-    files = get_files()
-    memory_cfg = _read_memory_config(files)
-    config = load_config(AGENT_DIR)
-    service = VectorMigrationService(
-        storage=storage,
-        files=files,
-        memory_cfg=memory_cfg,
-        policy=_memory_policy(files),
-        tenant_id=config.storage.shared.tenant_id,
-        project_id=config.storage.shared.project_id,
-        embedding_dimensions=config.retrieval.embedding_dimensions,
-        vector_db_path=AGENT_DIR / "vector.db",
-    )
+    service = VectorMemoryService(storage=get_storage(), files=get_files())
     try:
-        payload = service.migrate(
+        payload = service.sync_vectors(
             VectorMigrationRequest(
                 dry_run=dry_run,
                 max_records=max_records,
                 batch_size=batch_size,
-            )
+            ),
+            trigger="migrate-vectors",
+            honor_feature_flag=False,
         )
     except ValueError as exc:
         console.print(f"[error]{exc}[/error]")
@@ -5708,7 +6195,7 @@ def memory_prune_vectors(
     policy = _memory_policy(files)
     effective_days = policy.resolve_retention_days(retention_days)
     vector_store = LocalVectorStore(
-        AGENT_DIR / "vector.db",
+        resolve_local_vector_db_path(AGENT_DIR),
         tenant_id=config.storage.shared.tenant_id,
         project_id=config.storage.shared.project_id,
     )

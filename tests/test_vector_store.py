@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from agent_recall.memory.vector_store import LocalVectorStore, TurboPufferVectorStore, VectorRecord
+from agent_recall.memory.vector_store import (
+    LocalVectorStore,
+    TurboPufferVectorStore,
+    VectorRecord,
+    resolve_local_vector_db_path,
+)
 
 
 def test_local_vector_store_upsert_query_and_prune(tmp_path) -> None:
@@ -84,3 +90,47 @@ def test_turbopuffer_vector_store_retry_and_namespace(monkeypatch) -> None:
     matches = store.query(embedding=[0.1, 0.2], top_k=3)
     assert matches[0]["id"] == "v1"
     assert calls["count"] == 2
+
+
+def test_local_vector_store_migrates_legacy_json_embeddings(tmp_path) -> None:
+    db_path = tmp_path / "legacy.db"
+    store = LocalVectorStore(db_path, tenant_id="t1", project_id="p1")
+    now = datetime.now(UTC).isoformat()
+    with store._connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO memory_vector_records (
+                id, tenant_id, project_id, text, label, tags, embedding, metadata, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy",
+                "t1",
+                "p1",
+                "legacy vector",
+                "pattern",
+                json.dumps(["legacy"]),
+                json.dumps([1.0, 0.0]),
+                json.dumps({}),
+                now,
+            ),
+        )
+
+    migrated = LocalVectorStore(db_path, tenant_id="t1", project_id="p1")
+    results = migrated.query(embedding=[1.0, 0.0], top_k=1)
+
+    assert results[0][0].id == "legacy"
+    assert results[0][0].embedding == [1.0, 0.0]
+
+
+def test_resolve_local_vector_db_path_prefers_semantic_memory_name(tmp_path) -> None:
+    agent_dir = tmp_path / ".agent"
+    agent_dir.mkdir()
+    legacy = agent_dir / "vector.db"
+    legacy.write_text("placeholder", encoding="utf-8")
+
+    resolved = resolve_local_vector_db_path(agent_dir)
+
+    assert resolved == agent_dir / "semantic-memory.db"
+    assert resolved.exists()

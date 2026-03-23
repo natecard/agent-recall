@@ -5,8 +5,7 @@ import pytest
 from agent_recall.memory.migration import VectorMigrationRequest, VectorMigrationService
 from agent_recall.memory.policy import MemoryPolicy
 from agent_recall.memory.vector_store import LocalVectorStore
-from agent_recall.storage.files import KnowledgeTier
-from agent_recall.storage.models import Chunk, ChunkSource, SemanticLabel
+from agent_recall.storage.models import LogEntry, LogSource, SemanticLabel
 
 
 def _memory_cfg() -> dict[str, object]:
@@ -23,14 +22,19 @@ def _memory_cfg() -> dict[str, object]:
 
 
 def test_vector_migration_service_dry_run(storage, files) -> None:
-    files.write_tier(
-        KnowledgeTier.GUARDRAILS,
-        "# Guardrails\n\n- Never commit token-123 values\n",
+    storage.append_entry(
+        LogEntry(
+            source=LogSource.EXTRACTED,
+            source_session_id="session-1",
+            content="Never commit token-123 values",
+            label=SemanticLabel.GOTCHA,
+            tags=["security"],
+        )
     )
-    storage.store_chunk(
-        Chunk(
-            source=ChunkSource.MANUAL,
-            source_ids=[],
+    storage.append_entry(
+        LogEntry(
+            source=LogSource.EXTRACTED,
+            source_session_id="session-2",
             content="Use token-999 safely in local tests",
             label=SemanticLabel.PATTERN,
             tags=["auth"],
@@ -55,10 +59,10 @@ def test_vector_migration_service_dry_run(storage, files) -> None:
 
 
 def test_vector_migration_service_writes_local_vectors(storage, files) -> None:
-    storage.store_chunk(
-        Chunk(
-            source=ChunkSource.MANUAL,
-            source_ids=[],
+    storage.append_entry(
+        LogEntry(
+            source=LogSource.EXTRACTED,
+            source_session_id="session-migrate",
             content="Migration vector content",
             label=SemanticLabel.PATTERN,
             tags=["migration"],

@@ -18,6 +18,23 @@ from agent_recall.cli.tui.logic.text_sanitizers import (
 
 
 class ActivityMixin:
+    def _apply_output_scroll_key(self: Any, key: str) -> None:
+        output_widget = self.query_one("#activity_output", TextArea)
+        if key in {"down", "pagedown", "end"}:
+            if key == "end":
+                output_widget.scroll_end(animate=False)
+                return
+            delta = 20 if key == "pagedown" else 3
+            output_widget.scroll_relative(y=delta, animate=False, force=True, immediate=True)
+            return
+
+        if key in {"up", "pageup", "home"}:
+            if key == "home":
+                output_widget.scroll_to(x=0, y=0, animate=False, force=True, immediate=True)
+                return
+            delta = -(20 if key == "pageup" else 3)
+            output_widget.scroll_relative(y=delta, animate=False, force=True, immediate=True)
+
     def _refresh_activity_panel(self: Any) -> None:
         subtitle = f"{self.current_view} · event-driven · Ctrl+P commands"
         title = self.status
@@ -307,7 +324,12 @@ class ActivityMixin:
         except Exception:  # noqa: BLE001
             focused_widget = None
         focused_widget_id = focused_widget.id if focused_widget is not None else ""
-        if focused_widget_id in {"dashboard_timeline_interactive", "activity_output"}:
+        if focused_widget_id == "dashboard_timeline_interactive":
+            return
+        if focused_widget_id == "activity_output":
+            self._apply_output_scroll_key(event.key)
+            event.prevent_default()
+            event.stop()
             return
         activity_widget = self.query_one("#activity_log", Log)
         if focused_widget_id == "activity_result_list":
@@ -336,6 +358,8 @@ class ActivityMixin:
 
     def on_mouse_scroll_up(self: Any, _event: events.MouseScrollUp) -> None:
         if self._output_view_open:
+            output_widget = self.query_one("#activity_output", TextArea)
+            output_widget.scroll_relative(y=-3, animate=False, force=True, immediate=True)
             return
         activity_widget = self.query_one("#activity_log", Log)
         if self._result_list_open:
@@ -369,6 +393,8 @@ class ActivityMixin:
 
     def on_mouse_scroll_down(self: Any, _event: events.MouseScrollDown) -> None:
         if self._output_view_open:
+            output_widget = self.query_one("#activity_output", TextArea)
+            output_widget.scroll_relative(y=3, animate=False, force=True, immediate=True)
             return
         activity_widget = self.query_one("#activity_log", Log)
         if self._result_list_open:
@@ -441,7 +467,9 @@ class ActivityMixin:
             self._result_list_open = False
         output_widget.load_text("\n".join(lines))
         output_widget.border_title = "Command Output"
-        output_widget.border_subtitle = "Ctrl+A select all · Ctrl+C copy · Esc close"
+        output_widget.border_subtitle = (
+            "Ctrl+A select all · Ctrl+C copy · PgUp/PgDn scroll · Esc close"
+        )
         output_widget.display = True
         output_widget.move_cursor((0, 0))
         output_widget.scroll_cursor_visible(animate=False)

@@ -1022,6 +1022,65 @@ class MockLLM(LLMProvider):
 
 class TestTranscriptExtractor:
     @pytest.mark.asyncio
+    async def test_extract_prompt_literal_empty_object_does_not_break_formatting(self) -> None:
+        from agent_recall.core.extract import TranscriptExtractor
+
+        class EmptyObjectLLM(LLMProvider):
+            def __init__(self) -> None:
+                self.calls = 0
+
+            @property
+            def provider_name(self) -> str:
+                return "empty-object"
+
+            @property
+            def model_name(self) -> str:
+                return "mock"
+
+            async def generate(
+                self,
+                messages: list[Message],
+                temperature: float = 0.3,
+                max_tokens: int = 4096,
+            ) -> LLMResponse:
+                _ = (messages, temperature, max_tokens)
+                self.calls += 1
+                return LLMResponse(content='{"learnings":[]}', model="mock")
+
+            def validate(self) -> tuple[bool, str]:
+                return True, "ok"
+
+        llm = EmptyObjectLLM()
+        extractor = TranscriptExtractor(llm)
+        session = RawSession(
+            source="test",
+            session_id="test-empty-object",
+            started_at=datetime.now(UTC),
+            messages=[
+                RawMessage(
+                    role="user",
+                    content=(
+                        "Check the extraction formatting path for a strict JSON object contract "
+                        "and make sure the empty learnings example does not break prompt rendering."
+                    ),
+                ),
+                RawMessage(
+                    role="assistant",
+                    content=(
+                        "I verified the extraction formatting path and there were no meaningful "
+                        "technical learnings in this short exchange beyond checking the "
+                        "prompt contract."
+                    ),
+                ),
+            ],
+        )
+
+        entries = await extractor.extract(session)
+
+        assert entries == []
+        assert llm.calls == 1
+
+    @pytest.mark.asyncio
     async def test_extract_basic(self) -> None:
         from agent_recall.core.extract import TranscriptExtractor
 
@@ -1334,3 +1393,263 @@ class TestTranscriptExtractor:
         assert progress_events[2]["messages_processed"] == 205
         assert progress_events[2]["messages_total"] == 205
         assert progress_events[2]["batch_count"] == 3
+
+    @pytest.mark.asyncio
+    async def test_extract_filters_codex_boilerplate_and_preserves_middle_messages(self) -> None:
+        from agent_recall.core.extract import TranscriptExtractor
+
+        class CapturePromptLLM(LLMProvider):
+            def __init__(self) -> None:
+                self.prompts: list[str] = []
+
+            @property
+            def provider_name(self) -> str:
+                return "capture"
+
+            @property
+            def model_name(self) -> str:
+                return "capture"
+
+            async def generate(
+                self,
+                messages: list[Message],
+                temperature: float = 0.3,
+                max_tokens: int = 4096,
+            ) -> LLMResponse:
+                _ = (temperature, max_tokens)
+                self.prompts.append(messages[-1].content)
+                return LLMResponse(content="[]", model="capture")
+
+            def validate(self) -> tuple[bool, str]:
+                return True, "ok"
+
+        llm = CapturePromptLLM()
+        extractor = TranscriptExtractor(llm, messages_per_batch=50)
+        instruction_block = (
+            "# AGENTS.md instructions for /Users/natecard/OnHere/Repos/headless-migration\n"
+            "<INSTRUCTIONS>\n"
+            "### Available skills\n"
+            "Trigger rules apply.\n"
+            "How to use a skill.\n"
+            "Working with the user.\n"
+            "Intermediary updates.\n"
+            "Final answer instructions.\n"
+            "</INSTRUCTIONS>"
+        )
+        long_messages = [
+            RawMessage(
+                role="user",
+                content=(
+                    "<environment_context>\n"
+                    "  <cwd>/tmp/project</cwd>\n"
+                    "  <shell>zsh</shell>\n"
+                    "</environment_context>"
+                ),
+            ),
+            RawMessage(role="user", content=instruction_block),
+        ]
+        long_messages.extend(
+            [
+                RawMessage(
+                    role="assistant" if index % 2 else "user",
+                    content=(
+                        f"Unique middle marker {index}: keep Playwright as the default engine, "
+                        "preserve agent-browser as the fallback path, and make traversal "
+                        "deterministic for the ATS flows."
+                    ),
+                )
+                for index in range(1, 49)
+            ]
+        )
+        session = RawSession(
+            source="codex",
+            session_id="codex-boilerplate",
+            started_at=datetime.now(UTC),
+            ended_at=datetime.now(UTC),
+            messages=long_messages,
+        )
+
+        await extractor.extract(session)
+
+        assert llm.prompts
+        first_prompt = llm.prompts[0]
+        assert "<environment_context>" not in first_prompt
+        assert "AGENTS.md instructions" not in first_prompt
+        assert "Unique middle marker 25" in first_prompt
+        assert "Unique middle marker 40" in first_prompt
+        assert '"learnings"' in first_prompt
+        assert '"additionalProperties": false' in first_prompt
+
+    @pytest.mark.asyncio
+    async def test_extract_uses_recovery_pass_for_long_zero_learning_sessions(self) -> None:
+        from agent_recall.core.extract import TranscriptExtractor
+
+        class RecoveryLLM(LLMProvider):
+            def __init__(self) -> None:
+                self.calls = 0
+
+            @property
+            def provider_name(self) -> str:
+                return "recovery"
+
+            @property
+            def model_name(self) -> str:
+                return "mock"
+
+            async def generate(
+                self,
+                messages: list[Message],
+                temperature: float = 0.3,
+                max_tokens: int = 4096,
+            ) -> LLMResponse:
+                _ = (temperature, max_tokens)
+                self.calls += 1
+                prompt = messages[-1].content
+                if "HIGH-SIGNAL SNIPPETS START" in prompt:
+                    return LLMResponse(
+                        content=(
+                            '[{"label":"decision","content":"Keep Playwright as the default '
+                            'browser engine and retain agent-browser as an explicit fallback",'
+                            '"tags":["playwright","fallback"],"confidence":0.9,'
+                            '"evidence":"Added first-class Playwright engine support while '
+                            'keeping agent-browser fallback"}]'
+                        ),
+                        model="mock",
+                    )
+                return LLMResponse(content="[]", model="mock")
+
+            def validate(self) -> tuple[bool, str]:
+                return True, "ok"
+
+        llm = RecoveryLLM()
+        extractor = TranscriptExtractor(llm, messages_per_batch=50)
+        progress_events: list[dict[str, object]] = []
+        session = RawSession(
+            source="codex",
+            session_id="codex-recovery",
+            started_at=datetime.now(UTC),
+            ended_at=datetime.now(UTC),
+            messages=[
+                RawMessage(
+                    role="user" if index % 2 == 0 else "assistant",
+                    content=(
+                        "Progress update on the browser migration and traversal work. "
+                        f"Message {index + 1}."
+                    ),
+                )
+                for index in range(58)
+            ]
+            + [
+                RawMessage(
+                    role="assistant",
+                    content=(
+                        "Implemented the migration decision: keep Playwright as the default "
+                        "engine, preserve agent-browser as the fallback, and make click "
+                        "traversal deterministic."
+                    ),
+                ),
+                RawMessage(
+                    role="assistant",
+                    content=(
+                        "Final outcome: default to Playwright, keep the agent-browser "
+                        "compatibility path, and rely on explicit wait-before-click guards."
+                    ),
+                ),
+            ],
+        )
+
+        entries = await extractor.extract(session, progress_callback=progress_events.append)
+
+        assert len(entries) == 1
+        assert entries[0].label.value == "decision"
+        assert "Playwright" in entries[0].content
+        assert llm.calls == 3
+        recovery_events = [
+            event
+            for event in progress_events
+            if event.get("event") == "extraction_recovery_complete"
+        ]
+        assert len(recovery_events) == 1
+        assert recovery_events[0]["batch_learnings"] == 1
+
+    @pytest.mark.asyncio
+    async def test_extract_repairs_malformed_model_output_into_strict_json_object(self) -> None:
+        from agent_recall.core.extract import TranscriptExtractor
+
+        class RepairingLLM(LLMProvider):
+            def __init__(self) -> None:
+                self.calls = 0
+
+            @property
+            def provider_name(self) -> str:
+                return "repairing"
+
+            @property
+            def model_name(self) -> str:
+                return "mock"
+
+            async def generate(
+                self,
+                messages: list[Message],
+                temperature: float = 0.3,
+                max_tokens: int = 4096,
+            ) -> LLMResponse:
+                _ = (temperature, max_tokens)
+                self.calls += 1
+                prompt = messages[-1].content
+                if "Reformat the previous model output" in prompt:
+                    return LLMResponse(
+                        content=(
+                            '{"learnings":[{"label":"pattern","content":"Use explicit '
+                            'wait-before-click guards in traversal flows","tags":["playwright"],'
+                            '"confidence":0.8,"evidence":"Wait-before-click stabilized the run"}]}'
+                        ),
+                        model="mock",
+                    )
+                return LLMResponse(
+                    content=(
+                        "Here are the learnings:\n"
+                        "- pattern: Use explicit wait-before-click guards in traversal flows"
+                    ),
+                    model="mock",
+                )
+
+            def validate(self) -> tuple[bool, str]:
+                return True, "ok"
+
+        llm = RepairingLLM()
+        extractor = TranscriptExtractor(llm)
+        progress_events: list[dict[str, object]] = []
+        session = RawSession(
+            source="codex",
+            session_id="codex-repair",
+            started_at=datetime.now(UTC),
+            ended_at=datetime.now(UTC),
+            messages=[
+                RawMessage(
+                    role="user",
+                    content=(
+                        "Please stabilize the traversal flow so it waits before clicking and "
+                        "make sure the browser does not race ahead of the rendered controls."
+                    ),
+                ),
+                RawMessage(
+                    role="assistant",
+                    content=(
+                        "I added explicit wait-before-click guards, waited for the rendered "
+                        "controls, and the traversal run stabilized instead of clicking early."
+                    ),
+                ),
+            ],
+        )
+
+        entries = await extractor.extract(session, progress_callback=progress_events.append)
+
+        assert len(entries) == 1
+        assert entries[0].label.value == "pattern"
+        assert llm.calls == 2
+        repair_events = [
+            event for event in progress_events if event.get("event") == "extraction_repair_complete"
+        ]
+        assert len(repair_events) == 1
+        assert repair_events[0]["repair_success"] is True

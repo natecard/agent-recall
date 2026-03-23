@@ -134,7 +134,7 @@ class AgentRecallTextualApp(
         self.terminal_supported = terminal_supported
         self.no_delta_setup = no_delta_setup
         self.status = "Ready. Press Ctrl+P for commands."
-        self.activity: deque[str] = deque(maxlen=2000)
+        self.activity: deque[str] = deque()
         self._theme_preview_active = False
         self._theme_commit_inflight = False
         self._theme_preview_origin: str | None = None
@@ -177,7 +177,7 @@ class AgentRecallTextualApp(
                     yield Input(id="cli_input", placeholder="/ command  ·  Ctrl+P for palette")
                 with Vertical(id="activity"):
                     yield Static(id="terminal_panel")
-                    yield Log(id="activity_log", highlight=False, auto_scroll=False)
+                    yield Log(id="activity_log", highlight=False, max_lines=None, auto_scroll=False)
                     yield TextArea(
                         "",
                         id="activity_output",

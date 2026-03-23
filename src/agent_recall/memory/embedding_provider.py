@@ -8,7 +8,11 @@ from typing import Protocol
 import httpx
 
 from agent_recall.core.embeddings import generate_embedding
-from agent_recall.core.semantic_embedder import embed_single, get_embedding_dimension
+from agent_recall.core.semantic_embedder import (
+    configure_model,
+    embed_single,
+    get_embedding_dimension,
+)
 
 
 @dataclass(frozen=True)
@@ -32,13 +36,21 @@ class LocalEmbeddingProvider:
     def __init__(
         self,
         *,
+        model_name: str | None = None,
         model_path: str | None = None,
+        cache_dir: str | None = None,
+        local_files_only: bool = False,
         dimensions: int = 64,
         cache_size: int = 2_000,
+        strict_local_model: bool = False,
     ) -> None:
+        self.model_name = model_name
         self.model_path = model_path
+        self.cache_dir = cache_dir
+        self.local_files_only = bool(local_files_only or model_path)
         self.dimensions = max(8, int(dimensions))
         self.cache_size = max(100, int(cache_size))
+        self.strict_local_model = strict_local_model
         self._cache: OrderedDict[str, list[float]] = OrderedDict()
 
     def embed_texts(self, texts: list[str]) -> EmbeddingResponse:
@@ -47,7 +59,10 @@ class LocalEmbeddingProvider:
         for text in texts:
             normalized = text.strip()
             estimated_tokens += _estimate_tokens(normalized)
-            cache_key = f"{self.model_path or 'default'}::{self.dimensions}::{normalized}"
+            cache_key = (
+                f"{self.model_name or self.model_path or 'default'}::"
+                f"{self.cache_dir or '-'}::{self.dimensions}::{normalized}"
+            )
             cached = self._cache.get(cache_key)
             if cached is not None:
                 vectors.append(list(cached))
@@ -62,7 +77,7 @@ class LocalEmbeddingProvider:
         return EmbeddingResponse(
             vectors=vectors,
             provider="local",
-            model=self.model_path or "deterministic",
+            model=self.model_path or self.model_name or "deterministic",
             estimated_tokens=estimated_tokens,
             estimated_cost_usd=0.0,
         )
@@ -70,9 +85,16 @@ class LocalEmbeddingProvider:
     def _embed_one(self, text: str) -> list[float]:
         if self.dimensions == get_embedding_dimension():
             try:
+                configure_model(
+                    model_name=self.model_name,
+                    model_path=self.model_path,
+                    cache_dir=self.cache_dir,
+                    local_files_only=self.local_files_only,
+                )
                 return embed_single(text).tolist()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                if self.strict_local_model:
+                    raise RuntimeError("Local embedding model is unavailable.") from exc
         return generate_embedding(text, dimensions=self.dimensions)
 
 

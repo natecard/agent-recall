@@ -21,6 +21,7 @@ from agent_recall.cli.tui.ui.modals import (
     RalphConfigModal,
     SettingsModal,
     SetupModal,
+    VectorMemoryStepModal,
 )
 from agent_recall.cli.tui.ui.modals.coding_agent_step import CodingAgentStepModal
 from agent_recall.cli.tui.ui.modals.command_palette import CommandPaletteModal
@@ -138,6 +139,12 @@ class CommandsMixin:
         )
 
     def _open_setup_step_three_modal(self: Any, defaults: dict[str, Any]) -> None:
+        self.push_screen(
+            VectorMemoryStepModal(defaults),
+            self._apply_setup_vector_modal_result,
+        )
+
+    def _open_setup_step_four_modal(self: Any, defaults: dict[str, Any]) -> None:
         self.push_screen(
             CodingAgentStepModal(
                 defaults,
@@ -398,7 +405,7 @@ class CommandsMixin:
             return
         self._pending_setup_payload = dict(result)
         model_defaults = dict(self._setup_defaults_provider())
-        self.status = "Setup (step 2/3)"
+        self.status = "Setup (step 2/4)"
         self._append_activity("Step 1 complete. Configure LLM.")
         self._open_setup_step_two_modal(model_defaults)
 
@@ -414,7 +421,7 @@ class CommandsMixin:
             setup_defaults = dict(self._setup_defaults_provider())
             if isinstance(self._pending_setup_payload, dict):
                 setup_defaults.update(self._pending_setup_payload)
-            self.status = "Setup (step 1/3)"
+            self.status = "Setup (step 1/4)"
             self._append_activity("Returned to step 1.")
             self._open_setup_step_one_modal(setup_defaults)
             return
@@ -429,9 +436,39 @@ class CommandsMixin:
         del merged["_action"]
         self._pending_setup_payload = merged
 
-        self.status = "Setup (step 3/3)"
-        self._append_activity("Configure coding agent.")
+        self.status = "Setup (step 3/4)"
+        self._append_activity("Configure vector memory.")
         self._open_setup_step_three_modal(merged)
+
+    def _apply_setup_vector_modal_result(self: Any, result: dict[str, Any] | None) -> None:
+        if result is None:
+            self._pending_setup_payload = None
+            self.status = "Setup cancelled"
+            self._append_activity("Setup cancelled.")
+            return
+
+        action = str(result.get("_action") or "").strip().lower()
+        if action == "back":
+            self.status = "Setup (step 2/4)"
+            self._append_activity("Returned to LLM config.")
+            self._open_setup_step_two_modal(
+                dict(self._pending_setup_payload) if self._pending_setup_payload else {}
+            )
+            return
+
+        if action != "next":
+            return
+
+        merged: dict[str, Any] = {}
+        if isinstance(self._pending_setup_payload, dict):
+            merged.update(self._pending_setup_payload)
+        merged.update(result)
+        del merged["_action"]
+        self._pending_setup_payload = merged
+
+        self.status = "Setup (step 4/4)"
+        self._append_activity("Configure coding agent.")
+        self._open_setup_step_four_modal(merged)
 
     def _apply_setup_coding_agent_modal_result(self: Any, result: dict[str, Any] | None) -> None:
         if result is None:
@@ -442,9 +479,9 @@ class CommandsMixin:
 
         action = str(result.get("_action") or "").strip().lower()
         if action == "back":
-            self.status = "Setup (step 2/3)"
-            self._append_activity("Returned to LLM config.")
-            self._open_setup_step_two_modal(
+            self.status = "Setup (step 3/4)"
+            self._append_activity("Returned to vector memory config.")
+            self._open_setup_step_three_modal(
                 dict(self._pending_setup_payload) if self._pending_setup_payload else {}
             )
             return

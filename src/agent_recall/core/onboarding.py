@@ -17,6 +17,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from agent_recall.core.config import load_config
 from agent_recall.ingest import get_default_ingesters
 from agent_recall.ingest.sources import (
     SOURCE_BY_NAME,
@@ -28,6 +29,8 @@ from agent_recall.llm import (
     ensure_provider_dependency,
     get_available_providers,
 )
+from agent_recall.memory.provisioning import VectorMemoryService, VectorMemorySetupRequest
+from agent_recall.storage import create_storage_backend
 from agent_recall.storage.files import FileStorage
 from agent_recall.storage.models import LLMConfig
 
@@ -1004,6 +1007,9 @@ def _default_coding_model_for_cli(coding_cli: str | None) -> str | None:
 def get_onboarding_defaults(files: FileStorage) -> dict[str, Any]:
     config_dict = files.read_config()
     llm_config = dict(config_dict.get("llm", {}))
+    memory_config = config_dict.get("memory", {}) if isinstance(config_dict, dict) else {}
+    if not isinstance(memory_config, dict):
+        memory_config = {}
     ralph_config = config_dict.get("ralph", {}) if isinstance(config_dict, dict) else {}
     if not isinstance(ralph_config, dict):
         ralph_config = {}
@@ -1039,6 +1045,23 @@ def get_onboarding_defaults(files: FileStorage) -> dict[str, Any]:
     elif cli_model is None:
         cli_model = _default_coding_model_for_cli(coding_cli)
 
+    existing_vector_enabled = memory_config.get("vector_enabled")
+    default_vector_enabled = True
+    if isinstance(existing_vector_enabled, bool) and (
+        existing_vector_enabled
+        or str(memory_config.get("mode", "markdown")).strip().lower() != "markdown"
+        or bool(memory_config.get("local_model_path"))
+        or bool(memory_config.get("external_embedding_base_url"))
+        or str(memory_config.get("vector_backend", "local")).strip().lower() != "local"
+    ):
+        default_vector_enabled = existing_vector_enabled
+    vector_backend = str(memory_config.get("vector_backend", "local")).strip().lower() or "local"
+    if vector_backend not in {"local", "turbopuffer"}:
+        vector_backend = "local"
+    turbopuffer_cfg = memory_config.get("turbopuffer", {})
+    if not isinstance(turbopuffer_cfg, dict):
+        turbopuffer_cfg = {}
+
     return {
         "repository_path": str(_resolve_repository_root()),
         "repository_verified": True,
@@ -1065,11 +1088,146 @@ def get_onboarding_defaults(files: FileStorage) -> dict[str, Any]:
         "coding_cli": coding_cli,
         "cli_model": cli_model,
         "ralph_enabled": bool(ralph_config.get("enabled", False)),
+        "vector_enabled": default_vector_enabled,
+        "vector_backend": vector_backend,
+        "local_model_name": str(memory_config.get("local_model_name") or "all-MiniLM-L6-v2"),
+        "local_model_path": str(memory_config.get("local_model_path") or "").strip() or None,
+        "local_model_cache_dir": (
+            str(memory_config.get("local_model_cache_dir") or "").strip() or None
+        ),
+        "local_model_auto_download": bool(memory_config.get("local_model_auto_download", True)),
+        "turbopuffer_base_url": str(turbopuffer_cfg.get("base_url") or "").strip() or None,
+        "turbopuffer_api_key_env": str(turbopuffer_cfg.get("api_key_env") or "TURBOPUFFER_API_KEY"),
+        "external_embedding_base_url": (
+            str(memory_config.get("external_embedding_base_url") or "").strip() or None
+        ),
+        "external_embedding_api_key_env": str(
+            memory_config.get("external_embedding_api_key_env") or "OPENAI_API_KEY"
+        ),
+        "external_embedding_model": str(
+            memory_config.get("external_embedding_model") or "text-embedding-3-small"
+        ),
     }
 
 
 def _now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
+def _prompt_vector_memory_settings(defaults: dict[str, Any]) -> dict[str, Any]:
+    enabled_default = bool(defaults.get("vector_enabled", True))
+    enabled = typer.confirm("Enable semantic vector memory?", default=enabled_default)
+    if not enabled:
+        return {
+            "vector_enabled": False,
+            "vector_backend": "local",
+            "local_model_name": defaults.get("local_model_name"),
+            "local_model_path": defaults.get("local_model_path"),
+            "local_model_cache_dir": defaults.get("local_model_cache_dir"),
+            "local_model_auto_download": bool(defaults.get("local_model_auto_download", True)),
+            "turbopuffer_base_url": defaults.get("turbopuffer_base_url"),
+            "turbopuffer_api_key_env": defaults.get("turbopuffer_api_key_env"),
+            "external_embedding_base_url": defaults.get("external_embedding_base_url"),
+            "external_embedding_api_key_env": defaults.get("external_embedding_api_key_env"),
+            "external_embedding_model": defaults.get("external_embedding_model"),
+        }
+
+    backend_default = str(defaults.get("vector_backend") or "local").strip().lower() or "local"
+    if backend_default not in {"local", "turbopuffer"}:
+        backend_default = "local"
+
+    backend = (
+        typer.prompt(
+            "Vector backend (local or turbopuffer)",
+            default=backend_default,
+            show_default=True,
+        )
+        .strip()
+        .lower()
+    )
+    if backend not in {"local", "turbopuffer"}:
+        raise ValueError("Vector backend must be 'local' or 'turbopuffer'.")
+
+    if backend == "local":
+        use_custom_model = typer.confirm(
+            "Override the default local embedding model settings?",
+            default=bool(defaults.get("local_model_path")),
+        )
+        if not use_custom_model:
+            return {
+                "vector_enabled": True,
+                "vector_backend": "local",
+                "local_model_name": str(defaults.get("local_model_name") or "all-MiniLM-L6-v2"),
+                "local_model_path": None,
+                "local_model_cache_dir": (
+                    str(defaults.get("local_model_cache_dir") or "").strip() or None
+                ),
+                "local_model_auto_download": bool(defaults.get("local_model_auto_download", True)),
+            }
+
+        local_model_name = typer.prompt(
+            "Managed local model name",
+            default=str(defaults.get("local_model_name") or "all-MiniLM-L6-v2"),
+            show_default=True,
+        ).strip()
+        local_model_path = typer.prompt(
+            "Explicit local model path (optional)",
+            default=str(defaults.get("local_model_path") or ""),
+            show_default=bool(defaults.get("local_model_path")),
+        ).strip()
+        local_model_cache_dir = typer.prompt(
+            "Local model cache dir (optional)",
+            default=str(defaults.get("local_model_cache_dir") or ""),
+            show_default=bool(defaults.get("local_model_cache_dir")),
+        ).strip()
+        auto_download = typer.confirm(
+            "Download the model during setup if it is missing?",
+            default=bool(defaults.get("local_model_auto_download", True)),
+        )
+        return {
+            "vector_enabled": True,
+            "vector_backend": "local",
+            "local_model_name": local_model_name or "all-MiniLM-L6-v2",
+            "local_model_path": local_model_path or None,
+            "local_model_cache_dir": local_model_cache_dir or None,
+            "local_model_auto_download": auto_download,
+        }
+
+    return {
+        "vector_enabled": True,
+        "vector_backend": "turbopuffer",
+        "local_model_name": str(defaults.get("local_model_name") or "all-MiniLM-L6-v2"),
+        "local_model_path": str(defaults.get("local_model_path") or "").strip() or None,
+        "local_model_cache_dir": (str(defaults.get("local_model_cache_dir") or "").strip() or None),
+        "local_model_auto_download": bool(defaults.get("local_model_auto_download", True)),
+        "turbopuffer_base_url": typer.prompt(
+            "TurboPuffer base URL",
+            default=str(defaults.get("turbopuffer_base_url") or ""),
+            show_default=bool(defaults.get("turbopuffer_base_url")),
+        ).strip()
+        or None,
+        "turbopuffer_api_key_env": typer.prompt(
+            "TurboPuffer API key env var",
+            default=str(defaults.get("turbopuffer_api_key_env") or "TURBOPUFFER_API_KEY"),
+            show_default=True,
+        ).strip(),
+        "external_embedding_base_url": typer.prompt(
+            "External embedding base URL",
+            default=str(defaults.get("external_embedding_base_url") or ""),
+            show_default=bool(defaults.get("external_embedding_base_url")),
+        ).strip()
+        or None,
+        "external_embedding_api_key_env": typer.prompt(
+            "External embedding API key env var",
+            default=str(defaults.get("external_embedding_api_key_env") or "OPENAI_API_KEY"),
+            show_default=True,
+        ).strip(),
+        "external_embedding_model": typer.prompt(
+            "External embedding model",
+            default=str(defaults.get("external_embedding_model") or "text-embedding-3-small"),
+            show_default=True,
+        ).strip(),
+    }
 
 
 def apply_repo_setup(
@@ -1090,6 +1248,17 @@ def apply_repo_setup(
     coding_cli: str | None = None,
     cli_model: str | None = None,
     ralph_enabled: bool | None = None,
+    vector_enabled: bool = False,
+    vector_backend: str = "local",
+    local_model_name: str | None = None,
+    local_model_path: str | None = None,
+    local_model_cache_dir: str | None = None,
+    local_model_auto_download: bool = True,
+    turbopuffer_base_url: str | None = None,
+    turbopuffer_api_key_env: str | None = None,
+    external_embedding_base_url: str | None = None,
+    external_embedding_api_key_env: str | None = None,
+    external_embedding_model: str | None = None,
 ) -> bool:
     repo_path = _resolve_repository_root()
     if not repository_verified:
@@ -1135,6 +1304,9 @@ def apply_repo_setup(
         effective_ralph_enabled = bool(ralph_enabled) if ralph_enabled is not None else False
         if effective_ralph_enabled and normalized_coding_cli is None:
             raise ValueError("Coding CLI is required when enabling Ralph loop.")
+    normalized_vector_backend = vector_backend.strip().lower()
+    if normalized_vector_backend not in {"local", "turbopuffer"}:
+        raise ValueError("Vector backend must be 'local' or 'turbopuffer'.")
 
     secrets_store = LocalSecretsStore()
     inject_stored_api_keys(secrets_store)
@@ -1216,6 +1388,28 @@ def apply_repo_setup(
     created_rules_paths = ensure_rules_file(files.agent_dir)
     created_ralph_paths = ensure_ralph_scaffold(files.agent_dir)
 
+    vector_request = VectorMemorySetupRequest(
+        enabled=bool(vector_enabled),
+        backend=normalized_vector_backend,  # type: ignore[arg-type]
+        local_model_name=local_model_name,
+        local_model_path=local_model_path,
+        local_model_cache_dir=local_model_cache_dir,
+        local_model_auto_download=bool(local_model_auto_download),
+        turbopuffer_base_url=turbopuffer_base_url,
+        turbopuffer_api_key_env=(turbopuffer_api_key_env or "TURBOPUFFER_API_KEY"),
+        external_embedding_base_url=external_embedding_base_url,
+        external_embedding_api_key_env=(external_embedding_api_key_env or "OPENAI_API_KEY"),
+        external_embedding_model=(external_embedding_model or "text-embedding-3-small"),
+    )
+    storage = create_storage_backend(
+        load_config(files.agent_dir),
+        files.agent_dir / "state.db",
+    )
+    try:
+        vector_result = VectorMemoryService(storage=storage, files=files).provision(vector_request)
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"Vector memory setup failed: {exc}") from None
+
     settings_store = LocalSettingsStore()
     settings = settings_store.load()
     defaults = _normalize_defaults(settings.get("defaults"))
@@ -1224,6 +1418,22 @@ def apply_repo_setup(
     defaults["temperature"] = float(temperature)
     defaults["max_tokens"] = int(max_tokens)
     defaults["selected_sources"] = normalized_agents
+    defaults["vector_enabled"] = bool(vector_enabled)
+    defaults["vector_backend"] = normalized_vector_backend
+    defaults["local_model_name"] = (local_model_name or "").strip() or "all-MiniLM-L6-v2"
+    defaults["local_model_path"] = (local_model_path or "").strip() or None
+    defaults["local_model_cache_dir"] = (local_model_cache_dir or "").strip() or None
+    defaults["turbopuffer_base_url"] = (turbopuffer_base_url or "").strip() or None
+    defaults["turbopuffer_api_key_env"] = (
+        turbopuffer_api_key_env or ""
+    ).strip() or "TURBOPUFFER_API_KEY"
+    defaults["external_embedding_base_url"] = (external_embedding_base_url or "").strip() or None
+    defaults["external_embedding_api_key_env"] = (
+        external_embedding_api_key_env or ""
+    ).strip() or "OPENAI_API_KEY"
+    defaults["external_embedding_model"] = (
+        external_embedding_model or ""
+    ).strip() or "text-embedding-3-small"
     if cleaned_base_url:
         defaults["base_url"] = cleaned_base_url
     else:
@@ -1246,6 +1456,8 @@ def apply_repo_setup(
         "temperature": float(temperature),
         "max_tokens": int(max_tokens),
         "selected_sources": normalized_agents,
+        "vector_enabled": bool(vector_enabled),
+        "vector_backend": normalized_vector_backend,
     }
 
     settings["defaults"] = defaults
@@ -1279,6 +1491,18 @@ def apply_repo_setup(
             f"  Model: {cleaned_cli_model or 'not set'}\n"
             f"  Ralph enabled: {'yes' if bool(effective_ralph_enabled) else 'no'}"
         )
+    panel_body += (
+        "\n\nVector memory:\n"
+        f"  Status: {vector_result.get('status', 'unknown')}\n"
+        f"  Enabled: {'yes' if bool(vector_result.get('enabled', False)) else 'no'}\n"
+        f"  Backend: {vector_result.get('backend', normalized_vector_backend)}"
+    )
+    model_status = vector_result.get("model_status")
+    if isinstance(model_status, dict):
+        panel_body += f"\n  Local model: {model_status.get('state', 'unknown')}"
+    cloud_status = vector_result.get("cloud_status")
+    if isinstance(cloud_status, dict):
+        panel_body += f"\n  Cloud config: {cloud_status.get('state', 'unknown')}"
     if created_rules_paths:
         panel_body += "\n\nRules scaffold created:\n" + "\n".join(
             f"  {path}" for path in created_rules_paths
@@ -1438,6 +1662,24 @@ def ensure_repo_onboarding(
         cli_model = default_cli_model if coding_cli else None
         ralph_enabled = default_ralph_enabled
 
+    vector_defaults = {
+        "vector_enabled": bool(defaults.get("vector_enabled", True)),
+        "vector_backend": str(defaults.get("vector_backend") or "local"),
+        "local_model_name": defaults.get("local_model_name"),
+        "local_model_path": defaults.get("local_model_path"),
+        "local_model_cache_dir": defaults.get("local_model_cache_dir"),
+        "local_model_auto_download": defaults.get("local_model_auto_download", True),
+        "turbopuffer_base_url": defaults.get("turbopuffer_base_url"),
+        "turbopuffer_api_key_env": defaults.get("turbopuffer_api_key_env"),
+        "external_embedding_base_url": defaults.get("external_embedding_base_url"),
+        "external_embedding_api_key_env": defaults.get("external_embedding_api_key_env"),
+        "external_embedding_model": defaults.get("external_embedding_model"),
+    }
+    if interactive:
+        vector_settings = _prompt_vector_memory_settings(vector_defaults)
+    else:
+        vector_settings = dict(vector_defaults)
+
     should_validate = interactive and typer.confirm(
         "Validate provider connection now?", default=False
     )
@@ -1458,7 +1700,50 @@ def ensure_repo_onboarding(
             coding_cli=coding_cli,
             cli_model=cli_model,
             ralph_enabled=ralph_enabled,
+            vector_enabled=bool(vector_settings.get("vector_enabled", False)),
+            vector_backend=str(vector_settings.get("vector_backend") or "local"),
+            local_model_name=(
+                str(vector_settings.get("local_model_name")).strip()
+                if vector_settings.get("local_model_name")
+                else None
+            ),
+            local_model_path=(
+                str(vector_settings.get("local_model_path")).strip()
+                if vector_settings.get("local_model_path")
+                else None
+            ),
+            local_model_cache_dir=(
+                str(vector_settings.get("local_model_cache_dir")).strip()
+                if vector_settings.get("local_model_cache_dir")
+                else None
+            ),
+            local_model_auto_download=bool(vector_settings.get("local_model_auto_download", True)),
+            turbopuffer_base_url=(
+                str(vector_settings.get("turbopuffer_base_url")).strip()
+                if vector_settings.get("turbopuffer_base_url")
+                else None
+            ),
+            turbopuffer_api_key_env=(
+                str(vector_settings.get("turbopuffer_api_key_env")).strip()
+                if vector_settings.get("turbopuffer_api_key_env")
+                else None
+            ),
+            external_embedding_base_url=(
+                str(vector_settings.get("external_embedding_base_url")).strip()
+                if vector_settings.get("external_embedding_base_url")
+                else None
+            ),
+            external_embedding_api_key_env=(
+                str(vector_settings.get("external_embedding_api_key_env")).strip()
+                if vector_settings.get("external_embedding_api_key_env")
+                else None
+            ),
+            external_embedding_model=(
+                str(vector_settings.get("external_embedding_model")).strip()
+                if vector_settings.get("external_embedding_model")
+                else None
+            ),
         )
-    except ValueError as exc:
+    except Exception as exc:  # noqa: BLE001
         console.print(f"[error]{exc}[/error]")
         raise typer.Exit(1) from None

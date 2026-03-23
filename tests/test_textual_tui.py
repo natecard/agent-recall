@@ -208,6 +208,23 @@ def test_append_activity_applies_theme_styles_for_diff_hunks(monkeypatch) -> Non
     assert isinstance(dummy_log.writes[2], str)
 
 
+def test_append_activity_preserves_scrollback_beyond_2000_lines(monkeypatch) -> None:
+    app = _build_test_app()
+
+    class _DummyLog:
+        def write(self, payload: object, *, scroll_end: bool) -> None:
+            _ = (payload, scroll_end)
+
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: _DummyLog())
+    monkeypatch.setattr(app, "_refresh_activity_panel", lambda: None)
+
+    for index in range(2505):
+        app._append_activity(f"line {index}")
+
+    assert len(app.activity) == 2505
+    assert next(iter(app.activity)) == "line 0"
+
+
 def test_sync_activity_layout_console_view() -> None:
     app = _build_test_app()
     app.current_view = "console"
@@ -550,6 +567,46 @@ def test_selecting_source_sync_option_runs_sync(monkeypatch) -> None:
     assert captured == ["cursor"]
 
 
+def test_setup_llm_step_advances_to_vector_memory(monkeypatch) -> None:
+    app = _build_test_app()
+    app._pending_setup_payload = {"repository_verified": True}
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        app,
+        "_open_setup_step_three_modal",
+        lambda defaults: captured.setdefault("defaults", defaults),
+    )
+    monkeypatch.setattr(app, "_append_activity", lambda _line: None)
+
+    app._apply_setup_llm_modal_result(
+        {"_action": "next", "provider": "openai", "model": "gpt-test"}
+    )
+
+    assert app.status == "Setup (step 3/4)"
+    assert isinstance(captured["defaults"], dict)
+    assert cast(dict[str, object], captured["defaults"])["provider"] == "openai"
+
+
+def test_setup_vector_step_advances_to_coding_agent(monkeypatch) -> None:
+    app = _build_test_app()
+    app._pending_setup_payload = {"provider": "openai", "model": "gpt-test"}
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        app,
+        "_open_setup_step_four_modal",
+        lambda defaults: captured.setdefault("defaults", defaults),
+    )
+    monkeypatch.setattr(app, "_append_activity", lambda _line: None)
+
+    app._apply_setup_vector_modal_result(
+        {"_action": "next", "vector_enabled": True, "vector_backend": "local"}
+    )
+
+    assert app.status == "Setup (step 4/4)"
+    assert isinstance(captured["defaults"], dict)
+    assert cast(dict[str, object], captured["defaults"])["vector_backend"] == "local"
+
+
 def test_show_command_output_uses_copyable_text_area(monkeypatch) -> None:
     app = _build_test_app()
 
@@ -599,9 +656,69 @@ def test_show_command_output_uses_copyable_text_area(monkeypatch) -> None:
     assert activity_output.loaded_text == "one\ntwo"
     assert activity_output.border_title == "Command Output"
     assert "Ctrl+C copy" in activity_output.border_subtitle
+    assert "PgUp/PgDn scroll" in activity_output.border_subtitle
     assert activity_output.focused is True
     assert activity_output.cursor == (0, 0)
     assert app._output_view_open is True
+
+
+def test_activity_scroll_keys_scroll_output_view_when_focused(monkeypatch) -> None:
+    app = _build_test_app()
+
+    class _FocusedWidget:
+        id = "activity_output"
+
+    class _OutputWidget:
+        def __init__(self) -> None:
+            self.scroll_actions: list[tuple[str, int | tuple[int, int]]] = []
+
+        def scroll_relative(
+            self, *, y: int | None = None, animate: bool, force: bool, immediate: bool
+        ) -> None:
+            _ = (animate, force, immediate)
+            self.scroll_actions.append(("relative", int(y or 0)))
+
+        def scroll_to(
+            self,
+            *,
+            x: int | None = None,
+            y: int | None = None,
+            animate: bool,
+            force: bool,
+            immediate: bool,
+        ) -> None:
+            _ = (animate, force, immediate)
+            self.scroll_actions.append(("absolute", (int(x or 0), int(y or 0))))
+
+        def scroll_end(self, animate: bool = False) -> None:
+            _ = animate
+            self.scroll_actions.append(("end", 0))
+
+    class _FakeKeyEvent:
+        def __init__(self, key: str) -> None:
+            self.key = key
+            self.prevented = False
+            self.stopped = False
+
+        def prevent_default(self) -> None:
+            self.prevented = True
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    output_widget = _OutputWidget()
+    monkeypatch.setattr(type(app), "focused", property(lambda _self: _FocusedWidget()))
+    monkeypatch.setattr(app, "query_one", lambda *_args, **_kwargs: output_widget)
+
+    page_down = _FakeKeyEvent("pagedown")
+    app.on_key(cast(Any, page_down))
+    home = _FakeKeyEvent("home")
+    app.on_key(cast(Any, home))
+
+    assert ("relative", 20) in output_widget.scroll_actions
+    assert ("absolute", (0, 0)) in output_widget.scroll_actions
+    assert page_down.prevented is True and page_down.stopped is True
+    assert home.prevented is True and home.stopped is True
 
 
 def test_action_close_inline_picker_closes_command_output(monkeypatch) -> None:

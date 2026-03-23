@@ -268,6 +268,42 @@ def test_run_setup_payload_persists_coding_agent_config(monkeypatch) -> None:
         assert config["ralph"]["enabled"] is True
 
 
+def test_run_setup_payload_uses_subprocess_when_vector_memory_enabled(monkeypatch) -> None:
+    monkeypatch.setattr(
+        cli_main,
+        "_run_setup_from_payload_in_process",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("expected vector-enabled setup to use subprocess isolation")
+        ),
+    )
+
+    def fake_subprocess_run(cmd, *, input, capture_output, text, env, cwd):  # noqa: ANN001
+        assert cmd[1] == "-c"
+        assert capture_output is True
+        assert text is True
+        assert env["HF_HUB_DISABLE_XET"] == "1"
+        assert env["HF_HUB_ENABLE_HF_TRANSFER"] == "0"
+        assert env["TOKENIZERS_PARALLELISM"] == "false"
+        assert cwd
+        payload = json.loads(input)
+        assert payload["vector_enabled"] is True
+        return SimpleNamespace(
+            returncode=0,
+            stdout=(
+                "__agent_recall_setup_result__="
+                '{"ok": true, "changed": true, "lines": ["setup complete"]}\n'
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(cli_main.subprocess, "run", fake_subprocess_run)
+
+    changed, lines = cli_main._run_setup_from_payload({"vector_enabled": True})
+
+    assert changed is True
+    assert lines == ["setup complete"]
+
+
 def test_cli_session_flow() -> None:
     with runner.isolated_filesystem():
         initialize_agent_repo(runner, cli_main.app)
@@ -1000,11 +1036,11 @@ def test_cli_memory_mode_and_vector_migration() -> None:
 
         cli_main.get_storage.cache_clear()
         storage = SQLiteStorage(Path(".agent") / "state.db")
-        storage.store_chunk(
-            Chunk(
-                source=ChunkSource.MANUAL,
-                source_ids=[],
-                content="memory migration chunk",
+        storage.append_entry(
+            LogEntry(
+                source=LogSource.EXTRACTED,
+                source_session_id="cli-memory-migrate",
+                content="memory migration learning",
                 label=SemanticLabel.PATTERN,
                 tags=["memory"],
             )
@@ -1031,12 +1067,14 @@ def test_cli_memory_migrate_vectors_uses_service(monkeypatch) -> None:
         initialize_agent_repo(runner, cli_main.app)
         captured: dict[str, object] = {}
 
-        class FakeMigrationService:
+        class FakeVectorMemoryService:
             def __init__(self, **kwargs):  # noqa: ANN003
                 captured["init_kwargs"] = kwargs
 
-            def migrate(self, request):  # noqa: ANN001
+            def sync_vectors(self, request, *, trigger, honor_feature_flag=True):  # noqa: ANN001
                 captured["request"] = request
+                captured["trigger"] = trigger
+                captured["honor_feature_flag"] = honor_feature_flag
                 return {
                     "rows_discovered": 4,
                     "rows_normalized": 3,
@@ -1048,9 +1086,10 @@ def test_cli_memory_migrate_vectors_uses_service(monkeypatch) -> None:
                     "estimated_tokens": 10,
                     "estimated_cost_usd": 0.0,
                     "dry_run": True,
+                    "status": "ready",
                 }
 
-        monkeypatch.setattr(cli_main, "VectorMigrationService", FakeMigrationService)
+        monkeypatch.setattr(cli_main, "VectorMemoryService", FakeVectorMemoryService)
 
         result = runner.invoke(
             cli_main.app,
@@ -1058,8 +1097,83 @@ def test_cli_memory_migrate_vectors_uses_service(monkeypatch) -> None:
         )
         assert result.exit_code == 0
         assert "request" in captured
+        assert captured["trigger"] == "migrate-vectors"
+        assert captured["honor_feature_flag"] is False
         payload = json.loads(result.output)
         assert payload["rows_discovered"] == 4
+
+
+def test_cli_memory_setup_uses_shared_service(monkeypatch) -> None:
+    with runner.isolated_filesystem():
+        initialize_agent_repo(runner, cli_main.app)
+        captured: dict[str, object] = {}
+
+        class FakeVectorMemoryService:
+            def __init__(self, **kwargs):  # noqa: ANN003
+                captured["init_kwargs"] = kwargs
+
+            def provision(self, request):  # noqa: ANN001
+                captured["request"] = request
+                return {
+                    "status": "ready",
+                    "enabled": True,
+                    "backend": "local",
+                    "model_status": {"state": "ready", "model_name": "all-MiniLM-L6-v2"},
+                    "embedding_indexing": {"indexed": 2, "skipped": 0},
+                    "vector_sync": {"rows_written": 3},
+                }
+
+        monkeypatch.setattr(cli_main, "VectorMemoryService", FakeVectorMemoryService)
+
+        result = runner.invoke(
+            cli_main.app,
+            ["memory", "setup", "--backend", "local", "--format", "json"],
+        )
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["backend"] == "local"
+        assert "request" in captured
+        request = captured["request"]
+        assert getattr(request, "backend") == "local"
+        assert getattr(request, "enabled") is True
+
+
+def test_cli_memory_status_uses_shared_service(monkeypatch) -> None:
+    with runner.isolated_filesystem():
+        initialize_agent_repo(runner, cli_main.app)
+
+        class FakeVectorMemoryService:
+            def __init__(self, **kwargs):  # noqa: ANN003
+                _ = kwargs
+
+            def status(self):  # noqa: ANN001
+                return {
+                    "enabled": True,
+                    "backend": "local",
+                    "embedding_provider": "local",
+                    "mode": "hybrid",
+                    "degraded": False,
+                    "chunk_embeddings": {
+                        "embedded_chunks": 4,
+                        "total_chunks": 5,
+                        "pending": 1,
+                    },
+                    "model_status": {"state": "ready", "model_name": "all-MiniLM-L6-v2"},
+                    "vector_store": {
+                        "backend": "local",
+                        "record_count": 7,
+                        "path": ".agent/vector.db",
+                    },
+                    "last_sync": {"status": "ready", "trigger": "setup"},
+                }
+
+        monkeypatch.setattr(cli_main, "VectorMemoryService", FakeVectorMemoryService)
+
+        result = runner.invoke(cli_main.app, ["memory", "status", "--format", "json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["enabled"] is True
+        assert payload["vector_store"]["record_count"] == 7
 
 
 def test_cli_curation_list_renders_pending_entries() -> None:
@@ -1119,8 +1233,10 @@ def test_cli_refresh_context_writes_bundle_using_active_task() -> None:
         bundle_dir = Path(".agent") / "context"
         markdown_path = bundle_dir / "context.md"
         json_path = bundle_dir / "context.json"
+        agent_memory_path = bundle_dir / "agent-memory.json"
         assert markdown_path.exists()
         assert json_path.exists()
+        assert agent_memory_path.exists()
         assert "## Guardrails" in markdown_path.read_text()
 
         payload = json.loads(json_path.read_text())
@@ -1128,6 +1244,9 @@ def test_cli_refresh_context_writes_bundle_using_active_task() -> None:
         assert payload["active_session_id"] is not None
         assert payload["repo_path"]
         assert payload["refreshed_at"]
+        agent_memory = json.loads(agent_memory_path.read_text())
+        assert "working_set" in agent_memory
+        assert "memory_protocol" in agent_memory
 
 
 def test_cli_refresh_context_writes_adapter_payloads() -> None:
@@ -1147,6 +1266,60 @@ def test_cli_refresh_context_writes_adapter_payloads() -> None:
         assert payload["adapter"] == "codex"
         assert payload["task"] == "adapter payload run"
         assert payload["context"]
+        assert "agent_memory" in payload
+        protocol = payload["agent_memory"]["memory_protocol"]
+        assert protocol["request_key"] == "agent_recall_memory_request"
+
+
+def test_cli_memory_request_lists_bundle_working_set() -> None:
+    with runner.isolated_filesystem():
+        initialize_agent_repo(runner, cli_main.app)
+        bundle_dir = Path(".agent") / "context"
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        (bundle_dir / "agent-memory.json").write_text(
+            json.dumps(
+                {
+                    "format_version": 1,
+                    "task": "memory request test",
+                    "active_session_id": None,
+                    "repo_path": str(Path.cwd()),
+                    "refreshed_at": datetime.now(UTC).isoformat(),
+                    "memory_status": {"status": "ready", "enabled": True, "backend": "local"},
+                    "long_term_memory": [],
+                    "working_set": [
+                        {
+                            "id": "m1",
+                            "text": "Remember the migration contract.",
+                            "label": "decision",
+                            "tags": ["memory"],
+                            "metadata": {"source": "extracted"},
+                        }
+                    ],
+                    "memory_protocol": {
+                        "request_key": "agent_recall_memory_request",
+                        "response_key": "agent_recall_memory_response",
+                    },
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(
+            cli_main.app,
+            [
+                "memory",
+                "request",
+                "--request-json",
+                '{"agent_recall_memory_request":{"action":"list_working_set"}}',
+            ],
+        )
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        response = payload["agent_recall_memory_response"]
+        assert response["action"] == "list_working_set"
+        assert response["working_set"][0]["id"] == "m1"
 
 
 def test_cli_refresh_context_applies_adapter_token_budget() -> None:
@@ -1266,11 +1439,14 @@ def test_cli_refresh_context_uses_bundle_helper(monkeypatch) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
         markdown_path = output_dir / "context.md"
         json_path = output_dir / "context.json"
+        agent_memory_path = output_dir / "agent-memory.json"
         markdown_path.write_text(request.context)
         json_path.write_text("{}")
+        agent_memory_path.write_text("{}")
         return SimpleNamespace(
             markdown_path=markdown_path,
             json_path=json_path,
+            agent_memory_path=agent_memory_path,
             refreshed_at=datetime.now(UTC),
             adapters_written={},
         )

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agent_recall.core.adapters import write_adapter_payloads
 from agent_recall.core.context import ContextAssembler
+from agent_recall.memory.agent_memory import build_agent_memory_bundle, write_agent_memory_bundle
 from agent_recall.storage.base import Storage
 from agent_recall.storage.files import FileStorage
 
@@ -40,6 +41,15 @@ class ContextRefreshHook:
         context = self.assembler.assemble(task=task_text, include_retrieval=True)
         refreshed_at = datetime.now(UTC)
         active_session_id = f"ralph-iteration-{iteration}" if iteration is not None else None
+        agent_memory = build_agent_memory_bundle(
+            storage=self.storage,
+            files=self.files,
+            task=task_text,
+            active_session_id=active_session_id,
+            repo_path=self.agent_dir.parent,
+            refreshed_at=refreshed_at,
+        )
+        agent_memory_path = write_agent_memory_bundle(self.agent_dir, agent_memory)
         written = write_adapter_payloads(
             context=context,
             task=task_text,
@@ -48,11 +58,14 @@ class ContextRefreshHook:
             refreshed_at=refreshed_at,
             output_dir=self.agent_dir,
             token_budget=token_budget,
+            agent_memory=agent_memory,
+            agent_memory_path=agent_memory_path,
         )
 
         return {
             "context_length": len(context),
             "adapters_written": list(written.keys()),
+            "agent_memory_path": str(agent_memory_path),
             "refreshed_at": refreshed_at.isoformat(),
             "task": task_text,
         }

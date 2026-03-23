@@ -31,6 +31,7 @@ dependencies = [
   "textual>=0.70",
   "pyyaml>=6.0",
   "openai>=1.0",
+  "sqlite-vec>=0.1.7",
 ]
 
 [project.urls]

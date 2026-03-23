@@ -38,7 +38,7 @@ class CodingAgentStepModal(ModalScreen[dict[str, Any] | None]):
         with Container(id="modal_overlay"):
             with Vertical(id="modal_card", classes="modal_compact"):
                 yield Static("Coding Agent", classes="modal_title")
-                yield Static("Step 3 of 3 · Ralph loop model", classes="modal_subtitle")
+                yield Static("Step 4 of 4 · Ralph loop model", classes="modal_subtitle")
                 with Horizontal(classes="field_row field_row_compact"):
                     yield Static("CLI", classes="field_label")
                     yield Select(

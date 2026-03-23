@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import sqlite3
 import time
@@ -11,9 +10,8 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import sqlite_vec
 from pydantic import BaseModel, Field
-
-from agent_recall.core.ordering import key_score_desc_id
 
 
 class VectorRecord(BaseModel):
@@ -28,8 +26,26 @@ class VectorRecord(BaseModel):
     updated_at: str
 
 
+DEFAULT_LOCAL_VECTOR_DB_FILENAME = "semantic-memory.db"
+LEGACY_LOCAL_VECTOR_DB_FILENAME = "vector.db"
+
+
+def resolve_local_vector_db_path(agent_dir: Path) -> Path:
+    preferred = agent_dir / DEFAULT_LOCAL_VECTOR_DB_FILENAME
+    legacy = agent_dir / LEGACY_LOCAL_VECTOR_DB_FILENAME
+    if preferred.exists():
+        return preferred
+    if legacy.exists():
+        try:
+            legacy.replace(preferred)
+            return preferred
+        except OSError:
+            return legacy
+    return preferred
+
+
 class LocalVectorStore:
-    """Deterministic local vector store schema backed by SQLite."""
+    """Local vector store backed by SQLite plus sqlite-vec functions."""
 
     _schema = """
     CREATE TABLE IF NOT EXISTS memory_vector_records (
@@ -39,7 +55,7 @@ class LocalVectorStore:
         text TEXT NOT NULL,
         label TEXT NOT NULL,
         tags TEXT NOT NULL,
-        embedding TEXT NOT NULL,
+        embedding BLOB NOT NULL,
         metadata TEXT NOT NULL,
         updated_at TEXT NOT NULL
     );
@@ -54,16 +70,65 @@ class LocalVectorStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(self._schema)
+            self._migrate_legacy_embeddings(conn)
 
     @contextmanager
     def _connect(self):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        self._load_sqlite_vec(conn)
         try:
             yield conn
             conn.commit()
         finally:
             conn.close()
+
+    @staticmethod
+    def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
+        try:
+            conn.enable_load_extension(True)
+            sqlite_vec.load(conn)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"sqlite-vec could not be loaded: {exc}") from exc
+        finally:
+            try:
+                conn.enable_load_extension(False)
+            except Exception:
+                pass
+
+    def _migrate_legacy_embeddings(self, conn: sqlite3.Connection) -> None:
+        rows = conn.execute(
+            """
+            SELECT id, embedding
+            FROM memory_vector_records
+            WHERE typeof(embedding) = 'text'
+            """
+        ).fetchall()
+        for row in rows:
+            embedding_raw = row["embedding"]
+            if not isinstance(embedding_raw, str):
+                continue
+            try:
+                parsed = json.loads(embedding_raw)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(parsed, list):
+                continue
+            vector = [float(value) for value in parsed if isinstance(value, int | float)]
+            if not vector or len(vector) != len(parsed):
+                continue
+            conn.execute(
+                """
+                UPDATE memory_vector_records
+                SET embedding = ?
+                WHERE id = ?
+                """,
+                (self._serialize_embedding(vector), str(row["id"])),
+            )
+
+    @staticmethod
+    def _serialize_embedding(embedding: list[float]) -> bytes:
+        return sqlite_vec.serialize_float32([float(value) for value in embedding])
 
     def upsert_records(self, records: list[VectorRecord]) -> int:
         written = 0
@@ -91,7 +156,7 @@ class LocalVectorStore:
                         record.text,
                         record.label,
                         json.dumps(record.tags, separators=(",", ":")),
-                        json.dumps(record.embedding, separators=(",", ":")),
+                        self._serialize_embedding(record.embedding),
                         json.dumps(record.metadata, separators=(",", ":")),
                         record.updated_at,
                     ),
@@ -103,7 +168,19 @@ class LocalVectorStore:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT *
+                SELECT
+                    id,
+                    tenant_id,
+                    project_id,
+                    text,
+                    label,
+                    tags,
+                    CASE
+                        WHEN typeof(embedding) = 'blob' THEN vec_to_json(embedding)
+                        ELSE embedding
+                    END AS embedding_json,
+                    metadata,
+                    updated_at
                 FROM memory_vector_records
                 WHERE tenant_id = ? AND project_id = ?
                 ORDER BY updated_at DESC, id ASC
@@ -113,14 +190,53 @@ class LocalVectorStore:
             ).fetchall()
         return [self._row_to_record(row) for row in rows]
 
+    def count_records(self) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM memory_vector_records
+                WHERE tenant_id = ? AND project_id = ?
+                """,
+                (self.tenant_id, self.project_id),
+            ).fetchone()
+        if row is None:
+            return 0
+        return int(row["count"] or 0)
+
     def query(self, *, embedding: list[float], top_k: int = 10) -> list[tuple[VectorRecord, float]]:
-        candidates = self.list_records(limit=max(top_k * 10, 200))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    id,
+                    tenant_id,
+                    project_id,
+                    text,
+                    label,
+                    tags,
+                    vec_to_json(embedding) AS embedding_json,
+                    metadata,
+                    updated_at,
+                    vec_distance_cosine(embedding, ?) AS distance
+                FROM memory_vector_records
+                WHERE tenant_id = ? AND project_id = ?
+                ORDER BY distance ASC, id ASC
+                LIMIT ?
+                """,
+                (
+                    self._serialize_embedding(embedding),
+                    self.tenant_id,
+                    self.project_id,
+                    max(1, int(top_k)),
+                ),
+            ).fetchall()
         scored: list[tuple[VectorRecord, float]] = []
-        for record in candidates:
-            score = _cosine_similarity(embedding, record.embedding)
-            scored.append((record, score))
-        scored.sort(key=lambda item: key_score_desc_id(item[1], item[0].id))
-        return scored[: max(1, int(top_k))]
+        for row in rows:
+            record = self._row_to_record(row)
+            distance = float(row["distance"] or 0.0)
+            scored.append((record, max(0.0, 1.0 - distance)))
+        return scored
 
     def prune_older_than(self, *, retention_days: int) -> int:
         cutoff = datetime.now(UTC) - timedelta(days=max(0, int(retention_days)))
@@ -137,7 +253,10 @@ class LocalVectorStore:
     @staticmethod
     def _row_to_record(row: sqlite3.Row) -> VectorRecord:
         tags = json.loads(str(row["tags"])) if row["tags"] else []
-        embedding = json.loads(str(row["embedding"])) if row["embedding"] else []
+        embedding_raw = (
+            row["embedding_json"] if "embedding_json" in row.keys() else row["embedding"]
+        )
+        embedding = json.loads(str(embedding_raw)) if embedding_raw else []
         metadata = json.loads(str(row["metadata"])) if row["metadata"] else {}
         return VectorRecord(
             id=str(row["id"]),
@@ -221,14 +340,3 @@ class TurboPufferVectorStore:
                     continue
                 break
         raise RuntimeError(f"TurboPuffer request failed: {last_error}") from last_error
-
-
-def _cosine_similarity(left: list[float], right: list[float]) -> float:
-    if not left or not right or len(left) != len(right):
-        return 0.0
-    dot = sum(a * b for a, b in zip(left, right, strict=False))
-    left_norm = math.sqrt(sum(value * value for value in left))
-    right_norm = math.sqrt(sum(value * value for value in right))
-    if left_norm == 0.0 or right_norm == 0.0:
-        return 0.0
-    return dot / (left_norm * right_norm)

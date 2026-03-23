@@ -15,6 +15,7 @@ from agent_recall.cli.tui.ui.modals.session_run import SessionRunModal
 from agent_recall.cli.tui.ui.modals.settings import SettingsModal
 from agent_recall.cli.tui.ui.modals.setup import SetupModal
 from agent_recall.cli.tui.ui.modals.theme_picker import ThemePickerModal
+from agent_recall.cli.tui.ui.modals.vector_memory_step import VectorMemoryStepModal
 
 __all__ = [
     "CodingAgentStepModal",
@@ -32,4 +33,5 @@ __all__ = [
     "SettingsModal",
     "SetupModal",
     "ThemePickerModal",
+    "VectorMemoryStepModal",
 ]

@@ -278,6 +278,7 @@ class MemoryTurboPufferConfig(BaseModel):
 class MemoryConfig(BaseModel):
     """Feature flags and settings for pluggable memory backends."""
 
+    vector_enabled: bool = False
     mode: Literal["markdown", "hybrid", "vector_primary"] = "markdown"
     vector_backend: Literal["local", "turbopuffer"] = "local"
     embedding_provider: Literal["local", "external"] = "local"
@@ -285,6 +286,10 @@ class MemoryConfig(BaseModel):
     fusion_semantic_weight: float = Field(default=0.6, ge=0.0, le=1.0)
     feedback_weight: float = Field(default=0.2, ge=0.0, le=1.0)
     migration_batch_size: int = Field(default=100, ge=1, le=10_000)
+    local_model_name: str = "all-MiniLM-L6-v2"
+    local_model_cache_dir: str | None = None
+    local_model_auto_download: bool = True
+    auto_sync_local_vectors: bool = True
     local_model_path: str | None = None
     external_embedding_base_url: str | None = None
     external_embedding_api_key_env: str = "OPENAI_API_KEY"
